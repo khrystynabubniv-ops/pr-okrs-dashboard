@@ -1,17 +1,41 @@
 import { DIRECTIONS, MONTHS } from '../constants'
 import { PERSONAL_BRANDS_FOLLOWERS } from '../data/personalBrandsFollowers'
-import { getProgress, parseMetricNumber } from './api'
+import { parseMetricNumber } from './api'
 
 export function progressSummary(goals, selectedMonth) {
-  const total = goals.length
-  const progressValues = goals.map(getProgress)
-  const average = averageProgress(progressValues)
   const expected = expectedProgress(selectedMonth)
-  const updated = goals.filter((goal) => hasValueForMonth(goal, selectedMonth)).length
-  const onTrack = goals.filter((goal) => getProgress(goal) >= expected).length
-  const completed = goals.filter((goal) => getProgress(goal) >= 100).length
+  const measurableGoals = goals.filter(isMeasurableGoal)
+  const measuredGoals = measurableGoals.filter((goal) =>
+    hasAnyValueUntilMonth(goal, selectedMonth),
+  )
+  const progressValues = measuredGoals.map((goal) =>
+    getGoalProgressForMonth(goal, selectedMonth),
+  )
+  const average = averageProgress(progressValues)
+  const updated = measurableGoals.filter((goal) =>
+    hasValueForMonth(goal, selectedMonth),
+  ).length
+  const onTrack = measuredGoals.filter(
+    (goal) => getGoalProgressForMonth(goal, selectedMonth) >= expected - 5,
+  ).length
+  const atRisk = measuredGoals.length - onTrack
+  const missingSelected = measurableGoals.length - updated
+  const completed = measuredGoals.filter(
+    (goal) => getGoalProgressForMonth(goal, selectedMonth) >= 100,
+  ).length
 
-  return { total, average, expected, updated, onTrack, completed }
+  return {
+    total: goals.length,
+    measurable: measurableGoals.length,
+    measured: measuredGoals.length,
+    average,
+    expected,
+    updated,
+    onTrack,
+    atRisk,
+    missingSelected,
+    completed,
+  }
 }
 
 export function directionProgressSummary(goals, selectedMonth) {
@@ -22,6 +46,64 @@ export function directionProgressSummary(goals, selectedMonth) {
       ...progressSummary(directionGoals, selectedMonth),
     }
   })
+}
+
+export function executiveSummary({ goals, focus, events, coverage, selectedMonth }) {
+  const kpi = progressSummary(goals, selectedMonth)
+  const focusTotal = focus.length
+  const focusDone = focus.filter((entry) => entry.achieved).length
+  const focusOpen = Math.max(0, focusTotal - focusDone)
+  const totalLeads = events.reduce(
+    (sum, event) => sum + Number(event.contacts || 0),
+    0,
+  )
+  const ownerEvents = events.filter((event) => event.role === 'Owner').length
+  const eventsWithMetrics = events.filter((event) => event.metricsMatched).length
+  const eventMetricReadiness = events.length
+    ? Math.round((eventsWithMetrics / events.length) * 100)
+    : 0
+  const mentionsTotal = (coverage.mentions || []).reduce(
+    (sum, item) => sum + Number(item.count || 0),
+    0,
+  )
+  const positiveSentiment = (coverage.sentiment || []).find(
+    (item) => String(item.name || '').toLowerCase() === 'позитив',
+  )
+  const sentimentTotal = (coverage.sentiment || []).reduce(
+    (sum, item) => sum + Number(item.value || 0),
+    0,
+  )
+  const positiveShare =
+    sentimentTotal && positiveSentiment
+      ? Math.round((Number(positiveSentiment.value || 0) / sentimentTotal) * 100)
+      : 0
+
+  const kpiReadiness = kpi.measurable
+    ? Math.round((kpi.updated / kpi.measurable) * 100)
+    : 0
+  const focusReadiness = focusTotal ? 100 : 0
+  const coverageReadiness = mentionsTotal ? 100 : 0
+  const readiness = Math.round(
+    kpiReadiness * 0.4 +
+      focusReadiness * 0.25 +
+      eventMetricReadiness * 0.2 +
+      coverageReadiness * 0.15,
+  )
+
+  return {
+    readiness,
+    kpi,
+    focusTotal,
+    focusDone,
+    focusOpen,
+    totalLeads,
+    ownerEvents,
+    eventsTotal: events.length,
+    eventsWithMetrics,
+    mentionsTotal,
+    positiveShare,
+    coverageSource: coverage.source || 'mock',
+  }
 }
 
 export function buildMonthlySeries(goals, keywords, selectedMonth) {
@@ -137,6 +219,55 @@ function latestPointBeforeMonth(values, month) {
   return previousMonth
     ? { month: previousMonth, value: parseMetricNumber(values[previousMonth]) }
     : null
+}
+
+function isMeasurableGoal(goal) {
+  if (goal.metricType === 'Якісна') return true
+  return parseMetricNumber(goal.target) > 0
+}
+
+function hasAnyValueUntilMonth(goal, selectedMonth) {
+  if (String(goal.currentValue ?? '').trim()) return true
+
+  const selectedIndex = MONTHS.indexOf(selectedMonth)
+  const monthsToCheck = MONTHS.slice(0, selectedIndex + 1)
+  return monthsToCheck.some((month) => String(goal.values?.[month] ?? '').trim())
+}
+
+function getGoalProgressForMonth(goal, selectedMonth) {
+  if (goal.metricType === 'Якісна') {
+    const value = latestGoalValueUntilMonth(goal, selectedMonth)
+    return ['так', 'yes', 'done', 'true', 'виконано'].includes(
+      String(value || '').trim().toLowerCase(),
+    )
+      ? 100
+      : 0
+  }
+
+  const target = parseMetricNumber(goal.target)
+  const current =
+    goal.metricType === 'Накопичувальна'
+      ? sumGoalValuesUntilMonth(goal, selectedMonth)
+      : parseMetricNumber(latestGoalValueUntilMonth(goal, selectedMonth))
+
+  if (!target) return 0
+  return Math.max(0, Math.min(100, Math.round((current / target) * 100)))
+}
+
+function latestGoalValueUntilMonth(goal, selectedMonth) {
+  const selectedIndex = MONTHS.indexOf(selectedMonth)
+  const monthsToCheck = MONTHS.slice(0, selectedIndex + 1).reverse()
+  const month = monthsToCheck.find((item) => String(goal.values?.[item] ?? '').trim())
+
+  return month ? goal.values[month] : goal.currentValue
+}
+
+function sumGoalValuesUntilMonth(goal, selectedMonth) {
+  const selectedIndex = MONTHS.indexOf(selectedMonth)
+  return MONTHS.slice(0, selectedIndex + 1).reduce(
+    (sum, month) => sum + parseMetricNumber(goal.values?.[month]),
+    0,
+  )
 }
 
 function averageProgress(values) {

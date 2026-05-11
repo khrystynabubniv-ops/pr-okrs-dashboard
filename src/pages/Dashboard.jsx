@@ -25,9 +25,9 @@ import { apiRequest } from '../lib/api'
 import {
   buildMonthlySeries,
   directionProgressSummary,
+  executiveSummary,
   hasSeriesData,
   personalBrandBars,
-  progressSummary,
 } from '../lib/dashboard'
 
 export function DashboardPage({ selectedMonth }) {
@@ -81,9 +81,16 @@ export function DashboardPage({ selectedMonth }) {
     [dashboardQuery.data],
   )
 
-  const summary = useMemo(
-    () => progressSummary(goals, selectedMonth),
-    [goals, selectedMonth],
+  const executive = useMemo(
+    () =>
+      executiveSummary({
+        goals,
+        focus,
+        events,
+        coverage,
+        selectedMonth,
+      }),
+    [coverage, events, focus, goals, selectedMonth],
   )
   const directionStats = useMemo(
     () => directionProgressSummary(goals, selectedMonth),
@@ -172,34 +179,46 @@ export function DashboardPage({ selectedMonth }) {
 
       {!dashboardQuery.loading && !dashboardQuery.error ? (
         <>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-7">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
             <MetricCard
-              label="Середній прогрес KPI"
-              value={`${summary.average}%`}
-              detail={`орієнтир на місяць: ${summary.expected}%`}
+              label="Готовність Board Report"
+              value={`${executive.readiness}%`}
+              detail={`KPI ${executive.kpi.updated}/${executive.kpi.measurable} · івенти з метриками ${executive.eventsWithMetrics}/${executive.eventsTotal}`}
+              tone={executive.readiness >= 80 ? 'green' : executive.readiness >= 50 ? 'orange' : 'rose'}
+            />
+            <MetricCard
+              label="KPI на плані"
+              value={`${executive.kpi.onTrack}/${executive.kpi.measured}`}
+              detail={`орієнтир ${executive.kpi.expected}% · ризик ${executive.kpi.atRisk}`}
+              tone={executive.kpi.atRisk ? 'orange' : 'green'}
+            />
+            <MetricCard
+              label="Monthly Focus"
+              value={`${executive.focusDone}/${executive.focusTotal}`}
+              detail={`${executive.focusOpen} потребують уваги`}
+              tone={executive.focusOpen ? 'orange' : 'green'}
+            />
+            <MetricCard
+              label="Івенти та ліди"
+              value={`${executive.eventsTotal} / ${executive.totalLeads}`}
+              detail={`${executive.ownerEvents} власних · ліди з Activities`}
               tone="accent"
             />
             <MetricCard
-              label="На треку"
-              value={`${summary.onTrack}/${summary.total}`}
-              detail={`оновлено ${summary.updated}/${summary.total} у місяці`}
-              tone="green"
+              label="Медіа visibility"
+              value={executive.mentionsTotal}
+              detail={`згадки · позитив ${executive.positiveShare}%`}
+              tone="violet"
             />
-            {directionStats.map((item) => (
-              <div
-                key={item.direction}
-                className="rounded-lg border border-slate-200 bg-white px-4 py-4"
-              >
-                <DirectionBadge direction={item.direction} />
-                <p className="mt-3 text-2xl font-semibold text-slate-950">
-                  {item.average}%
-                </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  {item.onTrack}/{item.total} на треку · оновлено {item.updated}
-                </p>
-              </div>
-            ))}
+            <MetricCard
+              label="Data gaps"
+              value={executive.kpi.missingSelected}
+              detail={`KPI без значення у ${selectedMonth.split(' ')[0]}`}
+              tone={executive.kpi.missingSelected ? 'rose' : 'green'}
+            />
           </section>
+
+          <DirectionHealthPanel items={directionStats} selectedMonth={selectedMonth} />
 
           <section className="grid gap-4 xl:grid-cols-2">
             <ChartPanel title="Instagram підписники помісячно">
@@ -515,6 +534,73 @@ function MonthlyTooltip({ active, payload, metricLabel, label }) {
 function formatChartNumber(value) {
   if (value === null || value === undefined) return '—'
   return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(value)
+}
+
+function DirectionHealthPanel({ items, selectedMonth }) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white">
+      <div className="flex flex-col gap-1 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-slate-950">
+            KPI health по напрямах
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Зріз для управлінського апдейту: план, ризики і готовність даних за {selectedMonth}.
+          </p>
+        </div>
+      </div>
+      <div className="overflow-x-auto p-5">
+        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+          <thead>
+            <tr className="text-xs uppercase tracking-wide text-slate-500">
+              <th className="px-3 py-3 font-semibold">Напрямок</th>
+              <th className="px-3 py-3 font-semibold">На плані</th>
+              <th className="px-3 py-3 font-semibold">Ризик</th>
+              <th className="px-3 py-3 font-semibold">Дані за місяць</th>
+              <th className="px-3 py-3 font-semibold">Середній прогрес</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {items.map((item) => (
+              <tr key={item.direction}>
+                <td className="px-3 py-4">
+                  <DirectionBadge direction={item.direction} />
+                </td>
+                <td className="whitespace-nowrap px-3 py-4 font-medium text-slate-950">
+                  {item.measured ? `${item.onTrack}/${item.measured}` : '—'}
+                </td>
+                <td className="whitespace-nowrap px-3 py-4">
+                  <span
+                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${
+                      item.atRisk
+                        ? 'bg-orange-50 text-orange-700 ring-orange-200'
+                        : 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                    }`}
+                  >
+                    {item.atRisk ? `${item.atRisk} у ризику` : 'без критичних ризиків'}
+                  </span>
+                </td>
+                <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                  {item.updated}/{item.measurable} KPI оновлено
+                </td>
+                <td className="min-w-48 px-3 py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-2 w-28 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-[#4361ee]"
+                        style={{ width: `${Math.min(100, item.average)}%` }}
+                      />
+                    </div>
+                    <span className="font-medium text-slate-950">{item.average}%</span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
 }
 
 function ChartPanel({ title, children }) {

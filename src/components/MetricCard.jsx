@@ -5,6 +5,7 @@ export function MetricCard({ label, value, detail, tone = 'default' }) {
     green: 'border-emerald-200 bg-emerald-50',
     orange: 'border-orange-200 bg-orange-50',
     violet: 'border-violet-200 bg-violet-50',
+    rose: 'border-rose-200 bg-rose-50',
   }
 
   return (
