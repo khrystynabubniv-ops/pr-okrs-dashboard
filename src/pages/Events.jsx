@@ -20,9 +20,7 @@ export function EventsPage({ selectedMonth }) {
   )
   const breakdown = EVENT_TYPES.map((type) => ({
     type,
-    count: events.filter(
-      (event) => String(event.type || '').toLowerCase() === type.toLowerCase(),
-    ).length,
+    count: events.filter((event) => eventMatchesType(event.type, type)).length,
   }))
 
   return (
@@ -145,4 +143,13 @@ export function EventsPage({ selectedMonth }) {
       ) : null}
     </div>
   )
+}
+
+function eventMatchesType(eventType, targetType) {
+  const value = String(eventType || '').toLowerCase()
+  const target = targetType.toLowerCase()
+
+  if (target === 'мітап') return value.includes('мітап')
+  if (target === 'ярмарок вакансій') return value.includes('ярмарк')
+  return value.includes(target)
 }

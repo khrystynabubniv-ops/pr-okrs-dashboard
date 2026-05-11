@@ -27,6 +27,21 @@ const MONTHS = [
   'Грудень 2026',
 ]
 
+const MONTH_PROPERTY_NAMES = {
+  'Січень 2026': 'Січень',
+  'Лютий 2026': 'Лютий',
+  'Березень 2026': 'Березень',
+  'Квітень 2026': 'Квітень',
+  'Травень 2026': 'Травень',
+  'Червень 2026': 'Червень',
+  'Липень 2026': 'Липень',
+  'Серпень 2026': 'Серпень',
+  'Вересень 2026': 'Вересень',
+  'Жовтень 2026': 'Жовтень',
+  'Листопад 2026': 'Листопад',
+  'Грудень 2026': 'Грудень',
+}
+
 const DIRECTIONS = [
   'Employer Brand',
   'SMM',
@@ -91,6 +106,11 @@ function propertyText(property) {
   if (property.type === 'select') return property.select?.name || ''
   if (property.type === 'multi_select') {
     return property.multi_select.map((item) => item.name).join(', ')
+  }
+  if (property.type === 'people') {
+    return property.people
+      .map((person) => person.name || person.person?.email || person.id)
+      .join(', ')
   }
   if (property.type === 'number') return property.number ?? ''
   if (property.type === 'date') return property.date?.start || ''
@@ -220,9 +240,18 @@ function normalizeGoal(page) {
   const direction = propertyText(
     getProperty(properties, ['Direction', 'Напрямок', 'Team', 'Команда']),
   )
+  const targetText = propertyText(
+    getProperty(properties, [
+      'AnnualTarget',
+      'Annual Target',
+      'Річна ціль',
+      'Ціль 100%',
+      'Target',
+    ]),
+  )
   const metricType =
     propertyText(getProperty(properties, ['MetricType', 'Metric Type', 'Тип метрики'])) ||
-    'Кількісна'
+    inferMetricType(targetText)
   const target = propertyNumber(
     getProperty(properties, [
       'AnnualTarget',
@@ -232,6 +261,17 @@ function normalizeGoal(page) {
       'Target',
     ]),
   )
+  const monthlyValues = Object.fromEntries(
+    Object.entries(MONTH_PROPERTY_NAMES).map(([month, propertyName]) => [
+      month,
+      propertyText(properties[propertyName]),
+    ]),
+  )
+  const jsonValues = parseJsonProperty(
+    getProperty(properties, ['MetricValues', 'Metric Values', 'Значення метрик']),
+    {},
+  )
+  const values = { ...monthlyValues, ...jsonValues }
   const currentValue =
     propertyText(getProperty(properties, ['CurrentStatus', 'Current Status'])) ||
     propertyNumber(
@@ -241,11 +281,8 @@ function normalizeGoal(page) {
         'Поточне значення',
         'Current',
       ]),
-    )
-  const values = parseJsonProperty(
-    getProperty(properties, ['MetricValues', 'Metric Values', 'Значення метрик']),
-    {},
-  )
+    ) ||
+    latestMonthlyValue(values)
 
   return {
     id: page.id,
@@ -262,9 +299,28 @@ function normalizeGoal(page) {
     ),
     dataSource: propertyText(getProperty(properties, ['DataSource', 'Джерело даних'])),
     framework: propertyText(getProperty(properties, ['AMEC', 'AMEC Framework'])),
-    owner: propertyText(getProperty(properties, ['Owner', 'Власник'])),
+    owner: propertyText(getProperty(properties, ['Owner', 'Власник', 'Менеджер'])),
     values,
   }
+}
+
+function inferMetricType(targetText) {
+  const value = String(targetText || '').trim().toLowerCase()
+  if (!value) return 'Кількісна'
+  if (value.includes('%')) return 'Відсоткова'
+  if (['так', 'ні', 'yes', 'no', 'done'].some((token) => value.includes(token))) {
+    return 'Якісна'
+  }
+  return 'Кількісна'
+}
+
+function latestMonthlyValue(values) {
+  const latest = [...MONTHS]
+    .reverse()
+    .map((month) => values[month])
+    .find((value) => String(value || '').trim())
+
+  return latest || 0
 }
 
 function normalizeFocus(page) {
@@ -287,15 +343,25 @@ function normalizeFocus(page) {
 
 function normalizeEvent(page) {
   const properties = page.properties || {}
-  const rawDate = propertyDate(getProperty(properties, ['Date', 'Дата', 'Event Date']))
+  const rawDate = propertyDate(
+    getProperty(properties, ['Date', 'Дата', 'Event Date', 'Таймінг']),
+  )
   const date = rawDate ? new Date(rawDate) : null
 
   return {
     id: page.id,
     title:
-      propertyText(getProperty(properties, ['Name', 'Назва', 'Event', 'Title'])) ||
+      propertyText(
+        getProperty(properties, [
+          'Name',
+          'Назва',
+          'Назва події ',
+          'Event',
+          'Title',
+        ]),
+      ) ||
       'Без назви',
-    type: propertyText(getProperty(properties, ['Type', 'Тип'])),
+    type: propertyText(getProperty(properties, ['Type', 'Тип', 'Тип івенту '])),
     date:
       date && !Number.isNaN(date.getTime())
         ? date.toLocaleDateString('uk-UA', {
@@ -305,17 +371,22 @@ function normalizeEvent(page) {
           })
         : rawDate,
     rawDate,
-    role: propertyText(getProperty(properties, ['Role', 'Роль'])) || 'Visitor',
-    goal: propertyText(getProperty(properties, ['Goal', 'Ціль'])),
+    role:
+      propertyText(getProperty(properties, ['Role', 'Роль', 'Хто ми тут?'])) ||
+      'Visitor',
+    goal: propertyText(getProperty(properties, ['Goal', 'Ціль', 'Ціль '])),
     contacts: propertyNumber(
       getProperty(properties, [
         'Contacts',
         'Кількість контактів',
         'Contact count',
         'Контакти',
+        'Кількість рекрутерів',
       ]),
     ),
-    audience: propertyText(getProperty(properties, ['Audience', 'Аудиторія'])),
+    audience: propertyText(
+      getProperty(properties, ['Audience', 'Аудиторія', 'Цільова аудиторія']),
+    ),
   }
 }
 
@@ -397,18 +468,15 @@ app.post('/api/notion/goals', asyncHandler(async (request, response) => {
   const page = await notion.pages.create({
     parent: await dataSourceParent(databaseId),
     properties: {
-      Name: titleProperty(goal.title),
-      Direction: selectProperty(goal.direction),
-      MetricType: selectProperty(goal.metricType),
-      AnnualTarget: numberProperty(goal.target),
-      QualitativeCriterion: richTextProperty(goal.criterion),
-      MeasurementPeriod: selectProperty(goal.measurementPeriod),
-      DataSource: richTextProperty(goal.dataSource),
-      AMEC: selectProperty(goal.framework),
-      Owner: richTextProperty(goal.owner),
-      CurrentValue: numberProperty(0),
-      CurrentStatus: richTextProperty(''),
-      MetricValues: richTextProperty('{}'),
+      Ціль: titleProperty(goal.title),
+      Напрямок: selectProperty(goal.direction),
+      'Річна ціль': richTextProperty(
+        goal.metricType === 'Якісна' ? goal.criterion : goal.target,
+      ),
+      'Період заміру': selectProperty(goal.measurementPeriod),
+      'Джерело даних': richTextProperty(goal.dataSource),
+      'AMEC Framework': selectProperty(goal.framework),
+      Менеджер: richTextProperty(goal.owner),
     },
   })
 
@@ -423,15 +491,27 @@ app.patch('/api/notion/goals/:id', asyncHandler(async (request, response) => {
   const values = { ...(goal.values || {}), [month]: value }
   const numericValue = Number(value)
   const isNumeric = !Number.isNaN(numericValue)
+  const monthProperty = MONTH_PROPERTY_NAMES[month]
 
-  const properties = {
-    MetricValues: richTextProperty(JSON.stringify(values)),
+  const properties = {}
+
+  if (monthProperty && page.properties?.[monthProperty]) {
+    properties[monthProperty] = richTextProperty(value)
+  } else if (page.properties?.MetricValues) {
+    properties.MetricValues = richTextProperty(JSON.stringify(values))
   }
 
-  if (isNumeric) {
+  if (isNumeric && page.properties?.CurrentValue) {
     properties.CurrentValue = numberProperty(numericValue)
-  } else {
+  } else if (!isNumeric && page.properties?.CurrentStatus) {
     properties.CurrentStatus = richTextProperty(value)
+  }
+
+  if (!Object.keys(properties).length) {
+    throw createHttpError(
+      400,
+      'Не знайшов колонку для оновлення значення. Перевірте, що в KPI database є місячні колонки або MetricValues.',
+    )
   }
 
   const updated = await notion.pages.update({
