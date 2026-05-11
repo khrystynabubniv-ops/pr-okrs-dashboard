@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, Save, SlidersHorizontal } from 'lucide-react'
+import { Plus, Save, Search, SlidersHorizontal } from 'lucide-react'
 import {
   AMEC_OPTIONS,
   DIRECTIONS,
@@ -29,6 +29,8 @@ const initialGoal = {
 export function GoalsPage() {
   const [form, setForm] = useState(initialGoal)
   const [directionFilter, setDirectionFilter] = useState('Усі')
+  const [typeFilter, setTypeFilter] = useState('Усі')
+  const [searchQuery, setSearchQuery] = useState('')
   const [saving, setSaving] = useState(false)
   const [mutationError, setMutationError] = useState(null)
   const [modalGoal, setModalGoal] = useState(null)
@@ -44,9 +46,21 @@ export function GoalsPage() {
 
   const goals = useMemo(() => data?.goals || [], [data])
   const visibleGoals = useMemo(() => {
-    if (directionFilter === 'Усі') return goals
-    return goals.filter((goal) => goal.direction === directionFilter)
-  }, [directionFilter, goals])
+    const query = searchQuery.trim().toLowerCase()
+
+    return goals.filter((goal) => {
+      const matchesDirection =
+        directionFilter === 'Усі' || goal.direction === directionFilter
+      const matchesType = typeFilter === 'Усі' || goal.metricType === typeFilter
+      const matchesSearch =
+        !query ||
+        `${goal.title} ${goal.owner || ''} ${goal.dataSource || ''}`
+          .toLowerCase()
+          .includes(query)
+
+      return matchesDirection && matchesType && matchesSearch
+    })
+  }, [directionFilter, goals, searchQuery, typeFilter])
 
   const needsTarget = form.metricType !== 'Якісна'
 
@@ -230,29 +244,61 @@ export function GoalsPage() {
         </div>
       </form>
 
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {metricTypeHelp.map((item) => (
+          <div key={item.title} className="rounded-lg border border-slate-200 bg-white px-4 py-4">
+            <p className="text-sm font-semibold text-slate-950">{item.title}</p>
+            <p className="mt-1 text-sm leading-6 text-slate-500">{item.text}</p>
+          </div>
+        ))}
+      </section>
+
       {mutationError ? <ErrorState error={mutationError} /> : null}
 
       <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <h2 className="text-base font-semibold text-slate-950">Всі цілі</h2>
             <p className="mt-1 text-sm text-slate-500">
               Поточні значення і прогрес до річної цілі.
             </p>
           </div>
-          <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
-            <SlidersHorizontal className="h-4 w-4" />
-            <select
-              value={directionFilter}
-              onChange={(event) => setDirectionFilter(event.target.value)}
-              className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-[#4361ee] focus:ring-2 focus:ring-blue-100"
-            >
-              <option>Усі</option>
-              {DIRECTIONS.map((direction) => (
-                <option key={direction}>{direction}</option>
-              ))}
-            </select>
-          </label>
+          <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_180px]">
+            <label className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Пошук по цілі"
+                className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-[#4361ee] focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
+              <SlidersHorizontal className="h-4 w-4" />
+              <select
+                value={directionFilter}
+                onChange={(event) => setDirectionFilter(event.target.value)}
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-[#4361ee] focus:ring-2 focus:ring-blue-100"
+              >
+                <option>Усі</option>
+                {DIRECTIONS.map((direction) => (
+                  <option key={direction}>{direction}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm font-medium text-slate-600">
+              <select
+                value={typeFilter}
+                onChange={(event) => setTypeFilter(event.target.value)}
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-[#4361ee] focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="Усі">Усі типи</option>
+                {METRIC_TYPES.map((type) => (
+                  <option key={type}>{type}</option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
 
         <div className="p-5">
@@ -393,3 +439,22 @@ export function GoalsPage() {
     </div>
   )
 }
+
+const metricTypeHelp = [
+  {
+    title: 'Кількісна',
+    text: 'Звичайне число: наприклад 30 публікацій, 15 івентів або 500 лідів.',
+  },
+  {
+    title: 'Відсоткова',
+    text: 'Ціль у відсотках: наприклад 47% brand awareness або 80% виконання.',
+  },
+  {
+    title: 'Якісна',
+    text: 'Так/ні або критерій готовності: наприклад “гайд затверджено”.',
+  },
+  {
+    title: 'Накопичувальна',
+    text: 'Сума за місяці до річної цілі: наприклад контакти чи згадки за рік.',
+  },
+]

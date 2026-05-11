@@ -1,54 +1,108 @@
 import { DIRECTIONS, MONTHS } from '../constants'
-import { getProgress } from './api'
+import { getProgress, parseMetricNumber } from './api'
 
-const sampleSeries = {
-  instagram: [12800, 13240, 13920, 14480, 15140, 0, 0, 0, 0, 0, 0, 0],
-  media: [18, 24, 31, 29, 36, 0, 0, 0, 0, 0, 0, 0],
-  traffic: [9200, 9800, 10340, 11200, 12150, 0, 0, 0, 0, 0, 0, 0],
-}
-
-export function countGoals(goals) {
+export function progressSummary(goals, selectedMonth) {
   const total = goals.length
-  const done = goals.filter((goal) => getProgress(goal) >= 100).length
-  return { done, total, percent: total ? Math.round((done / total) * 100) : 0 }
+  const progressValues = goals.map(getProgress)
+  const average = averageProgress(progressValues)
+  const expected = expectedProgress(selectedMonth)
+  const updated = goals.filter((goal) => hasValueForMonth(goal, selectedMonth)).length
+  const onTrack = goals.filter((goal) => getProgress(goal) >= expected).length
+  const completed = goals.filter((goal) => getProgress(goal) >= 100).length
+
+  return { total, average, expected, updated, onTrack, completed }
 }
 
-export function directionSummary(goals) {
+export function directionProgressSummary(goals, selectedMonth) {
   return DIRECTIONS.map((direction) => {
     const directionGoals = goals.filter((goal) => goal.direction === direction)
-    const summary = countGoals(directionGoals)
-    return { direction, ...summary }
+    return {
+      direction,
+      ...progressSummary(directionGoals, selectedMonth),
+    }
   })
 }
 
-export function buildMonthlySeries(goals, keyword, fallbackKey) {
-  const normalizedKeyword = keyword.toLowerCase()
-  const goal = goals.find((item) =>
-    `${item.title} ${item.dataSource || ''}`.toLowerCase().includes(normalizedKeyword),
+export function buildMonthlySeries(goals, keywords, selectedMonth) {
+  const normalizedKeywords = (Array.isArray(keywords) ? keywords : [keywords]).map(
+    (keyword) => keyword.toLowerCase(),
   )
-  const fallback = sampleSeries[fallbackKey] || []
+  const goal = goals.find((item) => {
+    const haystack = `${item.title} ${item.dataSource || ''}`.toLowerCase()
+    return normalizedKeywords.some((keyword) => haystack.includes(keyword))
+  })
+  const lastIndex = Math.max(0, MONTHS.indexOf(selectedMonth))
+  let previousValue = null
 
-  return MONTHS.map((month, index) => ({
-    month: month.split(' ')[0],
-    value: Number(goal?.values?.[month] ?? fallback[index] ?? 0),
-  })).filter((item, index) => index <= 4 || item.value > 0)
+  return MONTHS.slice(0, lastIndex + 1).map((month) => {
+    const rawValue = goal?.values?.[month]
+    const hasValue = String(rawValue ?? '').trim() !== ''
+    const value = hasValue ? parseMetricNumber(rawValue) : null
+    const delta = hasValue && previousValue !== null ? value - previousValue : null
+
+    if (hasValue) previousValue = value
+
+    return {
+      month: month.split(' ')[0],
+      value,
+      delta,
+      deltaLabel:
+        delta === null ? '' : `${delta > 0 ? '+' : ''}${formatDeltaNumber(delta)}`,
+    }
+  })
 }
 
-export function personalBrandBars(goals) {
-  const items = goals
+export function hasSeriesData(series) {
+  return series.some((item) => item.value !== null && item.value !== undefined)
+}
+
+export function personalBrandBars(goals, selectedMonth) {
+  const selectedIndex = Math.max(0, MONTHS.indexOf(selectedMonth))
+  const previousMonth = selectedIndex > 0 ? MONTHS[selectedIndex - 1] : null
+
+  return goals
     .filter((goal) => goal.direction === 'Personal Brands')
-    .slice(0, 5)
-    .map((goal) => ({
-      name: goal.title.length > 28 ? `${goal.title.slice(0, 28)}...` : goal.title,
-      current: Number(goal.currentValue || 0),
-      target: Number(goal.target || 0),
-    }))
+    .slice(0, 8)
+    .map((goal) => {
+      const currentRaw = goal.values?.[selectedMonth]
+      const hasCurrent = String(currentRaw ?? '').trim() !== ''
+      const current = hasCurrent ? parseMetricNumber(currentRaw) : null
+      const previous = previousMonth ? parseMetricNumber(goal.values?.[previousMonth]) : null
+      const target = parseMetricNumber(goal.target)
+      const progress =
+        target && current !== null ? Math.min(100, Math.round((current / target) * 100)) : 0
+      const delta = current !== null && previous !== null ? current - previous : null
 
-  if (items.length) return items
+      return {
+        id: goal.id,
+        name: goal.title,
+        current,
+        target,
+        progress,
+        delta,
+        deltaLabel:
+          delta === null ? '' : `${delta > 0 ? '+' : ''}${formatDeltaNumber(delta)}`,
+      }
+    })
+}
 
-  return [
-    { name: 'CEO LinkedIn', current: 8200, target: 12000 },
-    { name: 'Tech Leads', current: 5400, target: 8000 },
-    { name: 'Recruiting voices', current: 3100, target: 5000 },
-  ]
+function averageProgress(values) {
+  if (!values.length) return 0
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+}
+
+function expectedProgress(selectedMonth) {
+  const index = MONTHS.indexOf(selectedMonth)
+  if (index < 0) return 0
+  return Math.round(((index + 1) / MONTHS.length) * 100)
+}
+
+function hasValueForMonth(goal, selectedMonth) {
+  return String(goal?.values?.[selectedMonth] ?? '').trim() !== ''
+}
+
+function formatDeltaNumber(value) {
+  return new Intl.NumberFormat('uk-UA', {
+    maximumFractionDigits: 0,
+  }).format(value)
 }

@@ -31,11 +31,25 @@ export function getProgress(goal) {
     return ['так', 'yes', 'done', 'true', 'виконано'].includes(current) ? 100 : 0
   }
 
-  const target = Number(goal.target || 0)
-  const current = Number(goal.currentValue || 0)
+  const target = parseMetricNumber(goal.target)
+  const current = parseMetricNumber(goal.currentValue)
 
   if (!target || Number.isNaN(target)) return 0
   return Math.max(0, Math.min(100, Math.round((current / target) * 100)))
+}
+
+export function parseMetricNumber(value) {
+  if (typeof value === 'number') return value
+
+  const text = String(value || '').trim()
+  if (!text) return 0
+
+  const match = text.match(/-?\d[\d\s\u00a0]*(?:[.,]\d+)?/)
+  if (!match) return 0
+
+  const normalized = match[0].replace(/[\s\u00a0]/g, '').replace(',', '.')
+  const number = Number(normalized)
+  return Number.isNaN(number) ? 0 : number
 }
 
 export function formatMetricValue(goal) {

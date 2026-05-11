@@ -42,17 +42,23 @@ const MONTH_PROPERTY_NAMES = {
   'Грудень 2026': 'Грудень',
 }
 
-const DIRECTIONS = [
-  'Employer Brand',
-  'SMM',
-  'PR',
-  'Personal Brands',
-  'Brand Design',
+const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
+
+const EVENT_ACTIVITY_TYPES = [
+  'Стажування',
+  'Партнерка з університетом',
+  'Партнерка із університетом',
+  'Ярмарка вакансій',
+  'Хакатон',
+  'Зовнішній освітній проєкт',
+  'Внутрішній івент',
+  'Конференція',
 ]
 
 let focusDatabaseId = process.env.NOTION_FOCUS_DB || ''
 let focusDatabasePromise = null
 const dataSourceCache = new Map()
+const dataSourceSchemaCache = new Map()
 
 app.use(cors())
 app.use(express.json({ limit: '1mb' }))
@@ -125,14 +131,52 @@ function propertyText(property) {
 function propertyNumber(property) {
   if (!property) return 0
   if (property.type === 'number') return property.number || 0
-  const value = Number(propertyText(property))
+  const value = parseMetricNumber(propertyText(property))
   return Number.isNaN(value) ? 0 : value
+}
+
+function parseMetricNumber(value) {
+  if (typeof value === 'number') return value
+
+  const text = String(value || '').trim()
+  if (!text) return 0
+
+  const match = text.match(/-?\d[\d\s\u00a0]*(?:[.,]\d+)?/)
+  if (!match) return 0
+
+  const normalized = match[0].replace(/[\s\u00a0]/g, '').replace(',', '.')
+  const number = Number(normalized)
+  return Number.isNaN(number) ? 0 : number
 }
 
 function propertyDate(property) {
   if (!property) return ''
   if (property.type === 'date') return property.date?.start || ''
   return propertyText(property)
+}
+
+function propertyMultiSelect(property) {
+  if (!property) return []
+  if (property.type === 'multi_select') {
+    return property.multi_select.map((item) => item.name)
+  }
+
+  const text = propertyText(property)
+  return text
+    ? text
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : []
+}
+
+function propertyCheckbox(property) {
+  if (!property) return false
+  if (property.type === 'checkbox') return Boolean(property.checkbox)
+
+  return ['так', 'yes', 'done', 'true', 'виконано'].includes(
+    String(propertyText(property)).trim().toLowerCase(),
+  )
 }
 
 function formulaValue(formula) {
@@ -169,6 +213,18 @@ function richTextProperty(value) {
 
 function selectProperty(value) {
   return value ? { select: { name: String(value) } } : { select: null }
+}
+
+function multiSelectProperty(values) {
+  const items = (Array.isArray(values) ? values : [values])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+
+  return { multi_select: items.map((name) => ({ name })) }
+}
+
+function checkboxProperty(value) {
+  return { checkbox: Boolean(value) }
 }
 
 function numberProperty(value) {
@@ -228,6 +284,21 @@ async function resolveDataSourceId(databaseId) {
   }
 }
 
+async function getDataSourceSchema(databaseId) {
+  if (dataSourceSchemaCache.has(databaseId)) {
+    return dataSourceSchemaCache.get(databaseId)
+  }
+
+  const notion = getNotion()
+  const dataSourceId = await resolveDataSourceId(databaseId)
+  const dataSource = await notion.dataSources.retrieve({
+    data_source_id: dataSourceId,
+  })
+  const schema = dataSource.properties || {}
+  dataSourceSchemaCache.set(databaseId, schema)
+  return schema
+}
+
 async function dataSourceParent(databaseId) {
   return { data_source_id: await resolveDataSourceId(databaseId) }
 }
@@ -272,7 +343,7 @@ function normalizeGoal(page) {
     {},
   )
   const values = { ...monthlyValues, ...jsonValues }
-  const currentValue =
+  const explicitCurrentValue =
     propertyText(getProperty(properties, ['CurrentStatus', 'Current Status'])) ||
     propertyNumber(
       getProperty(properties, [
@@ -281,8 +352,12 @@ function normalizeGoal(page) {
         'Поточне значення',
         'Current',
       ]),
-    ) ||
-    latestMonthlyValue(values)
+    )
+  const currentValue =
+    explicitCurrentValue ||
+    (metricType === 'Накопичувальна'
+      ? sumMonthlyValues(values)
+      : latestMonthlyValue(values))
 
   return {
     id: page.id,
@@ -323,13 +398,47 @@ function latestMonthlyValue(values) {
   return latest || 0
 }
 
+function sumMonthlyValues(values) {
+  return MONTHS.reduce((sum, month) => sum + parseMetricNumber(values[month]), 0)
+}
+
 function normalizeFocus(page) {
   const properties = page.properties || {}
+  const rawMetric = propertyText(
+    getProperty(properties, ['Metric', 'Метрика успіху', 'Criteria', 'Критерій']),
+  )
+  const metricMatch = rawMetric.match(/^\[(.+?)]\s*(.*)$/)
+  const months = propertyMultiSelect(getProperty(properties, ['Month', 'Місяць']))
+  const fallbackMonth = propertyText(getProperty(properties, ['Month', 'Місяць']))
+  const team = propertyText(
+    getProperty(properties, ['Team', 'Direction', 'Напрямок', 'Команда']),
+  )
+  const title =
+    propertyText(getProperty(properties, ['Name', 'Назва', 'Title'])) ||
+    `${fallbackMonth || months[0] || 'Місяць'} · ${team || 'Команда'}`
+  const achieved = propertyCheckbox(
+    getProperty(properties, ['Goal achieved', 'Виконано', 'Achieved', 'Done?']),
+  )
+  const comment = propertyText(
+    getProperty(properties, ['Comment', 'Коментар', 'Notes', 'Нотатки']),
+  )
 
   return {
     id: page.id,
-    month: propertyText(getProperty(properties, ['Month', 'Місяць'])),
-    direction: propertyText(getProperty(properties, ['Direction', 'Напрямок'])),
+    title,
+    name: title,
+    month: months[0] || fallbackMonth,
+    months: months.length ? months : fallbackMonth ? [fallbackMonth] : [],
+    team,
+    direction: team,
+    metricType:
+      propertyText(getProperty(properties, ['MetricType', 'Тип метрики'])) ||
+      metricMatch?.[1] ||
+      '',
+    metric: metricMatch?.[2] || rawMetric,
+    achieved,
+    comment,
+    person: propertyText(getProperty(properties, ['Person', 'Відповідальний'])),
     done: propertyText(getProperty(properties, ['Done', 'Що виконано'])),
     notDone: propertyText(getProperty(properties, ['NotDone', 'Що НЕ виконано'])),
     pains: propertyText(getProperty(properties, ['Pains', 'Болі'])),
@@ -344,9 +453,12 @@ function normalizeFocus(page) {
 function normalizeEvent(page) {
   const properties = page.properties || {}
   const rawDate = propertyDate(
-    getProperty(properties, ['Date', 'Дата', 'Event Date', 'Таймінг']),
+    getProperty(properties, ['Event date', 'Event Date', 'Date', 'Дата', 'Таймінг']),
   )
   const date = rawDate ? new Date(rawDate) : null
+  const type = propertyText(
+    getProperty(properties, ['EB Activity Type', 'Type', 'Тип', 'Тип івенту ']),
+  )
 
   return {
     id: page.id,
@@ -361,7 +473,7 @@ function normalizeEvent(page) {
         ]),
       ) ||
       'Без назви',
-    type: propertyText(getProperty(properties, ['Type', 'Тип', 'Тип івенту '])),
+    type,
     date:
       date && !Number.isNaN(date.getTime())
         ? date.toLocaleDateString('uk-UA', {
@@ -372,11 +484,12 @@ function normalizeEvent(page) {
         : rawDate,
     rawDate,
     role:
-      propertyText(getProperty(properties, ['Role', 'Роль', 'Хто ми тут?'])) ||
+      propertyText(getProperty(properties, ['EB Role', 'Role', 'Роль', 'Хто ми тут?'])) ||
       'Visitor',
-    goal: propertyText(getProperty(properties, ['Goal', 'Ціль', 'Ціль '])),
+    goal: propertyText(getProperty(properties, ['EB Goal', 'Goal', 'Ціль', 'Ціль '])),
     contacts: propertyNumber(
       getProperty(properties, [
+        'Lead count',
         'Contacts',
         'Кількість контактів',
         'Contact count',
@@ -385,19 +498,85 @@ function normalizeEvent(page) {
       ]),
     ),
     audience: propertyText(
-      getProperty(properties, ['Audience', 'Аудиторія', 'Цільова аудиторія']),
+      getProperty(properties, ['EB Audience', 'Audience', 'Аудиторія', 'Цільова аудиторія']),
     ),
+    location: propertyText(getProperty(properties, ['EB Location', 'Location'])),
+    owner: propertyText(getProperty(properties, ['Owner', 'Власник'])),
+    status: propertyText(getProperty(properties, ['Status', 'Статус'])),
   }
 }
 
 function eventMatchesMonth(event, monthLabel) {
   const index = MONTHS.indexOf(monthLabel)
-  if (index < 0 || !event.rawDate) return true
+  if (index < 0 || !event.rawDate) return false
 
   const date = new Date(event.rawDate)
-  if (Number.isNaN(date.getTime())) return true
+  if (Number.isNaN(date.getTime())) return false
 
   return date.getFullYear() === 2026 && date.getMonth() === index
+}
+
+function isAllowedEventType(type) {
+  const value = String(type || '').trim().toLowerCase()
+  if (!value) return false
+
+  return EVENT_ACTIVITY_TYPES.some((item) => item.toLowerCase() === value)
+}
+
+function findSchemaProperty(schema, names) {
+  return names
+    .map((name) => [name, schema[name]])
+    .find(([, property]) => Boolean(property))
+}
+
+function addTitleProperty(properties, schema, names, value) {
+  const [name, property] = findSchemaProperty(schema, names) || []
+  if (!name) return
+
+  properties[name] =
+    property.type === 'title' ? titleProperty(value) : richTextProperty(value)
+}
+
+function addTextProperty(properties, schema, names, value) {
+  const [name, property] = findSchemaProperty(schema, names) || []
+  if (!name) return
+
+  if (property.type === 'title') {
+    properties[name] = titleProperty(value)
+  } else if (property.type === 'select') {
+    properties[name] = selectProperty(value)
+  } else if (property.type === 'multi_select') {
+    properties[name] = multiSelectProperty(value)
+  } else if (property.type === 'number') {
+    properties[name] = numberProperty(value)
+  } else {
+    properties[name] = richTextProperty(value)
+  }
+}
+
+function addSelectProperty(properties, schema, names, value) {
+  const [name, property] = findSchemaProperty(schema, names) || []
+  if (!name) return
+
+  if (property.type === 'multi_select') {
+    properties[name] = multiSelectProperty(value)
+  } else if (property.type === 'select') {
+    properties[name] = selectProperty(Array.isArray(value) ? value[0] : value)
+  } else {
+    properties[name] = richTextProperty(
+      Array.isArray(value) ? value.join(', ') : value,
+    )
+  }
+}
+
+function addCheckboxProperty(properties, schema, names, value) {
+  const [name, property] = findSchemaProperty(schema, names) || []
+  if (!name) return
+
+  properties[name] =
+    property.type === 'checkbox'
+      ? checkboxProperty(value)
+      : richTextProperty(value ? 'Так' : 'Ні')
 }
 
 async function getFocusDatabaseId() {
@@ -430,17 +609,14 @@ async function createFocusDatabase() {
       properties: {
         Name: { title: {} },
         Month: {
-          select: { options: MONTHS.map((name) => ({ name, color: 'blue' })) },
+          multi_select: { options: MONTHS.map((name) => ({ name, color: 'blue' })) },
         },
-        Direction: {
-          select: { options: DIRECTIONS.map((name) => ({ name, color: 'gray' })) },
+        Team: {
+          select: { options: FOCUS_TEAMS.map((name) => ({ name, color: 'gray' })) },
         },
-        Done: { rich_text: {} },
-        NotDone: { rich_text: {} },
-        Pains: { rich_text: {} },
-        NextPriorities: { rich_text: {} },
-        LinkedGoals: { rich_text: {} },
-        MetricValues: { rich_text: {} },
+        Metric: { rich_text: {} },
+        'Goal achieved': { checkbox: {} },
+        Comment: { rich_text: {} },
         CreatedAt: { created_time: {} },
       },
     },
@@ -527,7 +703,7 @@ app.get('/api/notion/monthly-focus', asyncHandler(async (request, response) => {
   const month = request.query.month
   const pages = await queryAllDatabase(databaseId)
   const entries = pages.map(normalizeFocus).filter((entry) => {
-    return month ? entry.month === month : true
+    return month ? entry.months.includes(month) || entry.month === month : true
   })
 
   response.json({ entries, focusDatabaseId: databaseId })
@@ -537,25 +713,62 @@ app.post('/api/notion/monthly-focus', asyncHandler(async (request, response) => 
   const notion = getNotion()
   const databaseId = await getFocusDatabaseId()
   const body = request.body
-  const pages = await queryAllDatabase(databaseId)
-  const existing = pages
-    .map(normalizeFocus)
-    .find((entry) => entry.month === body.month && entry.direction === body.direction)
+  const schema = await getDataSourceSchema(databaseId)
+  const title =
+    body.title ||
+    body.name ||
+    `${body.month || 'Місяць'} · ${body.team || body.direction || 'Команда'}`
+  const metric = [body.metricType ? `[${body.metricType}]` : '', body.metric]
+    .filter(Boolean)
+    .join(' ')
 
-  const properties = {
-    Name: titleProperty(`${body.month} · ${body.direction}`),
-    Month: selectProperty(body.month),
-    Direction: selectProperty(body.direction),
-    Done: richTextProperty(body.done),
-    NotDone: richTextProperty(body.notDone),
-    Pains: richTextProperty(body.pains),
-    NextPriorities: richTextProperty(body.nextPriorities),
-    LinkedGoals: richTextProperty(JSON.stringify(body.linkedGoalIds || [])),
-    MetricValues: richTextProperty(JSON.stringify(body.metricValues || {})),
-  }
+  const properties = {}
+  addTitleProperty(properties, schema, ['Name', 'Назва', 'Title'], title)
+  addSelectProperty(properties, schema, ['Month', 'Місяць'], body.months || body.month)
+  addSelectProperty(
+    properties,
+    schema,
+    ['Team', 'Direction', 'Напрямок', 'Команда'],
+    body.team || body.direction,
+  )
+  addTextProperty(properties, schema, ['Metric', 'Метрика успіху', 'Criteria'], metric)
+  addCheckboxProperty(
+    properties,
+    schema,
+    ['Goal achieved', 'Виконано', 'Achieved', 'Done?'],
+    body.achieved,
+  )
+  addTextProperty(
+    properties,
+    schema,
+    ['Comment', 'Коментар', 'Notes', 'Нотатки'],
+    body.comment,
+  )
 
-  const page = existing
-    ? await notion.pages.update({ page_id: existing.id, properties })
+  addTextProperty(properties, schema, ['Done', 'Що виконано'], body.done)
+  addTextProperty(properties, schema, ['NotDone', 'Що НЕ виконано'], body.notDone)
+  addTextProperty(properties, schema, ['Pains', 'Болі'], body.pains)
+  addTextProperty(
+    properties,
+    schema,
+    ['NextPriorities', 'Пріоритети'],
+    body.nextPriorities,
+  )
+  addTextProperty(
+    properties,
+    schema,
+    ['LinkedGoals'],
+    JSON.stringify(body.linkedGoalIds || []),
+  )
+  addTextProperty(
+    properties,
+    schema,
+    ['MetricValues'],
+    JSON.stringify(body.metricValues || {}),
+  )
+
+  const page = body.id
+    ? await notion.pages.update({ page_id: body.id, properties })
     : await notion.pages.create({
         parent: await dataSourceParent(databaseId),
         properties,
@@ -565,11 +778,13 @@ app.post('/api/notion/monthly-focus', asyncHandler(async (request, response) => 
 }))
 
 app.get('/api/notion/events', asyncHandler(async (request, response) => {
-  const databaseId = getDatabaseId('NOTION_EVENTS_DB', 'Events')
+  const databaseId =
+    process.env.NOTION_ACTIVITIES_DB || getDatabaseId('NOTION_EVENTS_DB', 'Events')
   const month = request.query.month
   const pages = await queryAllDatabase(databaseId)
   const events = pages.map(normalizeEvent).filter((event) => {
-    return month ? eventMatchesMonth(event, month) : true
+    const matchesMonth = month ? eventMatchesMonth(event, month) : Boolean(event.rawDate)
+    return matchesMonth && isAllowedEventType(event.type)
   })
 
   response.json({ events })
@@ -659,8 +874,8 @@ app.post('/api/notion/board-report', asyncHandler(async (request, response) => {
 function buildFallbackReport({ month, goals, focus, events, coverage }) {
   const totalGoals = goals.length
   const completedGoals = goals.filter((goal) => {
-    const target = Number(goal.target || 0)
-    const current = Number(goal.currentValue || 0)
+    const target = parseMetricNumber(goal.target)
+    const current = parseMetricNumber(goal.currentValue)
     if (goal.metricType === 'Якісна') {
       return ['так', 'yes', 'done', 'true', 'виконано'].includes(
         String(goal.currentValue || '').toLowerCase(),
@@ -684,7 +899,15 @@ function buildFallbackReport({ month, goals, focus, events, coverage }) {
     '',
     'Що зроблено по блоках:',
     focus.length
-      ? focus.map((entry) => `- ${entry.direction}: ${entry.done || 'немає нотаток'}`).join('\n')
+      ? focus
+          .filter((entry) => entry.achieved || entry.done)
+          .map(
+            (entry) =>
+              `- ${entry.team || entry.direction}: ${entry.title || entry.done}${
+                entry.metric ? ` (${entry.metric})` : ''
+              }`,
+          )
+          .join('\n') || '- Немає позначених виконаних фокусів.'
       : '- Дані Monthly Focus ще не заповнені.',
     `- Івенти: ${events.length} активностей, ${totalContacts} контактів.`,
     `- Медіа кавередж: ${mentions || 'даних немає'}.`,
@@ -692,13 +915,26 @@ function buildFallbackReport({ month, goals, focus, events, coverage }) {
     'Що не виконано:',
     focus.length
       ? focus
-          .map((entry) => `- ${entry.direction}: ${entry.notDone || 'немає блокерів'}`)
-          .join('\n')
+          .filter((entry) => !entry.achieved || entry.notDone)
+          .map(
+            (entry) =>
+              `- ${entry.team || entry.direction}: ${
+                entry.notDone || entry.title || 'фокус не виконано'
+              }${entry.comment ? ` — ${entry.comment}` : ''}`,
+          )
+          .join('\n') || '- Усі фокуси позначені як виконані.'
       : '- Потрібно додати статуси команд.',
     '',
     'Болі команди:',
     focus.length
-      ? focus.map((entry) => `- ${entry.direction}: ${entry.pains || 'не зазначено'}`).join('\n')
+      ? focus
+          .map(
+            (entry) =>
+              `- ${entry.team || entry.direction}: ${
+                entry.pains || entry.comment || 'не зазначено'
+              }`,
+          )
+          .join('\n')
       : '- Поки не зазначено.',
     '',
     'Плани на наступний місяць:',

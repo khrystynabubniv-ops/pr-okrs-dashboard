@@ -4,6 +4,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Legend,
   Line,
   LineChart,
@@ -23,9 +24,10 @@ import { useAsyncData } from '../hooks/useAsyncData'
 import { apiRequest } from '../lib/api'
 import {
   buildMonthlySeries,
-  countGoals,
-  directionSummary,
+  directionProgressSummary,
+  hasSeriesData,
   personalBrandBars,
+  progressSummary,
 } from '../lib/dashboard'
 
 export function DashboardPage({ selectedMonth }) {
@@ -79,21 +81,33 @@ export function DashboardPage({ selectedMonth }) {
     [dashboardQuery.data],
   )
 
-  const summary = useMemo(() => countGoals(goals), [goals])
-  const directionStats = useMemo(() => directionSummary(goals), [goals])
+  const summary = useMemo(
+    () => progressSummary(goals, selectedMonth),
+    [goals, selectedMonth],
+  )
+  const directionStats = useMemo(
+    () => directionProgressSummary(goals, selectedMonth),
+    [goals, selectedMonth],
+  )
   const instagramSeries = useMemo(
-    () => buildMonthlySeries(goals, 'instagram', 'instagram'),
-    [goals],
+    () =>
+      buildMonthlySeries(goals, ['instagram', 'інстаграм'], selectedMonth),
+    [goals, selectedMonth],
   )
   const mediaSeries = useMemo(
-    () => buildMonthlySeries(goals, 'медіа', 'media'),
-    [goals],
+    () =>
+      buildMonthlySeries(goals, ['медіа', 'згад', 'looqme'], selectedMonth),
+    [goals, selectedMonth],
   )
   const trafficSeries = useMemo(
-    () => buildMonthlySeries(goals, 'трафік', 'traffic'),
-    [goals],
+    () =>
+      buildMonthlySeries(goals, ['трафік', 'organic', 'органіч'], selectedMonth),
+    [goals, selectedMonth],
   )
-  const personalBrands = useMemo(() => personalBrandBars(goals), [goals])
+  const personalBrands = useMemo(
+    () => personalBrandBars(goals, selectedMonth),
+    [goals, selectedMonth],
+  )
 
   const totalContacts = events.reduce(
     (sum, event) => sum + Number(event.contacts || 0),
@@ -158,12 +172,18 @@ export function DashboardPage({ selectedMonth }) {
 
       {!dashboardQuery.loading && !dashboardQuery.error ? (
         <>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-7">
             <MetricCard
-              label="Виконання цілей"
-              value={`${summary.percent}%`}
-              detail={`${summary.done}/${summary.total} виконано`}
+              label="Середній прогрес KPI"
+              value={`${summary.average}%`}
+              detail={`орієнтир на місяць: ${summary.expected}%`}
               tone="accent"
+            />
+            <MetricCard
+              label="На треку"
+              value={`${summary.onTrack}/${summary.total}`}
+              detail={`оновлено ${summary.updated}/${summary.total} у місяці`}
+              tone="green"
             />
             {directionStats.map((item) => (
               <div
@@ -172,75 +192,138 @@ export function DashboardPage({ selectedMonth }) {
               >
                 <DirectionBadge direction={item.direction} />
                 <p className="mt-3 text-2xl font-semibold text-slate-950">
-                  {item.done}/{item.total}
+                  {item.average}%
                 </p>
-                <p className="mt-1 text-sm text-slate-500">виконано</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {item.onTrack}/{item.total} на треку · оновлено {item.updated}
+                </p>
               </div>
             ))}
           </section>
 
           <section className="grid gap-4 xl:grid-cols-2">
             <ChartPanel title="Instagram підписники помісячно">
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={instagramSeries}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tickLine={false} axisLine={false} />
-                  <YAxis tickLine={false} axisLine={false} width={56} />
-                  <Tooltip />
-                  <Line
-                    type="monotone"
-                    dataKey="value"
-                    stroke="#4361ee"
-                    strokeWidth={3}
-                    dot={{ r: 3 }}
-                    name="Підписники"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              {hasSeriesData(instagramSeries) ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <LineChart data={instagramSeries} margin={{ top: 24, right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="month" tickLine={false} axisLine={false} />
+                    <YAxis tickLine={false} axisLine={false} width={56} />
+                    <Tooltip content={<MonthlyTooltip metricLabel="Підписники" />} />
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      stroke="#4361ee"
+                      strokeWidth={3}
+                      dot={{ r: 3 }}
+                      connectNulls
+                      name="Підписники"
+                    >
+                      <LabelList dataKey="deltaLabel" content={<DeltaLabel />} />
+                    </Line>
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyState
+                  title="Немає помісячних значень"
+                  text="Графік підтягнеться з KPI-цілі Instagram, коли у місячних колонках Notion будуть числа."
+                />
+              )}
             </ChartPanel>
 
             <ChartPanel title="Медіа згадки помісячно">
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={mediaSeries}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tickLine={false} axisLine={false} />
-                  <YAxis tickLine={false} axisLine={false} width={44} />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#f97316" radius={[4, 4, 0, 0]} name="Згадки" />
-                </BarChart>
-              </ResponsiveContainer>
+              {hasSeriesData(mediaSeries) ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={mediaSeries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="month" tickLine={false} axisLine={false} />
+                    <YAxis tickLine={false} axisLine={false} width={44} />
+                    <Tooltip content={<MonthlyTooltip metricLabel="Згадки" />} />
+                    <Bar
+                      dataKey="value"
+                      fill="#f97316"
+                      radius={[4, 4, 0, 0]}
+                      name="Згадки"
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyState
+                  title="Немає даних для графіка"
+                  text="Зараз графік бере значення тільки з KPI-бази. Looqme-блок нижче поки mock."
+                />
+              )}
             </ChartPanel>
 
             <ChartPanel title="Органічний трафік помісячно">
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={trafficSeries}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tickLine={false} axisLine={false} />
-                  <YAxis tickLine={false} axisLine={false} width={56} />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#10b981" radius={[4, 4, 0, 0]} name="Сесії" />
-                </BarChart>
-              </ResponsiveContainer>
+              {hasSeriesData(trafficSeries) ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={trafficSeries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="month" tickLine={false} axisLine={false} />
+                    <YAxis tickLine={false} axisLine={false} width={56} />
+                    <Tooltip content={<MonthlyTooltip metricLabel="Сесії" />} />
+                    <Bar
+                      dataKey="value"
+                      fill="#10b981"
+                      radius={[4, 4, 0, 0]}
+                      name="Сесії"
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyState
+                  title="Немає даних для графіка"
+                  text="Додайте у KPI-базі ціль/рядок про органічний трафік і помісячні значення."
+                />
+              )}
             </ChartPanel>
 
             <ChartPanel title="Personal Brands фоловери">
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={personalBrands} layout="vertical" margin={{ left: 32 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis type="number" tickLine={false} axisLine={false} />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={112}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="current" fill="#8b5cf6" radius={[0, 4, 4, 0]} name="Поточний" />
-                  <Bar dataKey="target" fill="#c4b5fd" radius={[0, 4, 4, 0]} name="Ціль" />
-                </BarChart>
-              </ResponsiveContainer>
+              {personalBrands.length ? (
+                <div className="space-y-4">
+                  {personalBrands.map((item) => (
+                    <div key={item.id} className="border-b border-slate-100 pb-4 last:border-0">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-slate-950">
+                            {item.name}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Річна ціль = 100%
+                          </p>
+                        </div>
+                        <p className="text-sm font-semibold text-slate-950">
+                          {item.current ?? '—'} / {item.target || '—'}
+                          {item.deltaLabel ? (
+                            <span
+                              className={`ml-2 text-xs ${
+                                item.delta >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                              }`}
+                            >
+                              {item.deltaLabel}
+                            </span>
+                          ) : null}
+                        </p>
+                      </div>
+                      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-violet-500"
+                          style={{ width: `${item.progress}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {item.progress}% від річної цілі
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  title="Немає Personal Brands цілей"
+                  text="Додайте цілі цього напрямку в KPI-базі."
+                />
+              )}
             </ChartPanel>
           </section>
 
@@ -377,6 +460,48 @@ export function DashboardPage({ selectedMonth }) {
       ) : null}
     </div>
   )
+}
+
+function DeltaLabel({ x, y, value }) {
+  if (!value || x === undefined || y === undefined) return null
+
+  return (
+    <text
+      x={x}
+      y={y - 12}
+      textAnchor="middle"
+      fill={String(value).startsWith('-') ? '#be123c' : '#047857'}
+      fontSize={12}
+      fontWeight={600}
+    >
+      {value}
+    </text>
+  )
+}
+
+function MonthlyTooltip({ active, payload, metricLabel, label }) {
+  if (!active || !payload?.length) return null
+
+  const point = payload[0]?.payload || {}
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm">
+      <p className="font-medium text-slate-950">{label}</p>
+      <p className="mt-1 text-slate-600">
+        {metricLabel || payload[0].name}: {formatChartNumber(payload[0].value)}
+      </p>
+      {point.deltaLabel ? (
+        <p className={point.delta >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+          Зміна: {point.deltaLabel}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function formatChartNumber(value) {
+  if (value === null || value === undefined) return '—'
+  return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(value)
 }
 
 function ChartPanel({ title, children }) {

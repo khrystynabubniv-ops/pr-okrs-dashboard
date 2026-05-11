@@ -21,6 +21,8 @@ export const DIRECTIONS = [
   'Brand Design',
 ]
 
+export const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
+
 export const DIRECTION_STYLES = {
   'Employer Brand': {
     badge: 'bg-blue-50 text-blue-700 ring-blue-200',
@@ -61,11 +63,13 @@ export const MEASUREMENT_PERIODS = ['щомісяця', 'щокварталу', 
 export const AMEC_OPTIONS = ['outcomes', 'outputs', 'out-takes', 'impact']
 
 export const EVENT_TYPES = [
-  'конференція',
-  'мітап',
-  'хакатон',
-  'ярмарок вакансій',
-  'стажування',
+  'Конференція',
+  'Хакатон',
+  'Ярмарка вакансій',
+  'Стажування',
+  'Партнерка з університетом',
+  'Зовнішній освітній проєкт',
+  'Внутрішній івент',
 ]
 
 export const CURRENT_MONTH = 'Травень 2026'
