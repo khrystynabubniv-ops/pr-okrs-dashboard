@@ -36,13 +36,20 @@ export function DashboardPage({ selectedMonth }) {
 
   const dashboardQuery = useAsyncData(
     async () => {
-      const [goals, events, focus, coverage] = await Promise.all([
-        apiRequest('/api/notion/kpi-goals'),
-        apiRequest(`/api/notion/events?month=${encodeURIComponent(selectedMonth)}`),
-        apiRequest(
-          `/api/notion/monthly-focus?month=${encodeURIComponent(selectedMonth)}`,
+      const goals = await apiRequest('/api/notion/kpi-goals')
+      const [events, focus, coverage] = await Promise.all([
+        optionalRequest(
+          `/api/notion/events?month=${encodeURIComponent(selectedMonth)}`,
+          { events: [] },
         ),
-        apiRequest(`/api/looqme/coverage?month=${encodeURIComponent(selectedMonth)}`),
+        optionalRequest(
+          `/api/notion/monthly-focus?month=${encodeURIComponent(selectedMonth)}`,
+          { entries: [] },
+        ),
+        optionalRequest(
+          `/api/looqme/coverage?month=${encodeURIComponent(selectedMonth)}`,
+          { mentions: [], sentiment: [] },
+        ),
       ])
 
       return {
@@ -379,4 +386,12 @@ function ChartPanel({ title, children }) {
       <div className="mt-4">{children}</div>
     </div>
   )
+}
+
+async function optionalRequest(path, fallback) {
+  try {
+    return await apiRequest(path)
+  } catch {
+    return fallback
+  }
 }
