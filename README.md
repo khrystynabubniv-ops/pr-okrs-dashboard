@@ -36,7 +36,7 @@ ANTHROPIC_MODEL=claude-3-5-sonnet-latest
 LOOQME_TOKEN=
 ```
 
-`NOTION_FOCUS_DB` можна залишити порожнім лише якщо заданий `NOTION_PARENT_PAGE_ID`: тоді сервер створить базу `Comms Tool Monthly Focus` через Notion API і поверне її ID у відповіді. Після першого створення краще додати цей ID у Railway Variables як `NOTION_FOCUS_DB`.
+`NOTION_FOCUS_DB` можна залишити порожнім: тоді сервер створить базу `Comms Tool Monthly Focus` через Notion API. Якщо заданий `NOTION_PARENT_PAGE_ID`, база буде створена під цією сторінкою; інакше сервер спробує створити її на workspace-рівні. Після першого створення краще додати цей ID у Railway Variables як `NOTION_FOCUS_DB`.
 
 Для збереження Board Report у Notion потрібен `NOTION_REPORTS_PARENT_PAGE_ID` або `NOTION_PARENT_PAGE_ID`.
 

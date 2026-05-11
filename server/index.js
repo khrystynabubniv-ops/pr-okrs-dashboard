@@ -339,13 +339,6 @@ async function getFocusDatabaseId() {
     }
   }
 
-  if (!process.env.NOTION_PARENT_PAGE_ID) {
-    throw createHttpError(
-      503,
-      'NOTION_FOCUS_DB не налаштований. Додайте ID Monthly Focus database або NOTION_PARENT_PAGE_ID для автоматичного створення.',
-    )
-  }
-
   if (!focusDatabasePromise) {
     focusDatabasePromise = createFocusDatabase()
   }
@@ -356,8 +349,11 @@ async function getFocusDatabaseId() {
 
 async function createFocusDatabase() {
   const notion = getNotion()
+  const parent = process.env.NOTION_PARENT_PAGE_ID
+    ? { type: 'page_id', page_id: process.env.NOTION_PARENT_PAGE_ID }
+    : { type: 'workspace', workspace: true }
   const database = await notion.databases.create({
-    parent: { type: 'page_id', page_id: process.env.NOTION_PARENT_PAGE_ID },
+    parent,
     title: [{ type: 'text', text: { content: 'Comms Tool Monthly Focus' } }],
     initial_data_source: {
       properties: {
