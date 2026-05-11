@@ -44,17 +44,6 @@ const MONTH_PROPERTY_NAMES = {
 
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
-const EVENT_ACTIVITY_TYPES = [
-  'Стажування',
-  'Партнерка з університетом',
-  'Партнерка із університетом',
-  'Ярмарка вакансій',
-  'Хакатон',
-  'Зовнішній освітній проєкт',
-  'Внутрішній івент',
-  'Конференція',
-]
-
 let focusDatabaseId = process.env.NOTION_FOCUS_DB || ''
 let focusDatabasePromise = null
 const dataSourceCache = new Map()
@@ -450,7 +439,7 @@ function normalizeFocus(page) {
   }
 }
 
-function normalizeEvent(page) {
+function normalizeActivityEvent(page) {
   const properties = page.properties || {}
   const rawDate = propertyDate(
     getProperty(properties, ['Event date', 'Event Date', 'Date', 'Дата', 'Таймінг']),
@@ -503,6 +492,63 @@ function normalizeEvent(page) {
     location: propertyText(getProperty(properties, ['EB Location', 'Location'])),
     owner: propertyText(getProperty(properties, ['Owner', 'Власник'])),
     status: propertyText(getProperty(properties, ['Status', 'Статус'])),
+    recruiterCount: propertyText(
+      getProperty(properties, ['Рекрутер (кількість)', 'Кількість рекрутерів']),
+    ),
+    applyCount: propertyNumber(getProperty(properties, ['Apply count'])),
+    selectCount: propertyNumber(getProperty(properties, ['Select count'])),
+    hireCount: propertyNumber(getProperty(properties, ['Hire count'])),
+    metricsEnabled: propertyCheckbox(getProperty(properties, ['Метрики'])),
+    source: 'activities',
+    url: page.url,
+  }
+}
+
+function normalizeCalendarEvent(page) {
+  const properties = page.properties || {}
+  const rawDate = propertyDate(
+    getProperty(properties, ['Таймінг', 'Date', 'Дата', 'Event Date']),
+  )
+  const date = rawDate ? new Date(rawDate) : null
+
+  return {
+    id: page.id,
+    title:
+      propertyText(
+        getProperty(properties, [
+          'Назва події ',
+          'Назва події',
+          'Name',
+          'Назва',
+          'Event',
+          'Title',
+        ]),
+      ) || 'Без назви',
+    type: propertyText(
+      getProperty(properties, ['Тип івенту ', 'Тип івенту', 'Type', 'Тип']),
+    ),
+    date:
+      date && !Number.isNaN(date.getTime())
+        ? date.toLocaleDateString('uk-UA', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+          })
+        : rawDate,
+    rawDate,
+    role: propertyText(getProperty(properties, ['Хто ми тут?', 'Role', 'Роль'])),
+    goal: propertyText(getProperty(properties, ['Ціль ', 'Ціль', 'Goal'])),
+    contacts: 0,
+    recruiterCount: propertyText(
+      getProperty(properties, ['Кількість рекрутерів', 'Рекрутер (кількість)']),
+    ),
+    audience: propertyText(
+      getProperty(properties, ['Цільова аудиторія', 'Audience', 'Аудиторія']),
+    ),
+    location: propertyText(getProperty(properties, ['Локація', 'Location'])),
+    status: propertyText(getProperty(properties, ['Статус', 'Status'])),
+    source: 'calendar',
+    url: page.url,
   }
 }
 
@@ -516,11 +562,86 @@ function eventMatchesMonth(event, monthLabel) {
   return date.getFullYear() === 2026 && date.getMonth() === index
 }
 
-function isAllowedEventType(type) {
-  const value = String(type || '').trim().toLowerCase()
-  if (!value) return false
+function mergeCalendarEventsWithActivities(calendarEvents, activityEvents) {
+  return calendarEvents.map((event) => {
+    const activity = findMatchingActivity(event, activityEvents)
 
-  return EVENT_ACTIVITY_TYPES.some((item) => item.toLowerCase() === value)
+    if (!activity) {
+      return {
+        ...event,
+        role: event.role || 'Visitor',
+        metricsMatched: false,
+      }
+    }
+
+    return {
+      ...event,
+      role: activity.role || event.role || 'Visitor',
+      goal: activity.goal || event.goal,
+      contacts: activity.contacts || 0,
+      audience: activity.audience || event.audience,
+      location: activity.location || event.location,
+      applyCount: activity.applyCount || 0,
+      selectCount: activity.selectCount || 0,
+      hireCount: activity.hireCount || 0,
+      metricsEnabled: activity.metricsEnabled,
+      metricsMatched: true,
+      metricsSourceId: activity.id,
+      metricsSourceTitle: activity.title,
+      metricsSourceUrl: activity.url,
+    }
+  })
+}
+
+function findMatchingActivity(calendarEvent, activityEvents) {
+  const sameDateActivities = activityEvents.filter(
+    (activity) => activity.rawDate && activity.rawDate === calendarEvent.rawDate,
+  )
+
+  if (!sameDateActivities.length) return null
+
+  const scored = sameDateActivities
+    .map((activity) => ({
+      activity,
+      score: titleSimilarity(calendarEvent.title, activity.title),
+    }))
+    .sort((a, b) => b.score - a.score)
+
+  const best = scored[0]
+  if (!best) return null
+
+  if (sameDateActivities.length === 1 && best.score >= 0.2) return best.activity
+  return best.score >= 0.35 ? best.activity : null
+}
+
+function titleSimilarity(left, right) {
+  const leftTokens = normalizedTitleTokens(left)
+  const rightTokens = normalizedTitleTokens(right)
+
+  if (!leftTokens.length || !rightTokens.length) return 0
+
+  const rightSet = new Set(rightTokens)
+  const common = leftTokens.filter((token) => rightSet.has(token)).length
+  return common / Math.min(leftTokens.length, rightTokens.length)
+}
+
+function normalizedTitleTokens(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\beb[:\s-]*/g, ' ')
+    .replace(/\bcareer\b|\bbeahead\b|\bexpo\b/g, ' ')
+    .replace(/кпі/g, 'kpi')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)
+}
+
+function monthTagMatches(value, selectedMonth) {
+  return (
+    String(value || '').trim().toLowerCase() ===
+    String(selectedMonth || '').trim().toLowerCase()
+  )
 }
 
 function findSchemaProperty(schema, names) {
@@ -702,9 +823,15 @@ app.get('/api/notion/monthly-focus', asyncHandler(async (request, response) => {
   const databaseId = await getFocusDatabaseId()
   const month = request.query.month
   const pages = await queryAllDatabase(databaseId)
-  const entries = pages.map(normalizeFocus).filter((entry) => {
-    return month ? entry.months.includes(month) || entry.month === month : true
-  })
+  const entries = pages
+    .map(normalizeFocus)
+    .filter((entry) => {
+      return month
+        ? entry.months.some((item) => monthTagMatches(item, month)) ||
+            monthTagMatches(entry.month, month)
+        : true
+    })
+    .map((entry) => (month ? { ...entry, month } : entry))
 
   response.json({ entries, focusDatabaseId: databaseId })
 }))
@@ -778,14 +905,24 @@ app.post('/api/notion/monthly-focus', asyncHandler(async (request, response) => 
 }))
 
 app.get('/api/notion/events', asyncHandler(async (request, response) => {
-  const databaseId =
-    process.env.NOTION_ACTIVITIES_DB || getDatabaseId('NOTION_EVENTS_DB', 'Events')
+  const calendarDatabaseId = getDatabaseId('NOTION_EVENTS_DB', 'Events')
+  const activitiesDatabaseId = process.env.NOTION_ACTIVITIES_DB
   const month = request.query.month
-  const pages = await queryAllDatabase(databaseId)
-  const events = pages.map(normalizeEvent).filter((event) => {
+
+  const [calendarPages, activityPages] = await Promise.all([
+    queryAllDatabase(calendarDatabaseId),
+    activitiesDatabaseId ? queryAllDatabase(activitiesDatabaseId) : Promise.resolve([]),
+  ])
+
+  const calendarEvents = calendarPages.map(normalizeCalendarEvent).filter((event) => {
     const matchesMonth = month ? eventMatchesMonth(event, month) : Boolean(event.rawDate)
-    return matchesMonth && isAllowedEventType(event.type)
+    return matchesMonth
   })
+  const activityEvents = activityPages.map(normalizeActivityEvent).filter((event) => {
+    const matchesMonth = month ? eventMatchesMonth(event, month) : Boolean(event.rawDate)
+    return matchesMonth
+  })
+  const events = mergeCalendarEventsWithActivities(calendarEvents, activityEvents)
 
   response.json({ events })
 }))

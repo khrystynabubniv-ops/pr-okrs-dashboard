@@ -41,7 +41,7 @@ export function MonthlyFocusPage({ selectedMonth }) {
       id: entry.id,
       title: entry.title || '',
       team: entry.team || FOCUS_TEAMS[0],
-      month: entry.month || selectedMonth,
+      month: selectedMonth,
       metricType: entry.metricType || METRIC_TYPES[0],
       metric: entry.metric || '',
       achieved: Boolean(entry.achieved),

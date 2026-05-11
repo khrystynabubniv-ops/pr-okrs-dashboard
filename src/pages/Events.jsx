@@ -46,7 +46,7 @@ export function EventsPage({ selectedMonth }) {
             <MetricCard
               label="Контакти"
               value={totalContacts}
-              detail="зібрані ліди"
+              detail="зібрані ліди з Activities"
               tone="orange"
             />
             <div className="rounded-lg border border-slate-200 bg-white px-4 py-4">
@@ -68,10 +68,10 @@ export function EventsPage({ selectedMonth }) {
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div>
                 <h2 className="text-base font-semibold text-slate-950">
-                  Activities з івентами
+                  Календар івентів
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Дані з Notion Activities: тільки EB Activity Type з івентами та датою у вибраному місяці.
+                  Дані з Notion Calendar Events, метрики підтягуються з Activities, якщо знайдено той самий івент.
                 </p>
               </div>
               <CalendarDays className="h-5 w-5 text-[#4361ee]" />
@@ -80,7 +80,7 @@ export function EventsPage({ selectedMonth }) {
               {!events.length ? (
                 <EmptyState
                   title="Івентів за цей місяць немає"
-                  text="Перевірте дату, EB Activity Type або доступ Notion integration до Activities database."
+                  text="Перевірте дату в полі Таймінг або доступ Notion integration до Calendar Events database."
                 />
               ) : (
                 <div className="overflow-x-auto">
@@ -92,8 +92,10 @@ export function EventsPage({ selectedMonth }) {
                         <th className="px-3 py-3 font-semibold">Дата</th>
                         <th className="px-3 py-3 font-semibold">Роль</th>
                         <th className="px-3 py-3 font-semibold">Ціль</th>
+                        <th className="px-3 py-3 font-semibold">Рекрутери</th>
                         <th className="px-3 py-3 font-semibold">Зібрані ліди</th>
                         <th className="px-3 py-3 font-semibold">Аудиторія</th>
+                        <th className="px-3 py-3 font-semibold">Метрики</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -101,6 +103,11 @@ export function EventsPage({ selectedMonth }) {
                         <tr key={event.id}>
                           <td className="max-w-xs px-3 py-4 font-medium text-slate-950">
                             {event.title}
+                            {event.metricsMatched ? (
+                              <p className="mt-1 text-xs font-normal text-emerald-700">
+                                метрики з Activities
+                              </p>
+                            ) : null}
                           </td>
                           <td className="whitespace-nowrap px-3 py-4 text-slate-600">
                             {event.type || '—'}
@@ -122,6 +129,9 @@ export function EventsPage({ selectedMonth }) {
                           <td className="whitespace-nowrap px-3 py-4 text-slate-600">
                             {event.goal || '—'}
                           </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                            {event.recruiterCount || '—'}
+                          </td>
                           <td className="whitespace-nowrap px-3 py-4 text-slate-950">
                             <span className="inline-flex items-center gap-2">
                               <Users className="h-4 w-4 text-slate-400" />
@@ -130,6 +140,16 @@ export function EventsPage({ selectedMonth }) {
                           </td>
                           <td className="px-3 py-4 text-slate-600">
                             {event.audience || '—'}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                            {event.metricsMatched ? (
+                              <span>
+                                A:{event.applyCount || 0} · S:{event.selectCount || 0} · H:
+                                {event.hireCount || 0}
+                              </span>
+                            ) : (
+                              '—'
+                            )}
                           </td>
                         </tr>
                       ))}
