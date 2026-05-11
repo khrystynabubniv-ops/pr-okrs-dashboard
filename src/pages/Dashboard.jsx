@@ -290,11 +290,16 @@ export function DashboardPage({ selectedMonth }) {
                             {item.name}
                           </p>
                           <p className="mt-1 text-xs text-slate-500">
-                            Річна ціль = 100%
+                            {item.sourceMonth && item.sourceMonth !== selectedMonth
+                              ? `останнє значення: ${item.sourceMonth.split(' ')[0]}`
+                              : 'Річна ціль = 100%'}
                           </p>
                         </div>
                         <p className="text-sm font-semibold text-slate-950">
-                          {item.current ?? '—'} / {item.target || '—'}
+                          {formatChartNumber(item.current)} /{' '}
+                          {item.target
+                            ? formatChartNumber(item.target)
+                            : 'ціль не вказана'}
                           {item.deltaLabel ? (
                             <span
                               className={`ml-2 text-xs ${
@@ -306,15 +311,23 @@ export function DashboardPage({ selectedMonth }) {
                           ) : null}
                         </p>
                       </div>
-                      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100">
-                        <div
-                          className="h-full rounded-full bg-violet-500"
-                          style={{ width: `${item.progress}%` }}
-                        />
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {item.progress}% від річної цілі
-                      </p>
+                      {item.target ? (
+                        <>
+                          <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-violet-500"
+                              style={{ width: `${item.progress}%` }}
+                            />
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {item.progress}% від річної цілі
+                          </p>
+                        </>
+                      ) : (
+                        <p className="mt-2 text-xs text-slate-500">
+                          Річна ціль у таблиці не вказана
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -1,4 +1,5 @@
 import { DIRECTIONS, MONTHS } from '../constants'
+import { PERSONAL_BRANDS_FOLLOWERS } from '../data/personalBrandsFollowers'
 import { getProgress, parseMetricNumber } from './api'
 
 export function progressSummary(goals, selectedMonth) {
@@ -57,6 +58,35 @@ export function hasSeriesData(series) {
 }
 
 export function personalBrandBars(goals, selectedMonth) {
+  if (PERSONAL_BRANDS_FOLLOWERS.length) {
+    return PERSONAL_BRANDS_FOLLOWERS.map((person) => {
+      const currentPoint = latestPointUpToMonth(person.values, selectedMonth)
+      const previousPoint = currentPoint
+        ? latestPointBeforeMonth(person.values, currentPoint.month)
+        : null
+      const current = currentPoint?.value ?? null
+      const previous = previousPoint?.value ?? null
+      const target = person.target ? parseMetricNumber(person.target) : null
+      const progress =
+        target && current !== null
+          ? Math.min(100, Math.round((current / target) * 100))
+          : 0
+      const delta = current !== null && previous !== null ? current - previous : null
+
+      return {
+        id: person.id,
+        name: person.name,
+        current,
+        target,
+        progress,
+        delta,
+        sourceMonth: currentPoint?.month || selectedMonth,
+        deltaLabel:
+          delta === null ? '' : `${delta > 0 ? '+' : ''}${formatDeltaNumber(delta)}`,
+      }
+    })
+  }
+
   const selectedIndex = Math.max(0, MONTHS.indexOf(selectedMonth))
   const previousMonth = selectedIndex > 0 ? MONTHS[selectedIndex - 1] : null
 
@@ -84,6 +114,29 @@ export function personalBrandBars(goals, selectedMonth) {
           delta === null ? '' : `${delta > 0 ? '+' : ''}${formatDeltaNumber(delta)}`,
       }
     })
+}
+
+function latestPointUpToMonth(values, selectedMonth) {
+  const selectedIndex = MONTHS.indexOf(selectedMonth)
+  const monthsToCheck = MONTHS.slice(0, selectedIndex + 1).reverse()
+
+  const month = monthsToCheck.find(
+    (item) => values[item] !== null && values[item] !== undefined,
+  )
+
+  return month ? { month, value: parseMetricNumber(values[month]) } : null
+}
+
+function latestPointBeforeMonth(values, month) {
+  const monthIndex = MONTHS.indexOf(month)
+  const monthsToCheck = MONTHS.slice(0, Math.max(0, monthIndex)).reverse()
+  const previousMonth = monthsToCheck.find(
+    (item) => values[item] !== null && values[item] !== undefined,
+  )
+
+  return previousMonth
+    ? { month: previousMonth, value: parseMetricNumber(values[previousMonth]) }
+    : null
 }
 
 function averageProgress(values) {
