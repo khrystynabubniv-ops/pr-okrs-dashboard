@@ -1,0 +1,34 @@
+import { useState } from 'react'
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { Layout } from './components/Layout'
+import { CURRENT_MONTH } from './constants'
+import { DashboardPage } from './pages/Dashboard'
+import { EventsPage } from './pages/Events'
+import { GoalsPage } from './pages/Goals'
+import { MonthlyFocusPage } from './pages/MonthlyFocus'
+
+export default function App() {
+  const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH)
+
+  return (
+    <Layout selectedMonth={selectedMonth} onMonthChange={setSelectedMonth}>
+      <Routes>
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route
+          path="/dashboard"
+          element={<DashboardPage selectedMonth={selectedMonth} />}
+        />
+        <Route path="/goals" element={<GoalsPage />} />
+        <Route
+          path="/monthly"
+          element={<MonthlyFocusPage selectedMonth={selectedMonth} />}
+        />
+        <Route
+          path="/events"
+          element={<EventsPage selectedMonth={selectedMonth} />}
+        />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </Layout>
+  )
+}
