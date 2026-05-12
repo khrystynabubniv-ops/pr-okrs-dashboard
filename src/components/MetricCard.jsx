@@ -1,4 +1,13 @@
-export function MetricCard({ label, value, detail, tone = 'default' }) {
+import { InfoTooltip } from './InfoTooltip'
+
+export function MetricCard({
+  label,
+  value,
+  unit,
+  detail,
+  tooltip,
+  tone = 'default',
+}) {
   const tones = {
     default: 'border-slate-200 bg-white',
     accent: 'border-blue-200 bg-blue-50',
@@ -10,11 +19,19 @@ export function MetricCard({ label, value, detail, tone = 'default' }) {
 
   return (
     <div className={`rounded-lg border px-4 py-4 ${tones[tone] || tones.default}`}>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
-      <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
-      {detail ? <p className="mt-1 text-sm text-slate-500">{detail}</p> : null}
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          {label}
+        </p>
+        <InfoTooltip text={tooltip} />
+      </div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <p className="text-3xl font-semibold leading-none text-slate-950">{value}</p>
+        {unit ? (
+          <p className="text-sm font-semibold leading-5 text-slate-600">{unit}</p>
+        ) : null}
+      </div>
+      {detail ? <p className="mt-3 text-sm leading-5 text-slate-600">{detail}</p> : null}
     </div>
   )
 }

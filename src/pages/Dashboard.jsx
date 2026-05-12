@@ -17,6 +17,7 @@ import {
 } from 'recharts'
 import { ClipboardCopy, FileText, Save } from 'lucide-react'
 import { DirectionBadge } from '../components/Badge'
+import { InfoTooltip } from '../components/InfoTooltip'
 import { MetricCard } from '../components/MetricCard'
 import { Modal } from '../components/Modal'
 import { EmptyState, ErrorState, LoadingState } from '../components/Status'
@@ -27,6 +28,7 @@ import {
   directionProgressSummary,
   executiveSummary,
   hasSeriesData,
+  mediaCoverageSummary,
   personalBrandBars,
 } from '../lib/dashboard'
 
@@ -115,6 +117,11 @@ export function DashboardPage({ selectedMonth }) {
     () => personalBrandBars(goals, selectedMonth),
     [goals, selectedMonth],
   )
+  const mediaCoverage = useMemo(
+    () => mediaCoverageSummary(coverage),
+    [coverage],
+  )
+  const sortedEvents = useMemo(() => sortEventsForDashboard(events), [events])
 
   const totalContacts = events.reduce(
     (sum, event) => sum + Number(event.contacts || 0),
@@ -181,39 +188,51 @@ export function DashboardPage({ selectedMonth }) {
         <>
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
             <MetricCard
-              label="Готовність Board Report"
-              value={`${executive.readiness}%`}
-              detail={`KPI ${executive.kpi.updated}/${executive.kpi.measurable} · івенти з метриками ${executive.eventsWithMetrics}/${executive.eventsTotal}`}
+              label="Дані для C-level звіту"
+              value={executive.readiness}
+              unit="% готово"
+              detail={`KPI ${executive.kpi.updated}/${executive.kpi.measurable}, івенти з метриками ${executive.eventsWithMetrics}/${executive.eventsTotal}.`}
+              tooltip="Це не оцінка результатів. Це показник, чи вистачає даних для Board Report: KPI за місяць, monthly focus, івенти з метриками та media coverage."
               tone={executive.readiness >= 80 ? 'green' : executive.readiness >= 50 ? 'orange' : 'rose'}
             />
             <MetricCard
-              label="KPI на плані"
+              label="KPI в темпі року"
               value={`${executive.kpi.onTrack}/${executive.kpi.measured}`}
-              detail={`орієнтир ${executive.kpi.expected}% · ризик ${executive.kpi.atRisk}`}
+              unit="KPI"
+              detail={`Для ${selectedMonth.split(' ')[0]} очікувано близько ${executive.kpi.expected}% річної цілі. Відстають: ${executive.kpi.atRisk}.`}
+              tooltip="Більшість KPI річні. Ми дивимось, чи поточний прогрес не відстає від частки року. Для травня це приблизно 5/12 року, тобто 42%. KPI потрапляє у ризик, якщо він нижче цього темпу більш ніж на 5 п.п."
               tone={executive.kpi.atRisk ? 'orange' : 'green'}
             />
             <MetricCard
               label="Monthly Focus"
               value={`${executive.focusDone}/${executive.focusTotal}`}
-              detail={`${executive.focusOpen} потребують уваги`}
+              unit="закрито"
+              detail={`${executive.focusOpen} фокусів ще без галочки “виконано”.`}
+              tooltip="Береться з Monthly Focuses у Notion за вибраний місяць. Закрито = у записі стоїть чекбокс Goal achieved."
               tone={executive.focusOpen ? 'orange' : 'green'}
             />
             <MetricCard
-              label="Івенти та ліди"
-              value={`${executive.eventsTotal} / ${executive.totalLeads}`}
-              detail={`${executive.ownerEvents} власних · ліди з Activities`}
+              label="Івенти місяця"
+              value={executive.eventsTotal}
+              unit="івентів"
+              detail={`${executive.ownerEvents} організуємо ми; ${executive.totalLeads} лідів підтягнуто з Activities.`}
+              tooltip="Івенти беруться з календаря івентів. “Організуємо ми” означає роль Owner у календарі. Ліди беруться з Lead count в Activities, якщо той самий івент вдалося зіставити."
               tone="accent"
             />
             <MetricCard
-              label="Медіа visibility"
-              value={executive.mentionsTotal}
-              detail={`згадки · позитив ${executive.positiveShare}%`}
+              label="Наші медіа згадки"
+              value={executive.ownMentionsTotal}
+              unit="згадок"
+              detail={`Конкуренти: ${executive.competitorMentionsTotal}; тональність наших згадок нижче.`}
+              tooltip="Поки це mock Looqme-дані. Universe Group рахуємо як наш бренд; Skelar і Headway показані окремо як конкурентний бенчмарк."
               tone="violet"
             />
             <MetricCard
-              label="Data gaps"
+              label="Що треба дозаповнити"
               value={executive.kpi.missingSelected}
-              detail={`KPI без значення у ${selectedMonth.split(' ')[0]}`}
+              unit="KPI"
+              detail={`Немає значення за ${selectedMonth.split(' ')[0]}. Це заважає чистому C-level звіту.`}
+              tooltip="Це KPI, де у місячній колонці Notion для вибраного місяця порожньо. Якщо значення ще не готове, картка допомагає швидко побачити, що саме блокує звіт."
               tone={executive.kpi.missingSelected ? 'rose' : 'green'}
             />
           </section>
@@ -221,7 +240,10 @@ export function DashboardPage({ selectedMonth }) {
           <DirectionHealthPanel items={directionStats} selectedMonth={selectedMonth} />
 
           <section className="grid gap-4 xl:grid-cols-2">
-            <ChartPanel title="Instagram підписники помісячно">
+            <ChartPanel
+              title="Instagram підписники помісячно"
+              tooltip="Бере значення з KPI-бази Notion: кожна місячна колонка показує фактичну кількість підписників на кінець місяця. Підпис +n/-n показує зміну до попереднього місяця."
+            >
               {hasSeriesData(instagramSeries) ? (
                 <ResponsiveContainer width="100%" height={280}>
                   <LineChart data={instagramSeries} margin={{ top: 24, right: 20 }}>
@@ -250,7 +272,10 @@ export function DashboardPage({ selectedMonth }) {
               )}
             </ChartPanel>
 
-            <ChartPanel title="Медіа згадки помісячно">
+            <ChartPanel
+              title="Медіа згадки: помісячна динаміка"
+              tooltip="Цей графік бере значення з KPI-бази, якщо є ціль/рядок про медіа згадки. Окремий блок нижче показує mock Looqme coverage."
+            >
               {hasSeriesData(mediaSeries) ? (
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={mediaSeries}>
@@ -274,7 +299,10 @@ export function DashboardPage({ selectedMonth }) {
               )}
             </ChartPanel>
 
-            <ChartPanel title="Органічний трафік помісячно">
+            <ChartPanel
+              title="Трафік із сайту: органічний"
+              tooltip="Показує органічний трафік сайту з KPI-бази Notion, якщо для цієї метрики заповнені місячні значення."
+            >
               {hasSeriesData(trafficSeries) ? (
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={trafficSeries}>
@@ -298,7 +326,10 @@ export function DashboardPage({ selectedMonth }) {
               )}
             </ChartPanel>
 
-            <ChartPanel title="Personal Brands фоловери">
+            <ChartPanel
+              title="Personal Brands фоловери"
+              tooltip="Дані беруться з Excel-таблиці вимірювання результатів. Річна ціль = 100%, а значення місяця показує фактичну кількість фоловерів."
+            >
               {personalBrands.length ? (
                 <div className="space-y-4">
                   {personalBrands.map((item) => (
@@ -372,8 +403,8 @@ export function DashboardPage({ selectedMonth }) {
                 </div>
               </div>
               <div className="mt-4 space-y-3">
-                {events.length ? (
-                  events.slice(0, 5).map((event) => (
+                {sortedEvents.length ? (
+                  sortedEvents.slice(0, 6).map((event) => (
                     <div
                       key={event.id}
                       className="flex flex-col gap-1 border-b border-slate-100 pb-3 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
@@ -381,11 +412,12 @@ export function DashboardPage({ selectedMonth }) {
                       <div>
                         <p className="font-medium text-slate-950">{event.title}</p>
                         <p className="text-sm text-slate-500">
-                          {event.type || 'Івент'} · {event.role || 'Visitor'}
+                          {formatEventDate(event)} · {event.type || 'Івент'} ·{' '}
+                          {event.role === 'Owner' ? 'організуємо ми' : 'беремо участь'}
                         </p>
                       </div>
                       <span className="text-sm font-medium text-slate-700">
-                        {event.contacts || 0} контактів
+                        {event.contacts || 0} лідів
                       </span>
                     </div>
                   ))
@@ -396,20 +428,44 @@ export function DashboardPage({ selectedMonth }) {
             </div>
 
             <div className="rounded-lg border border-slate-200 bg-white px-5 py-5">
-              <h2 className="text-base font-semibold text-slate-950">
-                Медіа кавередж
-              </h2>
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                {(coverage.mentions || []).map((item) => (
-                  <div key={item.brand} className="rounded-md bg-slate-50 px-3 py-3">
-                    <p className="text-sm font-medium text-slate-950">{item.brand}</p>
-                    <p className="mt-1 text-xl font-semibold text-slate-950">
-                      {item.count}
-                    </p>
-                    <p className="text-xs text-slate-500">згадки</p>
-                  </div>
-                ))}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-950">
+                    Медіа кавередж
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Наші згадки окремо від конкурентного бенчмарку.
+                  </p>
+                </div>
+                <InfoTooltip text="Поки блок працює на mock Looqme-даних. Donut нижче показує тональність наших згадок, а картки розділяють Universe Group і конкурентів." />
               </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-md bg-blue-50 px-3 py-3 ring-1 ring-inset ring-blue-100">
+                  <p className="text-sm font-medium text-slate-950">Наш бренд</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-950">
+                    {mediaCoverage.ownTotal}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {(mediaCoverage.own || [])
+                      .map((item) => `${item.brand}: ${item.count}`)
+                      .join(' · ') || 'даних немає'}
+                  </p>
+                </div>
+                <div className="rounded-md bg-slate-50 px-3 py-3 ring-1 ring-inset ring-slate-200">
+                  <p className="text-sm font-medium text-slate-950">Конкуренти</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-950">
+                    {mediaCoverage.competitorTotal}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {(mediaCoverage.competitors || [])
+                      .map((item) => `${item.brand}: ${item.count}`)
+                      .join(' · ') || 'даних немає'}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-4 text-sm font-medium text-slate-700">
+                Тональність наших згадок
+              </p>
               <div className="mt-4 h-56">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -440,7 +496,7 @@ export function DashboardPage({ selectedMonth }) {
                   Board Report Generator
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Збирає KPI, Monthly Focus, Events та media coverage за місяць.
+                  Збирає KPI, monthly focus, івенти та медіа за вибраний місяць.
                 </p>
               </div>
               <button
@@ -536,16 +592,64 @@ function formatChartNumber(value) {
   return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(value)
 }
 
+function formatEventDate(event) {
+  const date = parseEventDate(event)
+  if (!date) return event.date || 'без дати'
+
+  return date.toLocaleDateString('uk-UA', {
+    day: '2-digit',
+    month: 'short',
+  })
+}
+
+function sortEventsForDashboard(events) {
+  const today = startOfDay(new Date())
+
+  return [...events].sort((left, right) => {
+    const leftDate = parseEventDate(left)
+    const rightDate = parseEventDate(right)
+
+    if (!leftDate && !rightDate) return 0
+    if (!leftDate) return 1
+    if (!rightDate) return -1
+
+    const leftUpcoming = leftDate >= today
+    const rightUpcoming = rightDate >= today
+
+    if (leftUpcoming !== rightUpcoming) return leftUpcoming ? -1 : 1
+    return leftUpcoming ? leftDate - rightDate : rightDate - leftDate
+  })
+}
+
+function parseEventDate(event) {
+  if (event.rawDate) {
+    const date = new Date(event.rawDate)
+    return Number.isNaN(date.getTime()) ? null : startOfDay(date)
+  }
+
+  if (!event.date) return null
+  const [day, month, year] = String(event.date).split('.').map(Number)
+  if (!day || !month || !year) return null
+
+  return startOfDay(new Date(year, month - 1, day))
+}
+
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
 function DirectionHealthPanel({ items, selectedMonth }) {
+  const monthName = selectedMonth.split(' ')[0]
+
   return (
     <section className="rounded-lg border border-slate-200 bg-white">
       <div className="flex flex-col gap-1 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-base font-semibold text-slate-950">
-            KPI health по напрямах
+            Стан KPI по напрямах
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Зріз для управлінського апдейту: план, ризики і готовність даних за {selectedMonth}.
+            Де все йде в темпі року, а де бракує даних або є відставання.
           </p>
         </div>
       </div>
@@ -554,10 +658,30 @@ function DirectionHealthPanel({ items, selectedMonth }) {
           <thead>
             <tr className="text-xs uppercase tracking-wide text-slate-500">
               <th className="px-3 py-3 font-semibold">Напрямок</th>
-              <th className="px-3 py-3 font-semibold">На плані</th>
-              <th className="px-3 py-3 font-semibold">Ризик</th>
-              <th className="px-3 py-3 font-semibold">Дані за місяць</th>
-              <th className="px-3 py-3 font-semibold">Середній прогрес</th>
+              <th className="px-3 py-3 font-semibold">
+                <HeaderWithInfo
+                  label="У темпі року"
+                  text={`Для ${monthName} порівнюємо прогрес KPI з очікуваною часткою року. Якщо прогрес не нижчий за цей темп, KPI рахується “у темпі”.`}
+                />
+              </th>
+              <th className="px-3 py-3 font-semibold">
+                <HeaderWithInfo
+                  label="Відстають"
+                  text="KPI потрапляє сюди, якщо його прогрес нижчий за очікуваний темп року більш ніж на 5 процентних пунктів."
+                />
+              </th>
+              <th className="px-3 py-3 font-semibold">
+                <HeaderWithInfo
+                  label={`Заповнено за ${monthName}`}
+                  text="Скільки KPI мають значення у місячній колонці Notion для вибраного місяця."
+                />
+              </th>
+              <th className="px-3 py-3 font-semibold">
+                <HeaderWithInfo
+                  label="До річної цілі"
+                  text="Середній прогрес KPI напряму до річної цілі. Для накопичувальних KPI береться сума місяців, для решти - останнє доступне значення."
+                />
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -567,7 +691,7 @@ function DirectionHealthPanel({ items, selectedMonth }) {
                   <DirectionBadge direction={item.direction} />
                 </td>
                 <td className="whitespace-nowrap px-3 py-4 font-medium text-slate-950">
-                  {item.measured ? `${item.onTrack}/${item.measured}` : '—'}
+                  {item.measured ? `${item.onTrack} з ${item.measured} KPI` : '—'}
                 </td>
                 <td className="whitespace-nowrap px-3 py-4">
                   <span
@@ -577,11 +701,11 @@ function DirectionHealthPanel({ items, selectedMonth }) {
                         : 'bg-emerald-50 text-emerald-700 ring-emerald-200'
                     }`}
                   >
-                    {item.atRisk ? `${item.atRisk} у ризику` : 'без критичних ризиків'}
+                    {item.atRisk ? `${item.atRisk} відстає` : 'не відстають'}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-4 text-slate-600">
-                  {item.updated}/{item.measurable} KPI оновлено
+                  {item.updated} з {item.measurable} KPI
                 </td>
                 <td className="min-w-48 px-3 py-4">
                   <div className="flex items-center gap-3">
@@ -603,10 +727,22 @@ function DirectionHealthPanel({ items, selectedMonth }) {
   )
 }
 
-function ChartPanel({ title, children }) {
+function HeaderWithInfo({ label, text }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {label}
+      <InfoTooltip text={text} />
+    </span>
+  )
+}
+
+function ChartPanel({ title, children, tooltip }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-5 py-5">
-      <h2 className="text-base font-semibold text-slate-950">{title}</h2>
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-base font-semibold text-slate-950">{title}</h2>
+        <InfoTooltip text={tooltip} />
+      </div>
       <div className="mt-4">{children}</div>
     </div>
   )

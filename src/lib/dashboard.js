@@ -66,6 +66,10 @@ export function executiveSummary({ goals, focus, events, coverage, selectedMonth
     (sum, item) => sum + Number(item.count || 0),
     0,
   )
+  const ownMentionsTotal = (coverage.mentions || [])
+    .filter((item) => isOwnBrand(item.brand))
+    .reduce((sum, item) => sum + Number(item.count || 0), 0)
+  const competitorMentionsTotal = Math.max(0, mentionsTotal - ownMentionsTotal)
   const positiveSentiment = (coverage.sentiment || []).find(
     (item) => String(item.name || '').toLowerCase() === 'позитив',
   )
@@ -101,8 +105,28 @@ export function executiveSummary({ goals, focus, events, coverage, selectedMonth
     eventsTotal: events.length,
     eventsWithMetrics,
     mentionsTotal,
+    ownMentionsTotal,
+    competitorMentionsTotal,
     positiveShare,
     coverageSource: coverage.source || 'mock',
+  }
+}
+
+export function mediaCoverageSummary(coverage) {
+  const mentions = coverage.mentions || []
+  const own = mentions.filter((item) => isOwnBrand(item.brand))
+  const competitors = mentions.filter((item) => !isOwnBrand(item.brand))
+  const ownTotal = own.reduce((sum, item) => sum + Number(item.count || 0), 0)
+  const competitorTotal = competitors.reduce(
+    (sum, item) => sum + Number(item.count || 0),
+    0,
+  )
+
+  return {
+    own,
+    competitors,
+    ownTotal,
+    competitorTotal,
   }
 }
 
@@ -289,4 +313,8 @@ function formatDeltaNumber(value) {
   return new Intl.NumberFormat('uk-UA', {
     maximumFractionDigits: 0,
   }).format(value)
+}
+
+function isOwnBrand(brand) {
+  return String(brand || '').toLowerCase().includes('universe')
 }
