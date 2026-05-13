@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Plus, Save, Search, SlidersHorizontal } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import {
   AMEC_OPTIONS,
   DIRECTIONS,
@@ -27,8 +28,8 @@ const initialGoal = {
 }
 
 export function GoalsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [form, setForm] = useState(initialGoal)
-  const [directionFilter, setDirectionFilter] = useState('Усі')
   const [typeFilter, setTypeFilter] = useState('Усі')
   const [searchQuery, setSearchQuery] = useState('')
   const [saving, setSaving] = useState(false)
@@ -44,6 +45,7 @@ export function GoalsPage() {
     [],
   )
 
+  const directionFilter = validDirectionFilter(searchParams.get('direction'))
   const goals = useMemo(() => data?.goals || [], [data])
   const visibleGoals = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -108,6 +110,16 @@ export function GoalsPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  function handleDirectionFilterChange(value) {
+    const nextParams = new URLSearchParams(searchParams)
+    if (value === 'Усі') {
+      nextParams.delete('direction')
+    } else {
+      nextParams.set('direction', value)
+    }
+    setSearchParams(nextParams, { replace: true })
   }
 
   return (
@@ -277,7 +289,9 @@ export function GoalsPage() {
               <SlidersHorizontal className="h-4 w-4" />
               <select
                 value={directionFilter}
-                onChange={(event) => setDirectionFilter(event.target.value)}
+                onChange={(event) =>
+                  handleDirectionFilterChange(event.target.value)
+                }
                 className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-[#4361ee] focus:ring-2 focus:ring-blue-100"
               >
                 <option>Усі</option>
@@ -458,3 +472,7 @@ const metricTypeHelp = [
     text: 'Сума за місяці до річної цілі: наприклад контакти чи згадки за рік.',
   },
 ]
+
+function validDirectionFilter(value) {
+  return DIRECTIONS.includes(value) ? value : 'Усі'
+}

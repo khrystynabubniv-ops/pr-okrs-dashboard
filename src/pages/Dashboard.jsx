@@ -16,6 +16,7 @@ import {
   YAxis,
 } from 'recharts'
 import { ClipboardCopy, FileText, Save } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { DirectionBadge } from '../components/Badge'
 import { InfoTooltip } from '../components/InfoTooltip'
 import { MetricCard } from '../components/MetricCard'
@@ -31,8 +32,16 @@ import {
   mediaCoverageSummary,
   personalBrandBars,
 } from '../lib/dashboard'
+import {
+  eventLeadLabel,
+  eventStatusMeta,
+  eventSummaryStats,
+  parseEventDate,
+  startOfDay,
+} from '../lib/events'
 
 export function DashboardPage({ selectedMonth }) {
+  const navigate = useNavigate()
   const [report, setReport] = useState(null)
   const [reportLoading, setReportLoading] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
@@ -122,11 +131,28 @@ export function DashboardPage({ selectedMonth }) {
     [coverage],
   )
   const sortedEvents = useMemo(() => sortEventsForDashboard(events), [events])
+  const eventStats = useMemo(() => eventSummaryStats(events), [events])
+  const instagramAxis = useMemo(
+    () => getInstagramYAxisConfig(instagramSeries),
+    [instagramSeries],
+  )
 
   const totalContacts = events.reduce(
     (sum, event) => sum + Number(event.contacts || 0),
     0,
   )
+  const eventsLeadSummary =
+    executive.totalLeads > 0
+      ? `${executive.totalLeads} лідів підтягнуто з Activities`
+      : eventStats.completed
+        ? '0 лідів підтягнуто з Activities'
+        : 'Leads is coming'
+  const eventsContactsSummary =
+    totalContacts > 0
+      ? `${totalContacts} контактів`
+      : eventStats.completed
+        ? '0 контактів у вже проведених'
+        : 'Leads is coming'
 
   async function generateReport() {
     setReportLoading(true)
@@ -176,6 +202,10 @@ export function DashboardPage({ selectedMonth }) {
     setSaveStatus('Скопійовано')
   }
 
+  function openDirectionGoals(direction) {
+    navigate(`/goals?direction=${encodeURIComponent(direction)}`)
+  }
+
   return (
     <div className="space-y-6">
       {dashboardQuery.loading ? <LoadingState /> : null}
@@ -211,13 +241,13 @@ export function DashboardPage({ selectedMonth }) {
               tooltip="Береться з Monthly Focuses у Notion за вибраний місяць. Закрито = у записі стоїть чекбокс Goal achieved."
               tone={executive.focusOpen ? 'orange' : 'green'}
             />
-            <MetricCard
-              label="Івенти місяця"
-              value={executive.eventsTotal}
-              unit="івентів"
-              detail={`${executive.ownerEvents} організуємо ми; ${executive.totalLeads} лідів підтягнуто з Activities.`}
+            <EventsMetricCard
+              total={executive.eventsTotal}
+              completed={eventStats.completed}
+              owner={executive.ownerEvents}
+              participating={eventStats.participating}
+              leadSummary={eventsLeadSummary}
               tooltip="Івенти беруться з календаря івентів. “Організуємо ми” означає роль Owner у календарі. Ліди беруться з Lead count в Activities, якщо той самий івент вдалося зіставити."
-              tone="accent"
             />
             <MetricCard
               label="Наші медіа згадки"
@@ -237,7 +267,11 @@ export function DashboardPage({ selectedMonth }) {
             />
           </section>
 
-          <DirectionHealthPanel items={directionStats} selectedMonth={selectedMonth} />
+          <DirectionHealthPanel
+            items={directionStats}
+            selectedMonth={selectedMonth}
+            onDirectionOpen={openDirectionGoals}
+          />
 
           <section className="grid gap-4 xl:grid-cols-2">
             <ChartPanel
@@ -246,10 +280,21 @@ export function DashboardPage({ selectedMonth }) {
             >
               {hasSeriesData(instagramSeries) ? (
                 <ResponsiveContainer width="100%" height={280}>
-                  <LineChart data={instagramSeries} margin={{ top: 24, right: 20 }}>
+                  <LineChart
+                    data={instagramSeries}
+                    margin={{ top: 24, right: 20, left: 4 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="month" tickLine={false} axisLine={false} />
-                    <YAxis tickLine={false} axisLine={false} width={56} />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      width={64}
+                      domain={instagramAxis.domain}
+                      ticks={instagramAxis.ticks}
+                      tickFormatter={formatChartNumber}
+                      allowDecimals={false}
+                    />
                     <Tooltip content={<MonthlyTooltip metricLabel="Підписники" />} />
                     <Line
                       type="monotone"
@@ -398,28 +443,14 @@ export function DashboardPage({ selectedMonth }) {
                     Івенти місяця
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    {events.length} івентів · {totalContacts} контактів
+                    {events.length} івентів · {eventsContactsSummary}
                   </p>
                 </div>
               </div>
               <div className="mt-4 space-y-3">
                 {sortedEvents.length ? (
                   sortedEvents.slice(0, 6).map((event) => (
-                    <div
-                      key={event.id}
-                      className="flex flex-col gap-1 border-b border-slate-100 pb-3 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div>
-                        <p className="font-medium text-slate-950">{event.title}</p>
-                        <p className="text-sm text-slate-500">
-                          {formatEventDate(event)} · {event.type || 'Івент'} ·{' '}
-                          {event.role === 'Owner' ? 'організуємо ми' : 'беремо участь'}
-                        </p>
-                      </div>
-                      <span className="text-sm font-medium text-slate-700">
-                        {event.contacts || 0} лідів
-                      </span>
-                    </div>
+                    <EventMonthRow key={event.id} event={event} />
                   ))
                 ) : (
                   <EmptyState title="Немає івентів" />
@@ -550,6 +581,74 @@ export function DashboardPage({ selectedMonth }) {
   )
 }
 
+function EventMonthRow({ event }) {
+  const status = eventStatusMeta(event)
+  const leads = eventLeadLabel(event)
+
+  return (
+    <div className="flex flex-col gap-2 border-b border-slate-100 pb-3 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-medium text-slate-950">{event.title}</p>
+          <span
+            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${status.className}`}
+          >
+            {status.label}
+          </span>
+        </div>
+        <p className="text-sm text-slate-500">
+          {formatEventDate(event)} · {event.type || 'Івент'} ·{' '}
+          {event.role === 'Owner' ? 'організуємо ми' : 'беремо участь'}
+        </p>
+      </div>
+      <span className={`text-sm font-medium ${leads.className}`}>{leads.text}</span>
+    </div>
+  )
+}
+
+function EventsMetricCard({
+  total,
+  completed,
+  owner,
+  participating,
+  leadSummary,
+  tooltip,
+}) {
+  return (
+    <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-4">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Івенти місяця
+        </p>
+        <InfoTooltip text={tooltip} />
+      </div>
+      <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <p className="text-3xl font-semibold leading-none text-slate-950">{total}</p>
+        <span className="text-3xl font-semibold leading-none text-blue-300">/</span>
+        <p className="text-3xl font-semibold leading-none text-emerald-700">
+          {completed}
+        </p>
+        <span className="text-sm font-semibold leading-5 text-slate-600">
+          виконано
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-blue-100">
+          <p className="font-medium text-slate-500">Own</p>
+          <p className="mt-0.5 text-sm font-semibold text-slate-950">{owner}</p>
+        </div>
+        <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-blue-100">
+          <p className="font-medium text-slate-500">Participate</p>
+          <p className="mt-0.5 text-sm font-semibold text-slate-950">
+            {participating}
+          </p>
+        </div>
+      </div>
+      <p className="mt-2 text-xs leading-4 text-slate-500">{leadSummary}</p>
+    </div>
+  )
+}
+
 function DeltaLabel({ x, y, value }) {
   if (!value || x === undefined || y === undefined) return null
 
@@ -621,24 +720,39 @@ function sortEventsForDashboard(events) {
   })
 }
 
-function parseEventDate(event) {
-  if (event.rawDate) {
-    const date = new Date(event.rawDate)
-    return Number.isNaN(date.getTime()) ? null : startOfDay(date)
+function getInstagramYAxisConfig(series) {
+  const baseline = 10000
+  const values = series
+    .map((item) => item.value)
+    .filter((value) => typeof value === 'number' && Number.isFinite(value))
+  const maxValue = Math.max(baseline, ...values)
+  const rawStep = Math.max(1, (maxValue - baseline) / 4)
+  const step = niceChartStep(rawStep)
+  const top = Math.max(baseline + step * 4, Math.ceil(maxValue / step) * step)
+  const ticks = []
+
+  for (let value = baseline; value <= top + step / 2; value += step) {
+    ticks.push(value)
   }
 
-  if (!event.date) return null
-  const [day, month, year] = String(event.date).split('.').map(Number)
-  if (!day || !month || !year) return null
-
-  return startOfDay(new Date(year, month - 1, day))
+  return {
+    domain: [baseline, top],
+    ticks,
+  }
 }
 
-function startOfDay(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+function niceChartStep(rawStep) {
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep))
+  const normalized = rawStep / magnitude
+
+  if (normalized <= 1) return magnitude
+  if (normalized <= 2) return 2 * magnitude
+  if (normalized <= 2.5) return 2.5 * magnitude
+  if (normalized <= 5) return 5 * magnitude
+  return 10 * magnitude
 }
 
-function DirectionHealthPanel({ items, selectedMonth }) {
+function DirectionHealthPanel({ items, selectedMonth, onDirectionOpen }) {
   const monthName = selectedMonth.split(' ')[0]
 
   return (
@@ -686,7 +800,20 @@ function DirectionHealthPanel({ items, selectedMonth }) {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {items.map((item) => (
-              <tr key={item.direction}>
+              <tr
+                key={item.direction}
+                role="link"
+                tabIndex={0}
+                title={`Відкрити KPI цілі: ${item.direction}`}
+                onClick={() => onDirectionOpen(item.direction)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    onDirectionOpen(item.direction)
+                  }
+                }}
+                className="cursor-pointer transition hover:bg-blue-50/60 focus:bg-blue-50 focus:outline-none"
+              >
                 <td className="px-3 py-4">
                   <DirectionBadge direction={item.direction} />
                 </td>

@@ -4,6 +4,7 @@ import { EmptyState, ErrorState, LoadingState } from '../components/Status'
 import { MetricCard } from '../components/MetricCard'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { apiRequest } from '../lib/api'
+import { eventLeadLabel, eventStatusMeta } from '../lib/events'
 
 export function EventsPage({ selectedMonth }) {
   const { data, loading, error, retry } = useAsyncData(
@@ -99,60 +100,72 @@ export function EventsPage({ selectedMonth }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {events.map((event) => (
-                        <tr key={event.id}>
-                          <td className="max-w-xs px-3 py-4 font-medium text-slate-950">
-                            {event.title}
-                            {event.metricsMatched ? (
-                              <p className="mt-1 text-xs font-normal text-emerald-700">
-                                метрики з Activities
-                              </p>
-                            ) : null}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-slate-600">
-                            {event.type || '—'}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-slate-600">
-                            {event.date || '—'}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-4">
-                            <span
-                              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${
-                                event.role === 'Owner'
-                                  ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-                                  : 'bg-slate-50 text-slate-700 ring-slate-200'
-                              }`}
-                            >
-                              {event.role || 'Visitor'}
-                            </span>
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-slate-600">
-                            {event.goal || '—'}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-slate-600">
-                            {event.recruiterCount || '—'}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-slate-950">
-                            <span className="inline-flex items-center gap-2">
-                              <Users className="h-4 w-4 text-slate-400" />
-                              {event.contacts || 0}
-                            </span>
-                          </td>
-                          <td className="px-3 py-4 text-slate-600">
-                            {event.audience || '—'}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-slate-600">
-                            {event.metricsMatched ? (
-                              <span>
-                                A:{event.applyCount || 0} · S:{event.selectCount || 0} · H:
-                                {event.hireCount || 0}
+                      {events.map((event) => {
+                        const status = eventStatusMeta(event)
+                        const leads = eventLeadLabel(event)
+
+                        return (
+                          <tr key={event.id}>
+                            <td className="max-w-xs px-3 py-4 font-medium text-slate-950">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span>{event.title}</span>
+                                <span
+                                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${status.className}`}
+                                >
+                                  {status.label}
+                                </span>
+                              </div>
+                              {event.metricsMatched ? (
+                                <p className="mt-1 text-xs font-normal text-emerald-700">
+                                  метрики з Activities
+                                </p>
+                              ) : null}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                              {event.type || '—'}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                              {event.date || '—'}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4">
+                              <span
+                                className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${
+                                  event.role === 'Owner'
+                                    ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                                    : 'bg-slate-50 text-slate-700 ring-slate-200'
+                                }`}
+                              >
+                                {event.role || 'Visitor'}
                               </span>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                              {event.goal || '—'}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                              {event.recruiterCount || '—'}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 text-slate-950">
+                              <span className="inline-flex items-center gap-2">
+                                <Users className="h-4 w-4 text-slate-400" />
+                                <span className={leads.className}>{leads.text}</span>
+                              </span>
+                            </td>
+                            <td className="px-3 py-4 text-slate-600">
+                              {event.audience || '—'}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                              {event.metricsMatched ? (
+                                <span>
+                                  A:{event.applyCount || 0} · S:
+                                  {event.selectCount || 0} · H:{event.hireCount || 0}
+                                </span>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
