@@ -32,7 +32,10 @@ export function getProgress(goal) {
   }
 
   const target = parseMetricNumber(goal.target)
-  const current = parseMetricNumber(goal.currentValue)
+  const current =
+    goal.metricType === 'Відсоткова'
+      ? parsePercentMetricNumber(goal.currentValue)
+      : parseMetricNumber(goal.currentValue)
 
   if (!target || Number.isNaN(target)) return 0
   return Math.max(0, Math.min(100, Math.round((current / target) * 100)))
@@ -54,12 +57,18 @@ export function parseMetricNumber(value) {
 
 export function formatMetricValue(goal) {
   if (!goal) return '0'
+  const value = goal.currentValue
+  const text = String(value ?? '').trim()
+
+  if (!text || text === '-' || text === '—') return '—'
 
   if (goal.metricType === 'Відсоткова') {
-    return `${goal.currentValue || 0}%`
+    if (text.includes('%')) return text
+    if (!/-?\d/.test(text)) return text
+    return `${text}%`
   }
 
-  return goal.currentValue || goal.currentValue === 0 ? goal.currentValue : '—'
+  return value || value === 0 ? value : '—'
 }
 
 export function displayTarget(goal) {
@@ -74,4 +83,16 @@ export function displayTarget(goal) {
   }
 
   return goal.target || '—'
+}
+
+function parsePercentMetricNumber(value) {
+  const text = String(value || '').trim()
+  const percentMatches = [...text.matchAll(/(-?\d[\d\s\u00a0]*(?:[.,]\d+)?)\s*%/g)]
+
+  if (percentMatches.length) {
+    const lastPercentValue = percentMatches[percentMatches.length - 1][1]
+    return parseMetricNumber(lastPercentValue)
+  }
+
+  return parseMetricNumber(value)
 }

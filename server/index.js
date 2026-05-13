@@ -159,6 +159,17 @@ function propertyMultiSelect(property) {
     : []
 }
 
+function propertyPeopleOptions(property) {
+  if (!property || property.type !== 'people') return []
+
+  return property.people
+    .map((person) => ({
+      id: person.id,
+      label: person.name || person.person?.email || person.id,
+    }))
+    .filter((person) => person.id && person.label)
+}
+
 function propertyCheckbox(property) {
   if (!property) return false
   if (property.type === 'checkbox') return Boolean(property.checkbox)
@@ -202,6 +213,10 @@ function richTextProperty(value) {
 
 function selectProperty(value) {
   return value ? { select: { name: String(value) } } : { select: null }
+}
+
+function statusProperty(value) {
+  return value ? { status: { name: String(value) } } : { status: null }
 }
 
 function multiSelectProperty(values) {
@@ -309,9 +324,6 @@ function normalizeGoal(page) {
       'Target',
     ]),
   )
-  const metricType =
-    propertyText(getProperty(properties, ['MetricType', 'Metric Type', 'Тип метрики'])) ||
-    inferMetricType(targetText)
   const target = propertyNumber(
     getProperty(properties, [
       'AnnualTarget',
@@ -320,6 +332,9 @@ function normalizeGoal(page) {
       'Ціль 100%',
       'Target',
     ]),
+  )
+  const explicitMetricType = propertyText(
+    getProperty(properties, ['MetricType', 'Metric Type', 'Тип метрики']),
   )
   const monthlyValues = Object.fromEntries(
     Object.entries(MONTH_PROPERTY_NAMES).map(([month, propertyName]) => [
@@ -344,9 +359,17 @@ function normalizeGoal(page) {
     )
   const currentValue =
     explicitCurrentValue ||
-    (metricType === 'Накопичувальна'
+    (explicitMetricType === 'Накопичувальна'
       ? sumMonthlyValues(values)
       : latestMonthlyValue(values))
+  const inferredMetricType = inferMetricType(targetText, currentValue, values)
+  const metricType = shouldUseInferredMetricType(
+    explicitMetricType,
+    targetText,
+    inferredMetricType,
+  )
+    ? inferredMetricType
+    : explicitMetricType
 
   return {
     id: page.id,
@@ -368,14 +391,33 @@ function normalizeGoal(page) {
   }
 }
 
-function inferMetricType(targetText) {
+function inferMetricType(targetText, currentValue, values = {}) {
   const value = String(targetText || '').trim().toLowerCase()
-  if (!value) return 'Кількісна'
-  if (value.includes('%')) return 'Відсоткова'
-  if (['так', 'ні', 'yes', 'no', 'done'].some((token) => value.includes(token))) {
+  const samples = [targetText, currentValue, ...Object.values(values)]
+    .map((item) => String(item || '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ')
+
+  if (samples.includes('%')) return 'Відсоткова'
+  if (
+    ['так', 'ні', 'yes', 'no', 'done', 'true', 'false', 'виконано', '✅'].some(
+      (token) => samples.includes(token),
+    )
+  ) {
     return 'Якісна'
   }
+  if (!value || value === '-' || value === '—') return 'Якісна'
   return 'Кількісна'
+}
+
+function shouldUseInferredMetricType(explicitMetricType, targetText, inferredMetricType) {
+  if (!explicitMetricType) return true
+  if (explicitMetricType !== 'Кількісна' || inferredMetricType !== 'Якісна') {
+    return false
+  }
+
+  const target = String(targetText || '').trim()
+  return !target || target === '-' || target === '—'
 }
 
 function latestMonthlyValue(values) {
@@ -399,15 +441,26 @@ function normalizeFocus(page) {
   const metricMatch = rawMetric.match(/^\[(.+?)]\s*(.*)$/)
   const months = propertyMultiSelect(getProperty(properties, ['Month', 'Місяць']))
   const fallbackMonth = propertyText(getProperty(properties, ['Month', 'Місяць']))
+  const ownerProperty = getProperty(properties, [
+    'Owner',
+    'Власник',
+    'Менеджер',
+    'Person',
+    'Відповідальний',
+  ])
+  const ownerPeople = propertyPeopleOptions(ownerProperty)
   const team = propertyText(
     getProperty(properties, ['Team', 'Direction', 'Напрямок', 'Команда']),
   )
   const title =
     propertyText(getProperty(properties, ['Name', 'Назва', 'Title'])) ||
     `${fallbackMonth || months[0] || 'Місяць'} · ${team || 'Команда'}`
-  const achieved = propertyCheckbox(
+  const rawStatus = propertyText(getProperty(properties, ['Status', 'Статус']))
+  const achievedFallback = propertyCheckbox(
     getProperty(properties, ['Goal achieved', 'Виконано', 'Achieved', 'Done?']),
   )
+  const status = normalizeFocusStatus(rawStatus, achievedFallback)
+  const achieved = status === 'Виконано'
   const comment = propertyText(
     getProperty(properties, ['Comment', 'Коментар', 'Notes', 'Нотатки']),
   )
@@ -420,11 +473,15 @@ function normalizeFocus(page) {
     months: months.length ? months : fallbackMonth ? [fallbackMonth] : [],
     team,
     direction: team,
+    owner: propertyText(ownerProperty),
+    ownerId: ownerPeople[0]?.id || '',
+    ownerIds: ownerPeople.map((person) => person.id),
     metricType:
       propertyText(getProperty(properties, ['MetricType', 'Тип метрики'])) ||
       metricMatch?.[1] ||
       '',
     metric: metricMatch?.[2] || rawMetric,
+    status,
     achieved,
     comment,
     person: propertyText(getProperty(properties, ['Person', 'Відповідальний'])),
@@ -437,6 +494,26 @@ function normalizeFocus(page) {
     linkedGoalIds: parseJsonProperty(getProperty(properties, ['LinkedGoals']), []),
     metricValues: parseJsonProperty(getProperty(properties, ['MetricValues']), {}),
   }
+}
+
+function normalizeFocusStatus(status, achievedFallback = false) {
+  const text = String(status || '').trim().toLowerCase()
+
+  if (!text) return achievedFallback ? 'Виконано' : 'Не виконано'
+
+  if (
+    ['не виконано', 'невиконано', 'not done', 'not completed', 'no', 'ні'].some(
+      (token) => text.includes(token),
+    )
+  ) {
+    return 'Не виконано'
+  }
+
+  return ['виконано', 'done', 'completed', 'complete', 'yes', 'так', 'true'].some(
+    (token) => text.includes(token),
+  )
+    ? 'Виконано'
+    : 'Не виконано'
 }
 
 function normalizeActivityEvent(page) {
@@ -650,6 +727,80 @@ function findSchemaProperty(schema, names) {
     .find(([, property]) => Boolean(property))
 }
 
+function schemaOptionNames(schema, names) {
+  const [, property] = findSchemaProperty(schema, names) || []
+  if (!property) return []
+
+  return propertyOptionNames(property)
+}
+
+function propertyOptionNames(property) {
+  if (property.type === 'select') {
+    return property.select?.options?.map((option) => option.name) || []
+  }
+
+  if (property.type === 'multi_select') {
+    return property.multi_select?.options?.map((option) => option.name) || []
+  }
+
+  if (property.type === 'status') {
+    return property.status?.options?.map((option) => option.name) || []
+  }
+
+  return []
+}
+
+function schemaStatusOptionName(schema, names, status) {
+  const [, property] = findSchemaProperty(schema, names) || []
+  return statusOptionName(property, status)
+}
+
+function statusOptionName(property, status) {
+  return (
+    propertyOptionNames(property).find(
+      (option) => normalizeFocusStatus(option) === status,
+    ) || status
+  )
+}
+
+function uniqueOptionNames(values) {
+  return Array.from(
+    new Set(
+      values
+        .flatMap((value) => String(value || '').split(','))
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
+function uniqueOwnerOptions(values) {
+  const seen = new Set()
+
+  return values
+    .flatMap((value) => {
+      if (!value) return []
+
+      if (typeof value === 'object') {
+        const label = String(value.label || value.name || '').trim()
+        const id = String(value.id || value.value || '').trim()
+        return label ? [{ id, label, value: id || label }] : []
+      }
+
+      return String(value)
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((label) => ({ id: '', label, value: label }))
+    })
+    .filter((option) => {
+      const key = option.value || option.label
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
+
 function addTitleProperty(properties, schema, names, value) {
   const [name, property] = findSchemaProperty(schema, names) || []
   if (!name) return
@@ -668,8 +819,12 @@ function addTextProperty(properties, schema, names, value) {
     properties[name] = selectProperty(value)
   } else if (property.type === 'multi_select') {
     properties[name] = multiSelectProperty(value)
+  } else if (property.type === 'status') {
+    properties[name] = statusProperty(value)
   } else if (property.type === 'number') {
     properties[name] = numberProperty(value)
+  } else if (property.type === 'people') {
+    return
   } else {
     properties[name] = richTextProperty(value)
   }
@@ -683,6 +838,10 @@ function addSelectProperty(properties, schema, names, value) {
     properties[name] = multiSelectProperty(value)
   } else if (property.type === 'select') {
     properties[name] = selectProperty(Array.isArray(value) ? value[0] : value)
+  } else if (property.type === 'status') {
+    properties[name] = statusProperty(Array.isArray(value) ? value[0] : value)
+  } else if (property.type === 'people') {
+    return
   } else {
     properties[name] = richTextProperty(
       Array.isArray(value) ? value.join(', ') : value,
@@ -694,10 +853,79 @@ function addCheckboxProperty(properties, schema, names, value) {
   const [name, property] = findSchemaProperty(schema, names) || []
   if (!name) return
 
-  properties[name] =
-    property.type === 'checkbox'
-      ? checkboxProperty(value)
-      : richTextProperty(value ? 'Так' : 'Ні')
+  if (property.type === 'checkbox') {
+    properties[name] = checkboxProperty(value)
+  } else if (property.type === 'select') {
+    const status = value ? 'Виконано' : 'Не виконано'
+    properties[name] = selectProperty(statusOptionName(property, status))
+  } else if (property.type === 'status') {
+    const status = value ? 'Виконано' : 'Не виконано'
+    properties[name] = statusProperty(statusOptionName(property, status))
+  } else {
+    properties[name] = richTextProperty(value ? 'Так' : 'Ні')
+  }
+}
+
+function addOwnerProperty(properties, schema, names, owner, ownerId) {
+  const [name, property] = findSchemaProperty(schema, names) || []
+  if (!name) return
+
+  const ownerIds = Array.isArray(ownerId)
+    ? ownerId
+    : String(ownerId || '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+
+  if (property.type === 'people') {
+    if (ownerIds.length) {
+      properties[name] = { people: ownerIds.map((id) => ({ id })) }
+    }
+    return
+  }
+
+  addTextProperty(properties, schema, [name], owner)
+}
+
+function buildGoalProperties(schema, goal) {
+  const properties = {}
+  const targetValue = goal.metricType === 'Якісна' ? goal.criterion : goal.target
+
+  addTitleProperty(properties, schema, ['Ціль', 'Name', 'Goal', 'Назва', 'Title'], goal.title)
+  addSelectProperty(
+    properties,
+    schema,
+    ['Напрямок', 'Direction', 'Team', 'Команда'],
+    goal.direction,
+  )
+  addTextProperty(
+    properties,
+    schema,
+    ['MetricType', 'Metric Type', 'Тип метрики'],
+    goal.metricType,
+  )
+  addTextProperty(
+    properties,
+    schema,
+    ['Річна ціль', 'AnnualTarget', 'Annual Target', 'Ціль 100%', 'Target'],
+    targetValue,
+  )
+  addSelectProperty(
+    properties,
+    schema,
+    ['Період заміру', 'MeasurementPeriod', 'Measurement Period'],
+    goal.measurementPeriod,
+  )
+  addTextProperty(
+    properties,
+    schema,
+    ['Джерело даних', 'DataSource', 'Data Source'],
+    goal.dataSource,
+  )
+  addSelectProperty(properties, schema, ['AMEC Framework', 'AMEC'], goal.framework)
+  addTextProperty(properties, schema, ['Owner', 'Власник', 'Менеджер'], goal.owner)
+
+  return properties
 }
 
 async function getFocusDatabaseId() {
@@ -735,7 +963,16 @@ async function createFocusDatabase() {
         Team: {
           select: { options: FOCUS_TEAMS.map((name) => ({ name, color: 'gray' })) },
         },
+        Owner: { select: { options: [] } },
         Metric: { rich_text: {} },
+        Status: {
+          select: {
+            options: [
+              { name: 'Не виконано', color: 'gray' },
+              { name: 'Виконано', color: 'green' },
+            ],
+          },
+        },
         'Goal achieved': { checkbox: {} },
         Comment: { rich_text: {} },
         CreatedAt: { created_time: {} },
@@ -753,28 +990,29 @@ app.get('/api/health', (_request, response) => {
 
 app.get('/api/notion/kpi-goals', asyncHandler(async (_request, response) => {
   const databaseId = getDatabaseId('NOTION_KPI_DB', 'KPI цілей')
-  const pages = await queryAllDatabase(databaseId)
-  response.json({ goals: pages.map(normalizeGoal) })
+  const [pages, schema] = await Promise.all([
+    queryAllDatabase(databaseId),
+    getDataSourceSchema(databaseId),
+  ])
+  const goals = pages.map(normalizeGoal)
+  const ownerOptions = uniqueOptionNames([
+    ...schemaOptionNames(schema, ['Owner', 'Власник', 'Менеджер']),
+    ...goals.map((goal) => goal.owner),
+  ])
+
+  response.json({ goals, ownerOptions })
 }))
 
 app.post('/api/notion/goals', asyncHandler(async (request, response) => {
   const notion = getNotion()
   const databaseId = getDatabaseId('NOTION_KPI_DB', 'KPI цілей')
   const goal = request.body
+  const schema = await getDataSourceSchema(databaseId)
+  const properties = buildGoalProperties(schema, goal)
 
   const page = await notion.pages.create({
     parent: await dataSourceParent(databaseId),
-    properties: {
-      Ціль: titleProperty(goal.title),
-      Напрямок: selectProperty(goal.direction),
-      'Річна ціль': richTextProperty(
-        goal.metricType === 'Якісна' ? goal.criterion : goal.target,
-      ),
-      'Період заміру': selectProperty(goal.measurementPeriod),
-      'Джерело даних': richTextProperty(goal.dataSource),
-      'AMEC Framework': selectProperty(goal.framework),
-      Менеджер: richTextProperty(goal.owner),
-    },
+    properties,
   })
 
   response.status(201).json({ goal: normalizeGoal(page) })
@@ -786,8 +1024,8 @@ app.patch('/api/notion/goals/:id', asyncHandler(async (request, response) => {
   const page = await notion.pages.retrieve({ page_id: request.params.id })
   const goal = normalizeGoal(page)
   const values = { ...(goal.values || {}), [month]: value }
-  const numericValue = Number(value)
-  const isNumeric = !Number.isNaN(numericValue)
+  const numericValue = parseMetricNumber(value)
+  const isNumeric = /-?\d/.test(String(value || ''))
   const monthProperty = MONTH_PROPERTY_NAMES[month]
 
   const properties = {}
@@ -822,7 +1060,10 @@ app.patch('/api/notion/goals/:id', asyncHandler(async (request, response) => {
 app.get('/api/notion/monthly-focus', asyncHandler(async (request, response) => {
   const databaseId = await getFocusDatabaseId()
   const month = request.query.month
-  const pages = await queryAllDatabase(databaseId)
+  const [pages, schema] = await Promise.all([
+    queryAllDatabase(databaseId),
+    getDataSourceSchema(databaseId),
+  ])
   const entries = pages
     .map(normalizeFocus)
     .filter((entry) => {
@@ -832,8 +1073,33 @@ app.get('/api/notion/monthly-focus', asyncHandler(async (request, response) => {
         : true
     })
     .map((entry) => (month ? { ...entry, month } : entry))
+  const ownerOptions = uniqueOwnerOptions([
+    ...schemaOptionNames(schema, ['Owner', 'Власник', 'Менеджер']),
+    ...pages.flatMap((page) =>
+      propertyPeopleOptions(
+        getProperty(page.properties || {}, [
+          'Owner',
+          'Власник',
+          'Менеджер',
+          'Person',
+          'Відповідальний',
+        ]),
+      ),
+    ),
+    ...pages.map((page) =>
+      propertyText(
+        getProperty(page.properties || {}, [
+          'Owner',
+          'Власник',
+          'Менеджер',
+          'Person',
+          'Відповідальний',
+        ]),
+      ),
+    ),
+  ])
 
-  response.json({ entries, focusDatabaseId: databaseId })
+  response.json({ entries, ownerOptions, focusDatabaseId: databaseId })
 }))
 
 app.post('/api/notion/monthly-focus', asyncHandler(async (request, response) => {
@@ -848,6 +1114,8 @@ app.post('/api/notion/monthly-focus', asyncHandler(async (request, response) => 
   const metric = [body.metricType ? `[${body.metricType}]` : '', body.metric]
     .filter(Boolean)
     .join(' ')
+  const status = normalizeFocusStatus(body.status, Boolean(body.achieved))
+  const notionStatus = schemaStatusOptionName(schema, ['Status', 'Статус'], status)
 
   const properties = {}
   addTitleProperty(properties, schema, ['Name', 'Назва', 'Title'], title)
@@ -858,12 +1126,20 @@ app.post('/api/notion/monthly-focus', asyncHandler(async (request, response) => 
     ['Team', 'Direction', 'Напрямок', 'Команда'],
     body.team || body.direction,
   )
+  addOwnerProperty(
+    properties,
+    schema,
+    ['Owner', 'Власник', 'Менеджер', 'Person', 'Відповідальний'],
+    body.owner,
+    body.ownerIds || body.ownerId,
+  )
   addTextProperty(properties, schema, ['Metric', 'Метрика успіху', 'Criteria'], metric)
+  addSelectProperty(properties, schema, ['Status', 'Статус'], notionStatus)
   addCheckboxProperty(
     properties,
     schema,
     ['Goal achieved', 'Виконано', 'Achieved', 'Done?'],
-    body.achieved,
+    status === 'Виконано',
   )
   addTextProperty(
     properties,

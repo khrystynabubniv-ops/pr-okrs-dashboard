@@ -1,10 +1,13 @@
 import { CalendarDays, Users } from 'lucide-react'
-import { EVENT_TYPES } from '../constants'
+import { InfoTooltip } from '../components/InfoTooltip'
 import { EmptyState, ErrorState, LoadingState } from '../components/Status'
 import { MetricCard } from '../components/MetricCard'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { apiRequest } from '../lib/api'
-import { eventLeadLabel, eventStatusMeta } from '../lib/events'
+import { eventLeadLabel, eventStatusMeta, sortEventsByDate } from '../lib/events'
+
+const CALENDAR_EVENTS_HELP =
+  'Дані з Notion Calendar Events, метрики підтягуються з Activities, якщо знайдено той самий івент.'
 
 export function EventsPage({ selectedMonth }) {
   const { data, loading, error, retry } = useAsyncData(
@@ -13,16 +16,12 @@ export function EventsPage({ selectedMonth }) {
     [selectedMonth],
   )
 
-  const events = data?.events || []
+  const events = sortEventsByDate(data?.events || [])
   const ownerEvents = events.filter((event) => event.role === 'Owner')
   const totalContacts = events.reduce(
     (sum, event) => sum + Number(event.contacts || 0),
     0,
   )
-  const breakdown = EVENT_TYPES.map((type) => ({
-    type,
-    count: events.filter((event) => eventMatchesType(event.type, type)).length,
-  }))
 
   return (
     <div className="space-y-6">
@@ -31,7 +30,7 @@ export function EventsPage({ selectedMonth }) {
 
       {!loading && !error ? (
         <>
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <MetricCard
               label="Всього івентів"
               value={events.length}
@@ -47,33 +46,18 @@ export function EventsPage({ selectedMonth }) {
             <MetricCard
               label="Контакти"
               value={totalContacts}
-              detail="зібрані ліди з Activities"
+              tooltip="Зібрані ліди з Activities."
               tone="orange"
             />
-            <div className="rounded-lg border border-slate-200 bg-white px-4 py-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Breakdown
-              </p>
-              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                {breakdown.map((item) => (
-                  <div key={item.type} className="flex items-center justify-between gap-2">
-                    <span className="truncate text-slate-500">{item.type}</span>
-                    <span className="font-semibold text-slate-950">{item.count}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
           </section>
 
           <section className="rounded-lg border border-slate-200 bg-white">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div>
-                <h2 className="text-base font-semibold text-slate-950">
+                <h2 className="inline-flex items-center gap-2 text-base font-semibold text-slate-950">
                   Календар івентів
+                  <InfoTooltip text={CALENDAR_EVENTS_HELP} />
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Дані з Notion Calendar Events, метрики підтягуються з Activities, якщо знайдено той самий івент.
-                </p>
               </div>
               <CalendarDays className="h-5 w-5 text-[#4361ee]" />
             </div>
@@ -93,10 +77,8 @@ export function EventsPage({ selectedMonth }) {
                         <th className="px-3 py-3 font-semibold">Дата</th>
                         <th className="px-3 py-3 font-semibold">Роль</th>
                         <th className="px-3 py-3 font-semibold">Ціль</th>
-                        <th className="px-3 py-3 font-semibold">Рекрутери</th>
                         <th className="px-3 py-3 font-semibold">Зібрані ліди</th>
                         <th className="px-3 py-3 font-semibold">Аудиторія</th>
-                        <th className="px-3 py-3 font-semibold">Метрики</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -135,14 +117,11 @@ export function EventsPage({ selectedMonth }) {
                                     : 'bg-slate-50 text-slate-700 ring-slate-200'
                                 }`}
                               >
-                                {event.role || 'Visitor'}
+                                {eventRoleLabel(event.role)}
                               </span>
                             </td>
                             <td className="whitespace-nowrap px-3 py-4 text-slate-600">
                               {event.goal || '—'}
-                            </td>
-                            <td className="whitespace-nowrap px-3 py-4 text-slate-600">
-                              {event.recruiterCount || '—'}
                             </td>
                             <td className="whitespace-nowrap px-3 py-4 text-slate-950">
                               <span className="inline-flex items-center gap-2">
@@ -152,16 +131,6 @@ export function EventsPage({ selectedMonth }) {
                             </td>
                             <td className="px-3 py-4 text-slate-600">
                               {event.audience || '—'}
-                            </td>
-                            <td className="whitespace-nowrap px-3 py-4 text-slate-600">
-                              {event.metricsMatched ? (
-                                <span>
-                                  A:{event.applyCount || 0} · S:
-                                  {event.selectCount || 0} · H:{event.hireCount || 0}
-                                </span>
-                              ) : (
-                                '—'
-                              )}
                             </td>
                           </tr>
                         )
@@ -178,11 +147,6 @@ export function EventsPage({ selectedMonth }) {
   )
 }
 
-function eventMatchesType(eventType, targetType) {
-  const value = String(eventType || '').toLowerCase()
-  const target = targetType.toLowerCase()
-
-  if (target.includes('ярмар')) return value.includes('ярмарк')
-  if (target.includes('партнер')) return value.includes('партнер')
-  return value.includes(target)
+function eventRoleLabel(role) {
+  return role === 'Owner' ? 'Owner' : 'Participant'
 }

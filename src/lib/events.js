@@ -11,6 +11,24 @@ export function parseEventDate(event) {
   return startOfDay(new Date(year, month - 1, day))
 }
 
+export function sortEventsByDate(events) {
+  return [...events].sort((left, right) => {
+    const leftDate = parseEventDate(left)
+    const rightDate = parseEventDate(right)
+
+    if (!leftDate && !rightDate) {
+      return String(left.title || '').localeCompare(String(right.title || ''), 'uk')
+    }
+    if (!leftDate) return 1
+    if (!rightDate) return -1
+
+    const dateDiff = leftDate - rightDate
+    if (dateDiff !== 0) return dateDiff
+
+    return String(left.title || '').localeCompare(String(right.title || ''), 'uk')
+  })
+}
+
 export function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }

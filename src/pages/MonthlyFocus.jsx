@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, Circle, Pencil, Plus, Save } from 'lucide-react'
+import { CheckCircle2, Pencil, Plus, Save } from 'lucide-react'
 import { FOCUS_TEAMS, METRIC_TYPES, MONTHS } from '../constants'
 import { Modal } from '../components/Modal'
 import { EmptyState, ErrorState, LoadingState } from '../components/Status'
@@ -10,6 +10,7 @@ export function MonthlyFocusPage({ selectedMonth }) {
   const [teamFilter, setTeamFilter] = useState('Усі')
   const [modalFocus, setModalFocus] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [updatingStatusId, setUpdatingStatusId] = useState(null)
   const [saved, setSaved] = useState(false)
   const [mutationError, setMutationError] = useState(null)
 
@@ -27,6 +28,14 @@ export function MonthlyFocusPage({ selectedMonth }) {
     return entries.filter((entry) => entry.team === teamFilter)
   }, [entries, teamFilter])
   const achievedCount = entries.filter((entry) => entry.achieved).length
+  const ownerOptions = useMemo(
+    () =>
+      uniqueOptions([
+        ...(focusQuery.data?.ownerOptions || []),
+        ...entries.map((entry) => entry.owner),
+      ]),
+    [entries, focusQuery.data],
+  )
 
   function openCreateModal() {
     setSaved(false)
@@ -44,9 +53,34 @@ export function MonthlyFocusPage({ selectedMonth }) {
       month: selectedMonth,
       metricType: entry.metricType || METRIC_TYPES[0],
       metric: entry.metric || '',
+      owner: entry.owner || '',
+      ownerId: entry.ownerId || '',
+      status: entry.status || statusFromAchieved(entry.achieved),
       achieved: Boolean(entry.achieved),
       comment: entry.comment || '',
     })
+  }
+
+  async function handleStatusChange(entry, status) {
+    setUpdatingStatusId(entry.id)
+    setMutationError(null)
+
+    try {
+      await apiRequest('/api/notion/monthly-focus', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...entry,
+          month: selectedMonth,
+          status,
+          achieved: status === 'Виконано',
+        }),
+      })
+      await focusQuery.retry()
+    } catch (error) {
+      setMutationError(error)
+    } finally {
+      setUpdatingStatusId(null)
+    }
   }
 
   async function handleSave(event) {
@@ -80,10 +114,6 @@ export function MonthlyFocusPage({ selectedMonth }) {
             <h2 className="text-base font-semibold text-slate-950">
               Фокуси на {selectedMonth}
             </h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-              Це короткі місячні цілі з Notion-бази Monthly Focuses: фокус,
-              критерій успіху, статус виконання і коментар, якщо щось не закрилось.
-            </p>
           </div>
           <button
             type="button"
@@ -135,9 +165,6 @@ export function MonthlyFocusPage({ selectedMonth }) {
             <h2 className="text-base font-semibold text-slate-950">
               Список фокусів
             </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Дані беруться з Notion і редагуються у тій самій сторінці.
-            </p>
           </div>
           <div className="p-5">
             {!visibleEntries.length ? (
@@ -152,6 +179,7 @@ export function MonthlyFocusPage({ selectedMonth }) {
                     <tr className="text-xs uppercase tracking-wide text-slate-500">
                       <th className="px-3 py-3 font-semibold">Фокус</th>
                       <th className="px-3 py-3 font-semibold">Команда</th>
+                      <th className="px-3 py-3 font-semibold">Owner</th>
                       <th className="px-3 py-3 font-semibold">Критерій</th>
                       <th className="px-3 py-3 font-semibold">Статус</th>
                       <th className="px-3 py-3 font-semibold">Коментар</th>
@@ -167,6 +195,9 @@ export function MonthlyFocusPage({ selectedMonth }) {
                         <td className="whitespace-nowrap px-3 py-4 text-slate-600">
                           {entry.team || '—'}
                         </td>
+                        <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                          {entry.owner || '—'}
+                        </td>
                         <td className="max-w-sm px-3 py-4 text-slate-600">
                           <span className="font-medium text-slate-700">
                             {entry.metricType || 'Критерій'}
@@ -176,7 +207,11 @@ export function MonthlyFocusPage({ selectedMonth }) {
                           ) : null}
                         </td>
                         <td className="whitespace-nowrap px-3 py-4">
-                          <FocusStatus achieved={entry.achieved} />
+                          <FocusStatusSelect
+                            value={entry.status || statusFromAchieved(entry.achieved)}
+                            disabled={updatingStatusId === entry.id}
+                            onChange={(status) => handleStatusChange(entry, status)}
+                          />
                         </td>
                         <td className="max-w-xs px-3 py-4 text-slate-600">
                           {entry.comment || '—'}
@@ -297,17 +332,48 @@ export function MonthlyFocusPage({ selectedMonth }) {
                 />
               </label>
             </div>
-            <label className="flex items-center gap-3 rounded-md border border-slate-200 px-3 py-3 text-sm font-medium text-slate-700">
-              <input
-                type="checkbox"
-                checked={modalFocus.achieved}
-                onChange={(event) =>
-                  setModalFocus({ ...modalFocus, achieved: event.target.checked })
-                }
-                className="h-4 w-4 rounded border-slate-300 text-[#4361ee] focus:ring-[#4361ee]"
-              />
-              Виконано
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="field">
+                <span>Owner</span>
+                <select
+                  value={modalFocus.ownerId || modalFocus.owner}
+                  onChange={(event) => {
+                    const option = ownerOptions.find(
+                      (owner) => owner.value === event.target.value,
+                    )
+                    setModalFocus({
+                      ...modalFocus,
+                      owner: option?.label || event.target.value,
+                      ownerId: option?.id || '',
+                    })
+                  }}
+                >
+                  <option value="">Без owner</option>
+                  {ownerOptions.map((owner) => (
+                    <option key={owner.value} value={owner.value}>
+                      {owner.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Статус</span>
+                <select
+                  value={modalFocus.status || statusFromAchieved(modalFocus.achieved)}
+                  onChange={(event) =>
+                    setModalFocus({
+                      ...modalFocus,
+                      status: event.target.value,
+                      achieved: event.target.value === 'Виконано',
+                    })
+                  }
+                >
+                  {FOCUS_STATUS_OPTIONS.map((status) => (
+                    <option key={status}>{status}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <label className="field">
               <span>Нотатки / причина, якщо не виконано</span>
               <textarea
@@ -333,6 +399,9 @@ function createEmptyFocus(selectedMonth, teamFilter) {
     month: selectedMonth,
     metricType: METRIC_TYPES[0],
     metric: '',
+    owner: '',
+    ownerId: '',
+    status: 'Не виконано',
     achieved: false,
     comment: '',
   }
@@ -355,16 +424,56 @@ function FocusStat({ label, value, tone = 'default' }) {
   )
 }
 
-function FocusStatus({ achieved }) {
-  return achieved ? (
-    <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200">
-      <CheckCircle2 className="h-3.5 w-3.5" />
-      Виконано
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-200">
-      <Circle className="h-3.5 w-3.5" />
-      Не виконано
-    </span>
+const FOCUS_STATUS_OPTIONS = ['Не виконано', 'Виконано']
+
+function FocusStatusSelect({ value, disabled, onChange }) {
+  const isDone = value === 'Виконано'
+
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+      className={`h-9 min-w-36 rounded-full border px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-blue-100 disabled:opacity-60 ${
+        isDone
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          : 'border-slate-200 bg-slate-50 text-slate-700'
+      }`}
+    >
+      {FOCUS_STATUS_OPTIONS.map((status) => (
+        <option key={status}>{status}</option>
+      ))}
+    </select>
   )
+}
+
+function statusFromAchieved(achieved) {
+  return achieved ? 'Виконано' : 'Не виконано'
+}
+
+function uniqueOptions(options) {
+  const seen = new Set()
+
+  return options
+    .flatMap((option) => {
+      if (!option) return []
+      if (typeof option === 'object') {
+        const label = String(option.label || option.name || '').trim()
+        const id = String(option.id || option.value || '').trim()
+        if (!label) return []
+        return [{ id, label, value: id || label }]
+      }
+
+      return String(option)
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((label) => ({ id: '', label, value: label }))
+    })
+    .filter((option) => {
+      const key = option.value || option.label
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
 }

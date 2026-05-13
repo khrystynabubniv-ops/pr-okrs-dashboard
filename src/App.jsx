@@ -18,7 +18,7 @@ export default function App() {
           path="/dashboard"
           element={<DashboardPage selectedMonth={selectedMonth} />}
         />
-        <Route path="/goals" element={<GoalsPage />} />
+        <Route path="/goals" element={<GoalsPage selectedMonth={selectedMonth} />} />
         <Route
           path="/monthly"
           element={<MonthlyFocusPage selectedMonth={selectedMonth} />}

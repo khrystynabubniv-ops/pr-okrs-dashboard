@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, Save, Search, SlidersHorizontal } from 'lucide-react'
+import { Pencil, Plus, Save, Search } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import {
   AMEC_OPTIONS,
@@ -15,6 +15,17 @@ import { EmptyState, ErrorState, LoadingState } from '../components/Status'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { apiRequest, displayTarget, formatMetricValue, getProgress } from '../lib/api'
 
+const LOCAL_GOAL_EDITS_KEY = 'goals-and-metrics.local-edits'
+
+const FALLBACK_OWNER_OPTIONS = [
+  'Employer Brand Manager',
+  'Employer Brand Lead',
+  'PR Manager',
+  'SMM Manager',
+  'Personal Brands Manager',
+  'Brand Designer',
+]
+
 const initialGoal = {
   title: '',
   direction: DIRECTIONS[0],
@@ -27,16 +38,19 @@ const initialGoal = {
   owner: '',
 }
 
-export function GoalsPage() {
+export function GoalsPage({ selectedMonth = MONTHS[4] }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [form, setForm] = useState(initialGoal)
-  const [typeFilter, setTypeFilter] = useState('Усі')
+  const [editForm, setEditForm] = useState(initialGoal)
+  const [isCreateModalOpen, setCreateModalOpen] = useState(false)
+  const [editGoal, setEditGoal] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [saving, setSaving] = useState(false)
   const [mutationError, setMutationError] = useState(null)
   const [modalGoal, setModalGoal] = useState(null)
+  const [localGoalEdits, setLocalGoalEdits] = useState(readLocalGoalEdits)
   const [updateForm, setUpdateForm] = useState({
-    month: MONTHS[4],
+    month: selectedMonth,
     value: '',
   })
 
@@ -46,25 +60,50 @@ export function GoalsPage() {
   )
 
   const directionFilter = validDirectionFilter(searchParams.get('direction'))
-  const goals = useMemo(() => data?.goals || [], [data])
+  const rawGoals = useMemo(() => data?.goals || [], [data])
+  const goals = useMemo(
+    () =>
+      rawGoals.map((goal) => {
+        const localEdit = localGoalEdits[goal.id]
+        return localEdit
+          ? { ...goal, ...localEdit, hasLocalEdit: true }
+          : goal
+      }),
+    [localGoalEdits, rawGoals],
+  )
+  const ownerOptions = useMemo(
+    () =>
+      uniqueOptions([
+        ...(data?.ownerOptions || []),
+        ...goals.map((goal) => goal.owner),
+        ...FALLBACK_OWNER_OPTIONS,
+      ]),
+    [data?.ownerOptions, goals],
+  )
+  const directionCounts = useMemo(() => {
+    return goals.reduce(
+      (counts, goal) => ({
+        ...counts,
+        [goal.direction]: (counts[goal.direction] || 0) + 1,
+      }),
+      { Усі: goals.length },
+    )
+  }, [goals])
   const visibleGoals = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
 
     return goals.filter((goal) => {
       const matchesDirection =
         directionFilter === 'Усі' || goal.direction === directionFilter
-      const matchesType = typeFilter === 'Усі' || goal.metricType === typeFilter
       const matchesSearch =
         !query ||
         `${goal.title} ${goal.owner || ''} ${goal.dataSource || ''}`
           .toLowerCase()
           .includes(query)
 
-      return matchesDirection && matchesType && matchesSearch
+      return matchesDirection && matchesSearch
     })
-  }, [directionFilter, goals, searchQuery, typeFilter])
-
-  const needsTarget = form.metricType !== 'Якісна'
+  }, [directionFilter, goals, searchQuery])
 
   async function handleCreateGoal(event) {
     event.preventDefault()
@@ -74,18 +113,37 @@ export function GoalsPage() {
     try {
       await apiRequest('/api/notion/goals', {
         method: 'POST',
-        body: JSON.stringify({
-          ...form,
-          target: needsTarget ? Number(form.target || 0) : null,
-        }),
+        body: JSON.stringify(normalizeGoalForSave(form)),
       })
       setForm(initialGoal)
+      setCreateModalOpen(false)
       await retry()
     } catch (error) {
       setMutationError(error)
     } finally {
       setSaving(false)
     }
+  }
+
+  function handleSaveGoalDraft(event) {
+    event.preventDefault()
+    if (!editGoal) return
+
+    const draft = normalizeGoalForSave(editForm)
+    const nextEdits = { ...localGoalEdits, [editGoal.id]: draft }
+    setLocalGoalEdits(nextEdits)
+    writeLocalGoalEdits(nextEdits)
+    setEditGoal(null)
+  }
+
+  function handleClearGoalDraft() {
+    if (!editGoal) return
+
+    const nextEdits = { ...localGoalEdits }
+    delete nextEdits[editGoal.id]
+    setLocalGoalEdits(nextEdits)
+    writeLocalGoalEdits(nextEdits)
+    setEditGoal(null)
   }
 
   async function handleUpdateValue(event) {
@@ -103,7 +161,7 @@ export function GoalsPage() {
         }),
       })
       setModalGoal(null)
-      setUpdateForm({ month: MONTHS[4], value: '' })
+      setUpdateForm({ month: selectedMonth, value: '' })
       await retry()
     } catch (error) {
       setMutationError(error)
@@ -122,196 +180,92 @@ export function GoalsPage() {
     setSearchParams(nextParams, { replace: true })
   }
 
+  function openUpdateValueModal(goal) {
+    const monthValue = goal.values?.[selectedMonth]
+    setModalGoal(goal)
+    setUpdateForm({
+      month: selectedMonth,
+      value: valueForUpdateInput(
+        String(monthValue ?? '').trim() ? monthValue : goal.currentValue,
+      ),
+    })
+  }
+
+  function openEditGoalModal(goal) {
+    setEditGoal(goal)
+    setEditForm({
+      ...initialGoal,
+      title: goal.title || '',
+      direction: goal.direction || DIRECTIONS[0],
+      metricType: goal.metricType || METRIC_TYPES[0],
+      target: goalNeedsTarget(goal) ? goal.target || '' : '',
+      criterion: goal.criterion || '',
+      measurementPeriod: goal.measurementPeriod || MEASUREMENT_PERIODS[0],
+      dataSource: goal.dataSource || '',
+      framework: goal.framework || AMEC_OPTIONS[0],
+      owner: goal.owner || '',
+    })
+  }
+
   return (
     <div className="space-y-6">
-      <form
-        onSubmit={handleCreateGoal}
-        className="rounded-lg border border-slate-200 bg-white px-5 py-5"
-      >
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-slate-950">
-              Нова ціль
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Створення KPI-цілі з AMEC класифікацією та власником.
-            </p>
-          </div>
-          <button
-            type="submit"
-            disabled={saving || !form.title.trim()}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Plus className="h-4 w-4" />
-            Створити ціль
-          </button>
-        </div>
-
-        <div className="mt-5 grid gap-4 lg:grid-cols-4">
-          <label className="field lg:col-span-2">
-            <span>Назва цілі</span>
-            <input
-              value={form.title}
-              onChange={(event) => setForm({ ...form, title: event.target.value })}
-              placeholder="Наприклад, Збільшити Instagram аудиторію"
-              required
-            />
-          </label>
-          <label className="field">
-            <span>Напрямок</span>
-            <select
-              value={form.direction}
-              onChange={(event) =>
-                setForm({ ...form, direction: event.target.value })
-              }
-            >
-              {DIRECTIONS.map((direction) => (
-                <option key={direction}>{direction}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Тип метрики</span>
-            <select
-              value={form.metricType}
-              onChange={(event) =>
-                setForm({ ...form, metricType: event.target.value })
-              }
-            >
-              {METRIC_TYPES.map((type) => (
-                <option key={type}>{type}</option>
-              ))}
-            </select>
-          </label>
-          {needsTarget ? (
-            <label className="field">
-              <span>Річна ціль</span>
-              <input
-                type="number"
-                min="0"
-                value={form.target}
-                onChange={(event) =>
-                  setForm({ ...form, target: event.target.value })
-                }
-                required
-              />
-            </label>
-          ) : (
-            <label className="field lg:col-span-2">
-              <span>Критерій виконання</span>
-              <input
-                value={form.criterion}
-                onChange={(event) =>
-                  setForm({ ...form, criterion: event.target.value })
-                }
-                placeholder="Що означає «виконано»"
-                required
-              />
-            </label>
-          )}
-          <label className="field">
-            <span>Період заміру</span>
-            <select
-              value={form.measurementPeriod}
-              onChange={(event) =>
-                setForm({ ...form, measurementPeriod: event.target.value })
-              }
-            >
-              {MEASUREMENT_PERIODS.map((period) => (
-                <option key={period}>{period}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Джерело даних</span>
-            <input
-              value={form.dataSource}
-              onChange={(event) =>
-                setForm({ ...form, dataSource: event.target.value })
-              }
-              placeholder="Notion, GA4, Looqme..."
-            />
-          </label>
-          <label className="field">
-            <span>AMEC Framework</span>
-            <select
-              value={form.framework}
-              onChange={(event) =>
-                setForm({ ...form, framework: event.target.value })
-              }
-            >
-              {AMEC_OPTIONS.map((option) => (
-                <option key={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Власник</span>
-            <input
-              value={form.owner}
-              onChange={(event) => setForm({ ...form, owner: event.target.value })}
-              required
-            />
-          </label>
-        </div>
-      </form>
-
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {metricTypeHelp.map((item) => (
-          <div key={item.title} className="rounded-lg border border-slate-200 bg-white px-4 py-4">
-            <p className="text-sm font-semibold text-slate-950">{item.title}</p>
-            <p className="mt-1 text-sm leading-6 text-slate-500">{item.text}</p>
-          </div>
-        ))}
-      </section>
-
       {mutationError ? <ErrorState error={mutationError} /> : null}
 
       <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 xl:flex-row xl:items-center xl:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-slate-950">Всі цілі</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Поточні значення і прогрес до річної цілі.
-            </p>
+        <div className="space-y-4 border-b border-slate-200 px-5 py-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-slate-950">Всі цілі</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Поточні значення і прогрес до річної цілі.
+              </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[minmax(240px,1fr)_auto]">
+              <label className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Пошук по цілі"
+                  className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-[#4361ee] focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => setCreateModalOpen(true)}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+              >
+                <Plus className="h-4 w-4" />
+                Створити ціль
+              </button>
+            </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_180px]">
-            <label className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Пошук по цілі"
-                className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-[#4361ee] focus:ring-2 focus:ring-blue-100"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
-              <SlidersHorizontal className="h-4 w-4" />
-              <select
-                value={directionFilter}
-                onChange={(event) =>
-                  handleDirectionFilterChange(event.target.value)
-                }
-                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-[#4361ee] focus:ring-2 focus:ring-blue-100"
-              >
-                <option>Усі</option>
-                {DIRECTIONS.map((direction) => (
-                  <option key={direction}>{direction}</option>
-                ))}
-              </select>
-            </label>
-            <label className="text-sm font-medium text-slate-600">
-              <select
-                value={typeFilter}
-                onChange={(event) => setTypeFilter(event.target.value)}
-                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-[#4361ee] focus:ring-2 focus:ring-blue-100"
-              >
-                <option value="Усі">Усі типи</option>
-                {METRIC_TYPES.map((type) => (
-                  <option key={type}>{type}</option>
-                ))}
-              </select>
-            </label>
+
+          <div className="flex flex-wrap gap-2">
+            {['Усі', ...DIRECTIONS].map((direction) => {
+              const isActive = directionFilter === direction
+              return (
+                <button
+                  key={direction}
+                  type="button"
+                  onClick={() => handleDirectionFilterChange(direction)}
+                  className={`inline-flex min-h-9 items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition ${
+                    isActive
+                      ? 'border-[#4361ee] bg-blue-50 text-[#3651d4]'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <span>{direction}</span>
+                  <span
+                    className={`rounded-full px-1.5 text-xs ${
+                      isActive ? 'bg-white text-[#3651d4]' : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    {directionCounts[direction] || 0}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -355,6 +309,11 @@ export function GoalsPage() {
                         {goal.title}
                         <p className="mt-1 text-xs font-normal text-slate-500">
                           {goal.owner || 'Без власника'} · {goal.framework || 'AMEC'}
+                          {goal.hasLocalEdit ? (
+                            <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+                              змінено тут
+                            </span>
+                          ) : null}
                         </p>
                       </td>
                       <td className="px-3 py-4">
@@ -373,19 +332,23 @@ export function GoalsPage() {
                         <ProgressBar value={getProgress(goal)} />
                       </td>
                       <td className="whitespace-nowrap px-3 py-4">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setModalGoal(goal)
-                            setUpdateForm({
-                              month: MONTHS[4],
-                              value: goal.currentValue || '',
-                            })
-                          }}
-                          className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          Оновити значення
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openEditGoalModal(goal)}
+                            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            <Pencil className="h-4 w-4" />
+                            Змінити
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openUpdateValueModal(goal)}
+                            className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            Оновити значення
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -395,6 +358,96 @@ export function GoalsPage() {
           ) : null}
         </div>
       </section>
+
+      {isCreateModalOpen ? (
+        <Modal
+          title="Нова ціль"
+          size="lg"
+          onClose={() => setCreateModalOpen(false)}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setCreateModalOpen(false)}
+                className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Скасувати
+              </button>
+              <button
+                type="submit"
+                form="create-goal"
+                disabled={saving || !isGoalFormReady(form)}
+                className="inline-flex h-10 items-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                <Plus className="h-4 w-4" />
+                Створити ціль
+              </button>
+            </>
+          }
+        >
+          <p className="mb-5 text-sm leading-6 text-slate-500">
+            Створення KPI-цілі з AMEC класифікацією, напрямком і власником.
+          </p>
+          <form id="create-goal" onSubmit={handleCreateGoal}>
+            <GoalFormFields
+              form={form}
+              ownerOptions={ownerOptions}
+              onChange={(field, value) => setForm({ ...form, [field]: value })}
+            />
+          </form>
+        </Modal>
+      ) : null}
+
+      {editGoal ? (
+        <Modal
+          title={`Змінити ціль: ${editGoal.title}`}
+          size="lg"
+          onClose={() => setEditGoal(null)}
+          footer={
+            <>
+              {editGoal.hasLocalEdit ? (
+                <button
+                  type="button"
+                  onClick={handleClearGoalDraft}
+                  className="mr-auto h-10 rounded-md border border-amber-200 bg-amber-50 px-4 text-sm font-medium text-amber-700 hover:bg-amber-100"
+                >
+                  Скасувати локальні зміни
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setEditGoal(null)}
+                className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Закрити
+              </button>
+              <button
+                type="submit"
+                form="edit-goal"
+                disabled={!isGoalFormReady(editForm)}
+                className="inline-flex h-10 items-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                <Save className="h-4 w-4" />
+                Зберегти
+              </button>
+            </>
+          }
+        >
+          <p className="mb-5 rounded-md bg-blue-50 px-4 py-3 text-sm leading-6 text-slate-700 ring-1 ring-inset ring-blue-100">
+            Зміни збережуться тільки на сторінці Goals & Metrics і не оновлять
+            Dashboard.
+          </p>
+          <form id="edit-goal" onSubmit={handleSaveGoalDraft}>
+            <GoalFormFields
+              form={editForm}
+              ownerOptions={ownerOptions}
+              onChange={(field, value) =>
+                setEditForm({ ...editForm, [field]: value })
+              }
+            />
+          </form>
+        </Modal>
+      ) : null}
 
       {modalGoal ? (
         <Modal
@@ -421,6 +474,11 @@ export function GoalsPage() {
             </>
           }
         >
+          <div className="mb-5 rounded-md bg-blue-50 px-4 py-3 text-sm leading-6 text-slate-700 ring-1 ring-inset ring-blue-100">
+            Зафіксуйте фактичне значення, якого ціль досягла у вибраному
+            місяці. Це не приріст до попереднього періоду: якщо було 34%, а
+            стало 37%, внесіть 37, не +3.
+          </div>
           <form id="update-goal-value" onSubmit={handleUpdateValue} className="space-y-4">
             <label className="field">
               <span>Місяць</span>
@@ -436,14 +494,14 @@ export function GoalsPage() {
               </select>
             </label>
             <label className="field">
-              <span>Нове значення</span>
+              <span>Фактичне значення за місяць</span>
               <input
-                type={modalGoal.metricType === 'Якісна' ? 'text' : 'number'}
                 value={updateForm.value}
                 onChange={(event) =>
                   setUpdateForm({ ...updateForm, value: event.target.value })
                 }
-                placeholder={modalGoal.metricType === 'Якісна' ? 'Так / Ні' : '0'}
+                inputMode={modalGoal.metricType === 'Якісна' ? 'text' : 'decimal'}
+                placeholder={updateValuePlaceholder(modalGoal)}
                 required
               />
             </label>
@@ -454,25 +512,181 @@ export function GoalsPage() {
   )
 }
 
-const metricTypeHelp = [
-  {
-    title: 'Кількісна',
-    text: 'Звичайне число: наприклад 30 публікацій, 15 івентів або 500 лідів.',
-  },
-  {
-    title: 'Відсоткова',
-    text: 'Ціль у відсотках: наприклад 47% brand awareness або 80% виконання.',
-  },
-  {
-    title: 'Якісна',
-    text: 'Так/ні або критерій готовності: наприклад “гайд затверджено”.',
-  },
-  {
-    title: 'Накопичувальна',
-    text: 'Сума за місяці до річної цілі: наприклад контакти чи згадки за рік.',
-  },
-]
+function GoalFormFields({ form, ownerOptions, onChange }) {
+  const needsTarget = goalNeedsTarget(form)
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-4">
+      <label className="field lg:col-span-2">
+        <span>Назва цілі</span>
+        <input
+          value={form.title}
+          onChange={(event) => onChange('title', event.target.value)}
+          placeholder="Наприклад, Збільшити Instagram аудиторію"
+          required
+        />
+      </label>
+      <label className="field">
+        <span>Напрямок</span>
+        <select
+          value={form.direction}
+          onChange={(event) => onChange('direction', event.target.value)}
+        >
+          {DIRECTIONS.map((direction) => (
+            <option key={direction}>{direction}</option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span>Тип метрики</span>
+        <select
+          value={form.metricType}
+          onChange={(event) => onChange('metricType', event.target.value)}
+        >
+          {METRIC_TYPES.map((type) => (
+            <option key={type}>{type}</option>
+          ))}
+        </select>
+      </label>
+      {needsTarget ? (
+        <label className="field">
+          <span>Річна ціль</span>
+          <input
+            type="number"
+            min="0"
+            value={form.target}
+            onChange={(event) => onChange('target', event.target.value)}
+            required
+          />
+        </label>
+      ) : (
+        <label className="field lg:col-span-2">
+          <span>Критерій виконання</span>
+          <input
+            value={form.criterion}
+            onChange={(event) => onChange('criterion', event.target.value)}
+            placeholder="Що означає «виконано»"
+          />
+        </label>
+      )}
+      <label className="field">
+        <span>Період заміру</span>
+        <select
+          value={form.measurementPeriod}
+          onChange={(event) => onChange('measurementPeriod', event.target.value)}
+        >
+          {MEASUREMENT_PERIODS.map((period) => (
+            <option key={period}>{period}</option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span>Джерело даних</span>
+        <input
+          value={form.dataSource}
+          onChange={(event) => onChange('dataSource', event.target.value)}
+          placeholder="Notion, GA4, Looqme..."
+        />
+      </label>
+      <label className="field">
+        <span>AMEC Framework</span>
+        <select
+          value={form.framework}
+          onChange={(event) => onChange('framework', event.target.value)}
+        >
+          {AMEC_OPTIONS.map((option) => (
+            <option key={option}>{option}</option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span>Власник</span>
+        <select
+          value={form.owner}
+          onChange={(event) => onChange('owner', event.target.value)}
+          required
+        >
+          <option value="" disabled>
+            Оберіть власника
+          </option>
+          {ownerOptions.map((owner) => (
+            <option key={owner} value={owner}>
+              {owner}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  )
+}
 
 function validDirectionFilter(value) {
   return DIRECTIONS.includes(value) ? value : 'Усі'
+}
+
+function uniqueOptions(options) {
+  return Array.from(
+    new Set(
+      options
+        .flatMap((option) => String(option || '').split(','))
+        .map((option) => option.trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
+function goalNeedsTarget(goal) {
+  return goal.metricType !== 'Якісна'
+}
+
+function isGoalFormReady(goal) {
+  return (
+    goal.title.trim() &&
+    goal.owner.trim() &&
+    (goalNeedsTarget(goal) ? String(goal.target).trim() : true)
+  )
+}
+
+function normalizeGoalForSave(goal) {
+  const needsTarget = goalNeedsTarget(goal)
+
+  return {
+    title: goal.title.trim(),
+    direction: goal.direction,
+    metricType: goal.metricType,
+    target: needsTarget ? Number(goal.target || 0) : null,
+    criterion: needsTarget ? '' : goal.criterion.trim(),
+    measurementPeriod: goal.measurementPeriod,
+    dataSource: goal.dataSource.trim(),
+    framework: goal.framework,
+    owner: goal.owner.trim(),
+  }
+}
+
+function updateValuePlaceholder(goal) {
+  if (goal.metricType === 'Якісна') return 'Так / Ні або статус'
+  if (goal.metricType === 'Відсоткова') return 'Наприклад, 37'
+  return 'Наприклад, 1200'
+}
+
+function valueForUpdateInput(value) {
+  const text = String(value ?? '').trim()
+  if (!text || text === '—' || text === '-') return ''
+
+  return text.replace(/\s*%+\s*$/, '')
+}
+
+function readLocalGoalEdits() {
+  if (typeof window === 'undefined') return {}
+
+  try {
+    return JSON.parse(window.localStorage.getItem(LOCAL_GOAL_EDITS_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function writeLocalGoalEdits(edits) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(LOCAL_GOAL_EDITS_KEY, JSON.stringify(edits))
 }

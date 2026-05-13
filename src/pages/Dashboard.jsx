@@ -37,7 +37,7 @@ import {
   eventStatusMeta,
   eventSummaryStats,
   parseEventDate,
-  startOfDay,
+  sortEventsByDate,
 } from '../lib/events'
 
 export function DashboardPage({ selectedMonth }) {
@@ -80,7 +80,7 @@ export function DashboardPage({ selectedMonth }) {
     [dashboardQuery.data],
   )
   const events = useMemo(
-    () => dashboardQuery.data?.events || [],
+    () => sortEventsByDate(dashboardQuery.data?.events || []),
     [dashboardQuery.data],
   )
   const focus = useMemo(
@@ -130,7 +130,7 @@ export function DashboardPage({ selectedMonth }) {
     () => mediaCoverageSummary(coverage),
     [coverage],
   )
-  const sortedEvents = useMemo(() => sortEventsForDashboard(events), [events])
+  const sortedEvents = events
   const eventStats = useMemo(() => eventSummaryStats(events), [events])
   const instagramAxis = useMemo(
     () => getInstagramYAxisConfig(instagramSeries),
@@ -237,8 +237,8 @@ export function DashboardPage({ selectedMonth }) {
               label="Monthly Focus"
               value={`${executive.focusDone}/${executive.focusTotal}`}
               unit="закрито"
-              detail={`${executive.focusOpen} фокусів ще без галочки “виконано”.`}
-              tooltip="Береться з Monthly Focuses у Notion за вибраний місяць. Закрито = у записі стоїть чекбокс Goal achieved."
+              detail={`${executive.focusOpen} фокусів ще зі статусом “Не виконано”.`}
+              tooltip="Береться з Monthly Focuses у Notion за вибраний місяць. Закрито = статус “Виконано”."
               tone={executive.focusOpen ? 'orange' : 'green'}
             />
             <EventsMetricCard
@@ -698,25 +698,6 @@ function formatEventDate(event) {
   return date.toLocaleDateString('uk-UA', {
     day: '2-digit',
     month: 'short',
-  })
-}
-
-function sortEventsForDashboard(events) {
-  const today = startOfDay(new Date())
-
-  return [...events].sort((left, right) => {
-    const leftDate = parseEventDate(left)
-    const rightDate = parseEventDate(right)
-
-    if (!leftDate && !rightDate) return 0
-    if (!leftDate) return 1
-    if (!rightDate) return -1
-
-    const leftUpcoming = leftDate >= today
-    const rightUpcoming = rightDate >= today
-
-    if (leftUpcoming !== rightUpcoming) return leftUpcoming ? -1 : 1
-    return leftUpcoming ? leftDate - rightDate : rightDate - leftDate
   })
 }
 
