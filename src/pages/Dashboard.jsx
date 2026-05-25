@@ -15,7 +15,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { ClipboardCopy, FileText, Save } from 'lucide-react'
+import { ArrowDown, ArrowUp, ClipboardCopy, FileText, Save } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { DirectionBadge } from '../components/Badge'
 import { InfoTooltip } from '../components/InfoTooltip'
@@ -49,8 +49,8 @@ export function DashboardPage({ selectedMonth }) {
 
   const dashboardQuery = useAsyncData(
     async () => {
-      const goals = await apiRequest('/api/notion/kpi-goals')
-      const [events, focus, coverage] = await Promise.all([
+      const [goalsPayload, events, focus, coverage] = await Promise.all([
+        optionalRequest('/api/notion/kpi-goals', { goals: [] }),
         optionalRequest(
           `/api/notion/events?month=${encodeURIComponent(selectedMonth)}`,
           { events: [] },
@@ -66,7 +66,7 @@ export function DashboardPage({ selectedMonth }) {
       ])
 
       return {
-        goals: goals.goals || [],
+        goals: goalsPayload.goals || [],
         events: events.events || [],
         focus: focus.entries || [],
         coverage,
@@ -130,11 +130,24 @@ export function DashboardPage({ selectedMonth }) {
     () => mediaCoverageSummary(coverage),
     [coverage],
   )
+  const activeReport = report?.month === selectedMonth ? report.text : null
   const sortedEvents = events
   const eventStats = useMemo(() => eventSummaryStats(events), [events])
   const instagramAxis = useMemo(
     () => getInstagramYAxisConfig(instagramSeries),
     [instagramSeries],
+  )
+  const hasMonthData = useMemo(
+    () =>
+      hasDashboardMonthData({
+        goals,
+        events,
+        focus,
+        coverage,
+        personalBrands,
+        selectedMonth,
+      }),
+    [coverage, events, focus, goals, personalBrands, selectedMonth],
   )
 
   const totalContacts = events.reduce(
@@ -170,7 +183,7 @@ export function DashboardPage({ selectedMonth }) {
           coverage,
         }),
       })
-      setReport(result.report)
+      setReport({ month: selectedMonth, text: result.report })
     } catch (error) {
       setReportError(error)
     } finally {
@@ -179,7 +192,7 @@ export function DashboardPage({ selectedMonth }) {
   }
 
   async function saveReportToNotion() {
-    if (!report) return
+    if (!activeReport) return
     setSaveStatus('Збереження...')
 
     try {
@@ -187,7 +200,7 @@ export function DashboardPage({ selectedMonth }) {
         method: 'POST',
         body: JSON.stringify({
           month: selectedMonth,
-          report,
+          report: activeReport,
         }),
       })
       setSaveStatus('Збережено в Notion')
@@ -197,8 +210,8 @@ export function DashboardPage({ selectedMonth }) {
   }
 
   async function copyReport() {
-    if (!report) return
-    await navigator.clipboard.writeText(report)
+    if (!activeReport) return
+    await navigator.clipboard.writeText(activeReport)
     setSaveStatus('Скопійовано')
   }
 
@@ -214,23 +227,22 @@ export function DashboardPage({ selectedMonth }) {
       ) : null}
       {reportError ? <ErrorState error={reportError} /> : null}
 
-      {!dashboardQuery.loading && !dashboardQuery.error ? (
+      {!dashboardQuery.loading && !dashboardQuery.error && !hasMonthData ? (
+        <EmptyState
+          title="Інформації по цьому місяцю немає"
+          text="Оберіть інший місяць або додайте дані в KPI, Events чи Looqme."
+        />
+      ) : null}
+
+      {!dashboardQuery.loading && !dashboardQuery.error && hasMonthData ? (
         <>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              label="Дані для C-level звіту"
-              value={executive.readiness}
-              unit="% готово"
-              detail={`KPI ${executive.kpi.updated}/${executive.kpi.measurable}, івенти з метриками ${executive.eventsWithMetrics}/${executive.eventsTotal}.`}
-              tooltip="Це не оцінка результатів. Це показник, чи вистачає даних для Board Report: KPI за місяць, monthly focus, івенти з метриками та media coverage."
-              tone={executive.readiness >= 80 ? 'green' : executive.readiness >= 50 ? 'orange' : 'rose'}
-            />
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <MetricCard
               label="KPI в темпі року"
               value={`${executive.kpi.onTrack}/${executive.kpi.measured}`}
               unit="KPI"
               detail={`Для ${selectedMonth.split(' ')[0]} очікувано близько ${executive.kpi.expected}% річної цілі. Відстають: ${executive.kpi.atRisk}.`}
-              tooltip="Більшість KPI річні. Ми дивимось, чи поточний прогрес не відстає від частки року. Для травня це приблизно 5/12 року, тобто 42%. KPI потрапляє у ризик, якщо він нижче цього темпу більш ніж на 5 п.п."
+              tooltip={`Більшість KPI річні. Ми дивимось, чи поточний прогрес не відстає від очікуваної частки року. Для ${selectedMonth.split(' ')[0].toLowerCase()} це ${executive.kpi.expected}% річної цілі. KPI потрапляє у ризик, якщо він нижче цього темпу більш ніж на 5 п.п.`}
               tone={executive.kpi.atRisk ? 'orange' : 'green'}
             />
             <EventsMetricCard
@@ -452,41 +464,78 @@ export function DashboardPage({ selectedMonth }) {
                     Наші згадки окремо від конкурентного бенчмарку.
                   </p>
                 </div>
-                <InfoTooltip text="Поки блок працює на mock Looqme-даних. Donut нижче показує тональність наших згадок, а картки розділяють Universe Group і конкурентів." />
+                <InfoTooltip text="Блок показує згадки, охоплення брендів і потенційне охоплення конкретних медіа з Looqme-структури." />
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-md bg-violet-50 px-3 py-3 ring-1 ring-inset ring-violet-100 sm:col-span-2">
-                  <p className="text-sm font-medium text-slate-950">
-                    Total охоплення всіх медіа
-                  </p>
-                  <p className="mt-1 text-xl font-semibold text-slate-950">
-                    {formatReachValue(mediaCoverage.totalReach)}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {mediaCoverage.reachDetail || 'даних немає'}
-                  </p>
+              <div className="mt-4 space-y-4">
+                <div className="grid gap-3 2xl:grid-cols-2">
+                  <LooqmeMetricPanel
+                    title="Всі згадки"
+                    metric={mediaCoverage.mentionsMetric}
+                    formatValue={formatChartNumber}
+                  />
+                  <LooqmeMetricPanel
+                    title="Аудиторія джерела"
+                    metric={mediaCoverage.audienceMetric}
+                    formatValue={formatReachValue}
+                  />
                 </div>
-                <div className="rounded-md bg-blue-50 px-3 py-3 ring-1 ring-inset ring-blue-100">
-                  <p className="text-sm font-medium text-slate-950">Наш бренд</p>
-                  <p className="mt-1 text-xl font-semibold text-slate-950">
-                    {mediaCoverage.ownTotal}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {(mediaCoverage.own || [])
-                      .map((item) => `${item.brand}: ${item.count}`)
-                      .join(' · ') || 'даних немає'}
-                  </p>
+                <div className="grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
+                  <BrandCoverageRow
+                    label="Наш бренд"
+                    value={`${mediaCoverage.ownTotal} згадок`}
+                    reach={mediaCoverage.ownReach}
+                    detail={(mediaCoverage.own || [])
+                      .map(
+                        (item) =>
+                          `${item.brand}: ${item.count} · ${formatReachValue(
+                            item.reachValue,
+                          )}`,
+                      )
+                      .join(' · ')}
+                  />
+                  <BrandCoverageRow
+                    label="Конкуренти"
+                    value={`${mediaCoverage.competitorTotal} згадок`}
+                    reach={mediaCoverage.competitorReach}
+                    detail={(mediaCoverage.competitors || [])
+                      .map(
+                        (item) =>
+                          `${item.brand}: ${item.count} · ${formatReachValue(
+                            item.reachValue,
+                          )}`,
+                      )
+                      .join(' · ')}
+                  />
                 </div>
-                <div className="rounded-md bg-slate-50 px-3 py-3 ring-1 ring-inset ring-slate-200">
-                  <p className="text-sm font-medium text-slate-950">Конкуренти</p>
-                  <p className="mt-1 text-xl font-semibold text-slate-950">
-                    {mediaCoverage.competitorTotal}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {(mediaCoverage.competitors || [])
-                      .map((item) => `${item.brand}: ${item.count}`)
-                      .join(' · ') || 'даних немає'}
-                  </p>
+                <div className="border-t border-slate-100 pt-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-sm font-medium text-slate-950">
+                      Охоплення по медіа
+                    </p>
+                    <p className="text-sm font-semibold text-slate-950">
+                      {formatReachValue(mediaCoverage.outletsTotalReach)}
+                    </p>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {mediaCoverage.outlets.length ? (
+                      mediaCoverage.outlets.map((item) => (
+                        <div
+                          key={item.name}
+                          className="flex items-center justify-between gap-3 text-xs"
+                        >
+                          <span className="min-w-0 truncate text-slate-600">
+                            {item.name}
+                            {item.mentions ? ` · ${item.mentions} зг.` : ''}
+                          </span>
+                          <span className="shrink-0 font-medium text-slate-950">
+                            {formatReachValue(item.reach)}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-500">даних немає</p>
+                    )}
+                  </div>
                 </div>
               </div>
               <p className="mt-4 text-sm font-medium text-slate-700">
@@ -522,7 +571,7 @@ export function DashboardPage({ selectedMonth }) {
                   Board Report Generator
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Збирає KPI, monthly focus, івенти та медіа за вибраний місяць.
+                  Збирає KPI, івенти та медіа за вибраний місяць.
                 </p>
               </div>
               <button
@@ -539,7 +588,7 @@ export function DashboardPage({ selectedMonth }) {
         </>
       ) : null}
 
-      {report ? (
+      {activeReport ? (
         <Modal
           title={`Board Report · ${selectedMonth}`}
           onClose={() => setReport(null)}
@@ -568,11 +617,157 @@ export function DashboardPage({ selectedMonth }) {
           }
         >
           <pre className="whitespace-pre-wrap rounded-md bg-slate-50 p-4 text-sm leading-6 text-slate-800">
-            {report}
+            {activeReport}
           </pre>
         </Modal>
       ) : null}
     </div>
+  )
+}
+
+function hasDashboardMonthData({
+  goals,
+  events,
+  focus,
+  coverage,
+  personalBrands,
+  selectedMonth,
+}) {
+  const hasKpiForMonth = goals.some((goal) =>
+    String(goal.values?.[selectedMonth] ?? '').trim(),
+  )
+  const hasPersonalBrandForMonth = personalBrands.some(
+    (item) => item.sourceMonth === selectedMonth && item.current !== null,
+  )
+  const hasCoverage = hasCoverageValues(coverage)
+
+  return Boolean(
+    hasKpiForMonth ||
+      hasPersonalBrandForMonth ||
+      events.length ||
+      focus.length ||
+      hasCoverage,
+  )
+}
+
+function hasCoverageValues(coverage) {
+  const mentions = coverage.mentions || []
+  const sentiment = coverage.sentiment || []
+  const outlets =
+    coverage.mediaOutlets ||
+    coverage.outlets ||
+    coverage.sources ||
+    coverage.publications ||
+    []
+
+  return Boolean(
+    mentions.length ||
+      sentiment.some((item) => Number(item.value || 0) > 0) ||
+      outlets.length ||
+      coverage.totalReach ||
+      coverage.totalAudience ||
+      coverage.reach ||
+      coverage.audience?.total ||
+      coverage.audience?.all,
+  )
+}
+
+function LooqmeMetricPanel({ title, metric, formatValue }) {
+  const segments = metric?.segments || []
+  const segmentTotal =
+    segments.reduce((sum, item) => sum + Number(item.value || 0), 0) ||
+    Number(metric?.value || 0)
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white px-4 py-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="text-sm font-semibold text-slate-950">{title}</p>
+        <DeltaPill value={metric?.delta} />
+      </div>
+      <p className="mt-4 text-4xl font-semibold leading-none text-slate-950">
+        {formatValue(metric?.value || 0)}
+      </p>
+      <div className="mt-5 flex h-3 overflow-hidden rounded-full bg-slate-100">
+        {segments.length ? (
+          segments.map((segment) => (
+            <div
+              key={segment.label}
+              className="h-full"
+              style={{
+                width: segmentTotal
+                  ? `${Math.max(
+                      2,
+                      (Number(segment.value || 0) / segmentTotal) * 100,
+                    )}%`
+                  : '0%',
+                backgroundColor: segment.color || '#6678ff',
+              }}
+            />
+          ))
+        ) : (
+          <div className="h-full w-full bg-slate-200" />
+        )}
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {segments.length ? (
+          segments.map((segment) => (
+            <div key={segment.label} className="min-w-0">
+              <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: segment.color || '#6678ff' }}
+                />
+                <span className="truncate">{segment.label}</span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-slate-950">
+                  {formatValue(segment.value)}
+                </span>
+                <DeltaPill value={segment.delta} compact />
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="text-xs text-slate-500">даних немає</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function BrandCoverageRow({ label, value, reach, detail }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-sm font-medium text-slate-950">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-slate-950">{value}</p>
+      <p className="text-xs font-medium text-slate-600">
+        Охоплення: {formatReachValue(reach)}
+      </p>
+      <p className="mt-1 text-xs text-slate-500">{detail || 'даних немає'}</p>
+    </div>
+  )
+}
+
+function DeltaPill({ value, compact = false }) {
+  if (value === null || value === undefined || value === '') return null
+
+  const numeric = Number(value)
+  const isPositive = numeric > 0
+  const Icon = isPositive ? ArrowUp : ArrowDown
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-1 font-semibold ${
+        compact ? 'text-xs' : 'text-sm'
+      } ${
+        isPositive
+          ? 'bg-emerald-50 text-emerald-700'
+          : 'bg-pink-50 text-pink-600'
+      }`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {Math.abs(numeric)}%
+    </span>
   )
 }
 

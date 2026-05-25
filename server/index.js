@@ -42,6 +42,8 @@ const MONTH_PROPERTY_NAMES = {
   'Грудень 2026': 'Грудень',
 }
 
+const MOCK_COVERAGE_MONTH = 'Травень 2026'
+
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
 let focusDatabaseId = process.env.NOTION_FOCUS_DB || ''
@@ -975,6 +977,12 @@ async function createFocusDatabase() {
         },
         'Goal achieved': { checkbox: {} },
         Comment: { rich_text: {} },
+        Done: { rich_text: {} },
+        NotDone: { rich_text: {} },
+        Pains: { rich_text: {} },
+        NextPriorities: { rich_text: {} },
+        LinkedGoals: { rich_text: {} },
+        MetricValues: { rich_text: {} },
         CreatedAt: { created_time: {} },
       },
     },
@@ -1204,14 +1212,66 @@ app.get('/api/notion/events', asyncHandler(async (request, response) => {
 }))
 
 app.get('/api/looqme/coverage', (request, response) => {
+  const month = request.query.month
+
+  if (month && month !== MOCK_COVERAGE_MONTH) {
+    response.json({
+      month,
+      source: process.env.LOOQME_TOKEN ? 'looqme-mock-token-present' : 'mock',
+      mentionsMetric: {
+        value: 0,
+        delta: 0,
+        segments: [],
+      },
+      mentions: [],
+      mediaOutlets: [],
+      audienceMetric: {
+        value: 0,
+        delta: 0,
+        segments: [],
+      },
+      audience: {
+        total: 0,
+        media: 0,
+        social: 0,
+      },
+      sentiment: [],
+    })
+    return
+  }
+
   response.json({
-    month: request.query.month,
+    month,
     source: process.env.LOOQME_TOKEN ? 'looqme-mock-token-present' : 'mock',
+    mentionsMetric: {
+      value: 142,
+      delta: -24,
+      segments: [
+        { label: 'ЗМІ(Медіа)', value: 42, delta: -24, color: '#6678ff' },
+        { label: 'Соціальні мережі', value: 100, delta: -24, color: '#2dd68f' },
+      ],
+    },
     mentions: [
       { brand: 'Universe Group', count: 54, audience: 74200000 },
       { brand: 'Skelar', count: 8, audience: 9600000 },
       { brand: 'Headway', count: 2, audience: 4300000 },
     ],
+    mediaOutlets: [
+      { name: 'AIN.UA', mentions: 18, reach: 23600000 },
+      { name: 'DOU', mentions: 14, reach: 18400000 },
+      { name: 'Forbes Ukraine', mentions: 9, reach: 15200000 },
+      { name: 'Vector', mentions: 11, reach: 12800000 },
+      { name: 'Speka', mentions: 7, reach: 8600000 },
+      { name: 'dev.ua', mentions: 5, reach: 7500000 },
+    ],
+    audienceMetric: {
+      value: 88100000,
+      delta: -37,
+      segments: [
+        { label: 'ЗМІ(Медіа)', value: 86800000, delta: -38, color: '#6678ff' },
+        { label: 'Соціальні мережі', value: 1400000, delta: 19, color: '#2dd68f' },
+      ],
+    },
     audience: {
       total: 88100000,
       media: 86800000,
@@ -1227,10 +1287,11 @@ app.get('/api/looqme/coverage', (request, response) => {
 
 app.post('/api/generate-report', asyncHandler(async (request, response) => {
   const { month, goals = [], focus = [], events = [], coverage = {} } = request.body
+  const reportData = buildBoardReportData({ month, goals, focus, events, coverage })
 
   if (!process.env.ANTHROPIC_KEY) {
     response.json({
-      report: buildFallbackReport({ month, goals, focus, events, coverage }),
+      report: renderBoardReport(reportData),
       source: 'mock',
     })
     return
@@ -1239,15 +1300,23 @@ app.post('/api/generate-report', asyncHandler(async (request, response) => {
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_KEY })
   const message = await anthropic.messages.create({
     model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest',
-    max_tokens: 1800,
+    max_tokens: 2400,
     temperature: 0.2,
     messages: [
       {
         role: 'user',
         content: [
           'Згенеруй українською структурований Board Report для Communications.',
-          'Формат: Загальний прогрес (%), Що зроблено по блоках, Що не виконано, Болі команди, Плани на наступний місяць.',
+          'Це короткий board-facing звіт, а не повний список задач.',
+          'Обовʼязковий формат: "## {Місяць} — підсумок", markdown-таблиця з кількісними показниками, "## Що зроблено", тематичні блоки, "## {Наступний місяць} — план".',
+          'У summary-таблиці покажи виконуваність команди, органічний трафік якщо є, згадки у медіа, Instagram якщо є, івенти та контакти.',
+          'У блоці "Медіа / PR" порівняй Universe Group із конкурентами з Looqme/SMM даних: що зробили ми, що видно по конкурентах, які прояви/медіа були помітні.',
+          'У блоці "Події / EB" окремо зафіксуй кількість івентів, участь/організовані події та контакти.',
+          'Використовуй Monthly Focus як контекст планів на місяць: додай важливі виконані результати та коротко познач незакриті фокуси тільки якщо є змістовний коментар або це важлива прогалина.',
+          'Не генеруй окремі розділи "Що не виконано" і "Болі команди". Болі поки не виводимо в репорт, але поле може існувати в даних для майбутнього борду.',
+          'Не дублюй пусті значення на кшталт "не зазначено" або "потрібно уточнити". Якщо даних бракує, сформулюй один короткий пункт про прогалину.',
           `Місяць: ${month}`,
+          `Пораховані метрики для репорту: ${JSON.stringify(reportData)}`,
           `KPI goals: ${JSON.stringify(goals)}`,
           `Monthly focus: ${JSON.stringify(focus)}`,
           `Events: ${JSON.stringify(events)}`,
@@ -1289,82 +1358,823 @@ app.post('/api/notion/board-report', asyncHandler(async (request, response) => {
   response.status(201).json({ pageId: page.id })
 }))
 
-function buildFallbackReport({ month, goals, focus, events, coverage }) {
-  const totalGoals = goals.length
-  const completedGoals = goals.filter((goal) => {
-    const target = parseMetricNumber(goal.target)
-    const current = parseMetricNumber(goal.currentValue)
-    if (goal.metricType === 'Якісна') {
-      return ['так', 'yes', 'done', 'true', 'виконано'].includes(
-        String(goal.currentValue || '').toLowerCase(),
-      )
-    }
-    return target ? current >= target : false
-  }).length
-  const progress = totalGoals ? Math.round((completedGoals / totalGoals) * 100) : 0
-  const totalContacts = events.reduce(
-    (sum, event) => sum + Number(event.contacts || 0),
-    0,
+function buildBoardReportData({ month, goals, focus, events, coverage }) {
+  const goalCompletion = buildGoalCompletionSummary(goals, month)
+  const coverageSummary = buildCoverageReportSummary(coverage)
+  const eventSummary = buildEventReportSummary(events)
+  const organicTraffic = buildGoalMetricSummary(
+    goals,
+    ['органіч', 'organic', 'трафік'],
+    month,
   )
-  const mentions = (coverage.mentions || [])
-    .map((item) => `${item.brand}: ${item.count}`)
-    .join(' | ')
+  const instagram = buildGoalMetricSummary(
+    goals,
+    ['instagram', 'інстаграм', 'ig'],
+    month,
+  )
+  const mediaMentions = buildMediaMentionsSummary(
+    goals,
+    coverageSummary,
+    month,
+  )
+  const focusSections = buildFocusSections(focus)
+
+  const reportData = {
+    month,
+    monthName: reportMonthName(month),
+    nextMonthName: reportNextMonthName(month),
+    goalCompletion,
+    organicTraffic,
+    instagram,
+    mediaMentions,
+    coverage: coverageSummary,
+    events: eventSummary,
+    focusSections,
+  }
+
+  return {
+    ...reportData,
+    summaryRows: buildBoardSummaryRows(reportData),
+    sections: buildBoardDoneSections(reportData),
+    planLines: buildNextMonthPlanLines(focus),
+  }
+}
+
+function renderBoardReport(reportData) {
+  const lines = [
+    `## ${reportData.monthName} — підсумок`,
+    '',
+    '|  |  |',
+    '| --- | --- |',
+    ...reportData.summaryRows.map(([label, value]) => `| ${label} | ${value} |`),
+    '',
+    '## Що зроблено',
+    '',
+  ]
+
+  const sections = reportData.sections.filter((section) => section.lines.length)
+  if (sections.length) {
+    sections.forEach((section, index) => {
+      if (index) lines.push('')
+      lines.push(`**${section.title}.**`, '')
+      section.lines.forEach((line) => lines.push(`- ${line}`))
+    })
+  } else {
+    lines.push('- Дані по фокусах, медіа та івентах ще не заповнені.')
+  }
+
+  lines.push('', `## ${reportData.nextMonthName} — план`, '')
+  reportData.planLines.forEach((line) => lines.push(`- ${line}`))
+
+  return lines.join('\n')
+}
+
+function buildBoardSummaryRows(reportData) {
+  const rows = [
+    [
+      'Виконуваність команди',
+      `**${reportData.goalCompletion.percent}%** — ${reportData.goalCompletion.completed} із ${reportData.goalCompletion.total} цілей`,
+    ],
+  ]
+
+  if (reportData.organicTraffic) {
+    rows.push([
+      'Органічний трафік',
+      formatGoalMetricForTable(reportData.organicTraffic),
+    ])
+  }
+
+  rows.push(['Згадки у медіа', formatMediaMentionsForTable(reportData)])
+
+  if (reportData.instagram) {
+    rows.push(['Instagram', formatInstagramForTable(reportData.instagram)])
+  }
+
+  rows.push([
+    'Івенти',
+    `**${reportData.events.total}** ${activityLabel(
+      reportData.events.total,
+    )} — організовано ${reportData.events.organized}, участь у ${reportData.events.participated}`,
+  ])
+  rows.push([
+    'Контакти',
+    `**${formatReportNumber(reportData.events.contacts)}** зібрано`,
+  ])
+
+  return rows
+}
+
+function buildBoardDoneSections(reportData) {
+  const { focusSections, coverage, events, instagram } = reportData
 
   return [
-    `Board Report · ${month}`,
+    {
+      title: 'Бренд / позиціонування',
+      lines: focusBullets(focusSections.brand),
+    },
+    {
+      title: 'Founders Flow',
+      lines: focusBullets(focusSections.founders),
+    },
+    {
+      title: 'Медіа / PR (тотал кавередж за місяць і тональність)',
+      lines: [
+        ...coverageBullets(coverage),
+        ...focusBullets(focusSections.media),
+      ],
+    },
+    {
+      title: 'Події / EB',
+      lines: [
+        ...eventBullets(events),
+        ...focusBullets(focusSections.events),
+      ],
+    },
+    {
+      title: 'SMM',
+      lines: [
+        ...smmBullets(instagram, coverage),
+        ...focusBullets(focusSections.smm),
+      ],
+    },
+    {
+      title: 'Інше',
+      lines: focusBullets(focusSections.other),
+    },
+  ]
+}
+
+function buildGoalCompletionSummary(goals, month) {
+  const total = goals.length
+  const completed = goals.filter((goal) => goalProgressForReport(goal, month) >= 100)
+    .length
+
+  return {
+    total,
+    completed,
+    percent: total ? Math.round((completed / total) * 100) : 0,
+  }
+}
+
+function buildGoalMetricSummary(goals, keywords, month) {
+  const goal = findGoalByKeywords(goals, keywords)
+  if (!goal) return null
+
+  const current = goalValueForReport(goal, month)
+  const target = parseMetricNumber(goal.target)
+
+  return {
+    title: goal.title,
+    current,
+    target,
+    hasCurrent: hasGoalValueForReport(goal, month),
+    done: target ? current >= target : false,
+  }
+}
+
+function buildMediaMentionsSummary(goals, coverageSummary, month) {
+  const goal = findGoalByKeywords(goals, ['медіа', 'згад', 'looqme', 'coverage'])
+  const goalCurrent = goal ? goalValueForReport(goal, month) : 0
+  const target = goal ? parseMetricNumber(goal.target) : 0
+  const ownCurrent = coverageSummary.ownTotal
+  const totalCurrent = coverageSummary.mentionsMetric.value
+  const current = ownCurrent || totalCurrent || goalCurrent
+
+  return {
+    current,
+    target,
+    basis: ownCurrent ? 'Universe Group' : 'загалом',
+    done: target ? current >= target : false,
+  }
+}
+
+function buildCoverageReportSummary(coverage = {}) {
+  const mentions = (coverage.mentions || []).map((item) => ({
+    brand: item.brand || item.name || 'Бренд',
+    count: Number(item.count ?? item.mentions ?? item.value ?? 0),
+    reach: parseReachNumber(
+      item.reach ?? item.audience ?? item.totalReach ?? item.totalAudience,
+    ),
+    note: cleanReportText(item.note || item.summary || item.topic),
+  }))
+  const own = mentions.filter((item) => isOwnBrand(item.brand))
+  const competitors = mentions.filter((item) => !isOwnBrand(item.brand))
+  const ownTotal = own.reduce((sum, item) => sum + item.count, 0)
+  const competitorTotal = competitors.reduce((sum, item) => sum + item.count, 0)
+  const mentionsMetric = normalizeCoverageMetric(coverage.mentionsMetric, {
+    value: ownTotal + competitorTotal,
+    segments: [
+      {
+        label: 'ЗМІ(Медіа)',
+        value: coverage.mentionsByChannel?.media,
+        delta: coverage.mentionsByChannel?.mediaDelta,
+      },
+      {
+        label: 'Соціальні мережі',
+        value: coverage.mentionsByChannel?.social,
+        delta: coverage.mentionsByChannel?.socialDelta,
+      },
+    ],
+  })
+  const audienceMetric = normalizeCoverageMetric(coverage.audienceMetric, {
+    value: coverage.totalReach ?? coverage.totalAudience ?? coverage.audience?.total,
+    segments: [
+      {
+        label: 'ЗМІ',
+        value: coverage.audience?.media,
+        delta: coverage.audience?.mediaDelta,
+      },
+      {
+        label: 'Соцмережі',
+        value: coverage.audience?.social,
+        delta: coverage.audience?.socialDelta,
+      },
+    ],
+  })
+  const totalReach =
+    audienceMetric.value ||
+    mentions.reduce((sum, item) => sum + item.reach, 0)
+  const outlets = getCoverageOutlets(coverage)
+  const sentiment = normalizeSentiment(coverage.sentiment)
+
+  return {
+    own,
+    competitors,
+    ownTotal,
+    competitorTotal,
+    mentionsMetric,
+    audienceMetric: { ...audienceMetric, value: totalReach },
+    totalReach,
+    outlets,
+    sentiment,
+  }
+}
+
+function buildEventReportSummary(events = []) {
+  const organizedEvents = events.filter(isOrganizedEvent)
+  const participatedEvents = events.filter((event) => !isOrganizedEvent(event))
+
+  return {
+    total: events.length,
+    organized: organizedEvents.length,
+    participated: participatedEvents.length,
+    contacts: events.reduce((sum, event) => sum + Number(event.contacts || 0), 0),
+    organizedTitles: organizedEvents.map((event) => cleanReportText(event.title)),
+    participatedTitles: participatedEvents.map((event) => cleanReportText(event.title)),
+    titles: events.map((event) => cleanReportText(event.title)),
+  }
+}
+
+function buildFocusSections(focus = []) {
+  const sections = {
+    brand: [],
+    founders: [],
+    media: [],
+    events: [],
+    smm: [],
+    other: [],
+  }
+
+  focus.forEach((entry) => {
+    sections[focusSectionKey(entry)].push(entry)
+  })
+
+  return sections
+}
+
+function buildNextMonthPlanLines(focus = []) {
+  const explicitPlans = uniqueReportLines(
+    focus
+      .filter((entry) => isMeaningfulReportText(entry.nextPriorities))
+      .map(
+        (entry) =>
+          `**${focusPlanTitle(entry)}.** ${cleanReportText(entry.nextPriorities, 220)}`,
+      ),
+  )
+  const openFocus = focus.filter(
+    (entry) => !entry.achieved && !isMeaningfulReportText(entry.nextPriorities),
+  )
+
+  if (explicitPlans.length) {
+    const lines = explicitPlans.slice(0, 8)
+    if (openFocus.length && lines.length < 8) {
+      lines.push(
+        `**Незакриті фокуси.** ${formatTitleList(openFocus, 5)} — узгодити статус і наступний крок.`,
+      )
+    }
+    return lines
+  }
+
+  if (openFocus.length) {
+    return [
+      `**Незакриті фокуси.** ${formatTitleList(openFocus, 7)} — перенести або закрити після синку з власниками.`,
+    ]
+  }
+
+  return ['План наступного місяця ще не заповнений у Monthly Focus.']
+}
+
+function focusBullets(entries = []) {
+  const doneLines = entries
+    .filter((entry) => entry.achieved || isMeaningfulReportText(entry.done))
+    .map(formatDoneFocusLine)
+    .filter(Boolean)
+  const openWithDetails = entries
+    .filter(
+      (entry) =>
+        !entry.achieved &&
+        (isMeaningfulReportText(entry.notDone) || isMeaningfulReportText(entry.comment)),
+    )
+    .map(formatOpenFocusLine)
+    .filter(Boolean)
+  const openWithoutDetails = entries.filter(
+    (entry) =>
+      !entry.achieved &&
+      !isMeaningfulReportText(entry.notDone) &&
+      !isMeaningfulReportText(entry.comment),
+  )
+  const lines = uniqueReportLines([
+    ...doneLines.slice(0, 6),
+    ...openWithDetails.slice(0, 3),
+  ])
+
+  if (!lines.length && openWithoutDetails.length) {
+    lines.push(
+      `У фокусі місяця: ${formatTitleList(openWithoutDetails, 4)}. Результат потребує уточнення.`,
+    )
+  } else if (openWithoutDetails.length && lines.length < 6) {
+    lines.push(`Потребує уточнення: ${formatTitleList(openWithoutDetails, 3)}.`)
+  }
+
+  return lines
+}
+
+function coverageBullets(coverage) {
+  const lines = []
+  const channelLine = formatCoverageChannels(coverage.mentionsMetric)
+  const audienceLine = coverage.audienceMetric.value
+    ? `аудиторія джерел — ${formatReachShort(coverage.audienceMetric.value)}${formatCoverageChannels(
+        coverage.audienceMetric,
+        ' (',
+        ')',
+        formatReachShort,
+      )}`
+    : ''
+
+  if (coverage.mentionsMetric.value || channelLine || audienceLine) {
+    lines.push(
+      [
+        coverage.mentionsMetric.value
+          ? `медіа / соцмережі — ${formatReportNumber(
+              coverage.mentionsMetric.value,
+            )} медіазгадок`
+          : 'медіа / соцмережі',
+        channelLine,
+        audienceLine,
+      ]
+        .filter(Boolean)
+        .join('; '),
+    )
+  }
+
+  if (coverage.ownTotal || coverage.competitorTotal) {
+    lines.push(
+      `Universe Group: ${formatReportNumber(
+        coverage.ownTotal,
+      )} згадок; конкуренти: ${formatCompetitorsLine(coverage.competitors)}.`,
+    )
+  }
+
+  if (coverage.sentiment.length) {
+    lines.push(`Тональність: ${formatSentimentLine(coverage.sentiment)}.`)
+  }
+
+  if (coverage.outlets.length) {
+    lines.push(`Ключові медіа: ${formatOutletsLine(coverage.outlets)}.`)
+  }
+
+  return lines
+}
+
+function eventBullets(events) {
+  if (!events.total) return []
+
+  const lines = [
+    `івенти — ${events.total} ${activityLabel(
+      events.total,
+    )}: організували ${events.organized}, взяли участь у ${events.participated}.`,
+    `кількість контактів, яких зібрали: ${formatReportNumber(events.contacts)}.`,
+  ]
+
+  if (events.titles.length) {
+    lines.push(`Активності місяця: ${formatTextList(events.titles, 6)}.`)
+  }
+
+  return lines
+}
+
+function smmBullets(instagram, coverage) {
+  const lines = []
+  const socialSegment = (coverage.mentionsMetric.segments || []).find((segment) =>
+    /соц|social/i.test(segment.label),
+  )
+
+  if (instagram) {
+    lines.push(`Instagram: ${formatInstagramForTable(instagram)}.`)
+  }
+
+  if (socialSegment?.value) {
+    lines.push(
+      `Соціальні мережі в Looqme: ${formatReportNumber(
+        socialSegment.value,
+      )} згадок${formatDelta(socialSegment.delta)}.`,
+    )
+  }
+
+  return lines
+}
+
+function formatGoalMetricForTable(metric) {
+  const value = metric.hasCurrent
+    ? `**${formatReportNumber(metric.current)}**`
+    : '**даних немає**'
+  const target = metric.target
+    ? ` — ціль ${formatReportNumber(metric.target)} ${metric.done ? '✅' : '⚠️'}`
+    : ''
+
+  return `${value}${target}`
+}
+
+function formatInstagramForTable(metric) {
+  const value = metric.hasCurrent
+    ? `**${formatReportNumber(metric.current)}** підписників`
+    : '**даних немає**'
+  const target = metric.target
+    ? ` → ціль ${formatReportNumber(metric.target)} за рік`
+    : ''
+
+  return `${value}${target}`
+}
+
+function formatMediaMentionsForTable(reportData) {
+  const { mediaMentions, coverage } = reportData
+  const target = mediaMentions.target
+    ? ` — ціль ${formatReportNumber(mediaMentions.target)} ${
+        mediaMentions.done ? '✅' : '⚠️'
+      }`
+    : ''
+  const competitors = coverage.competitors.length
+    ? ` · конкуренти: ${formatCompetitorsLine(coverage.competitors)}`
+    : ''
+
+  return `**${formatReportNumber(mediaMentions.current)}** медіазгадок ${
+    mediaMentions.basis
+  }${target}${competitors}`
+}
+
+function formatDoneFocusLine(entry) {
+  const title = cleanReportText(entry.title || entry.name, 120)
+  const result =
+    firstMeaningfulText(entry.done, entry.comment) ||
+    (entry.metric ? cleanReportText(entry.metric, 180) : '')
+
+  if (result && result.toLowerCase() !== title.toLowerCase()) {
+    return withFinalPeriod(`${title} — ${result}`)
+  }
+
+  return title ? withFinalPeriod(title) : ''
+}
+
+function formatOpenFocusLine(entry) {
+  const title = cleanReportText(entry.title || entry.name, 120)
+  const detail = firstMeaningfulText(entry.notDone, entry.comment)
+
+  return title && detail ? withFinalPeriod(`${title} — ${detail}`) : ''
+}
+
+function focusSectionKey(entry) {
+  const team = String(entry.team || entry.direction || '').toLowerCase()
+  const text = `${entry.title || ''} ${entry.done || ''} ${entry.comment || ''} ${
+    entry.metric || ''
+  }`.toLowerCase()
+
+  if (/founders?|фаундер|стартап/.test(text)) return 'founders'
+  if (team.includes('smm') || /tiktok|tik tok|instagram|telegram|телеграм/.test(text)) {
+    return 'smm'
+  }
+  if (team.includes('brand') || /бренд|айдентик|banda|позиціон|сайт|dou/.test(text)) {
+    return 'brand'
+  }
+  if (team.includes('eb') || /івент|event|ярмарк|карʼєр|кар'єр|career|open day/.test(text)) {
+    return 'events'
+  }
+  if (team.includes('pr') || /медіа|статт|подкаст|реліз|комунікац|лонч/.test(text)) {
+    return 'media'
+  }
+
+  return 'other'
+}
+
+function goalProgressForReport(goal, month) {
+  if (goal.metricType === 'Якісна') {
+    return isDoneValue(latestGoalValueForReport(goal, month)) ? 100 : 0
+  }
+
+  const target = parseMetricNumber(goal.target)
+  const current = goalValueForReport(goal, month)
+
+  if (!target) return 0
+  return Math.max(0, Math.min(100, Math.round((current / target) * 100)))
+}
+
+function goalValueForReport(goal, month) {
+  if (goal.metricType === 'Накопичувальна') {
+    return sumGoalValuesUntilReportMonth(goal, month)
+  }
+
+  return parseMetricNumber(latestGoalValueForReport(goal, month))
+}
+
+function hasGoalValueForReport(goal, month) {
+  return String(latestGoalValueForReport(goal, month) ?? '').trim() !== ''
+}
+
+function latestGoalValueForReport(goal, month) {
+  const values = goal.values || {}
+  const selectedIndex = MONTHS.indexOf(month)
+  const monthsToCheck =
+    selectedIndex >= 0 ? MONTHS.slice(0, selectedIndex + 1).reverse() : [...MONTHS].reverse()
+  const foundMonth = monthsToCheck.find((item) => String(values[item] ?? '').trim())
+
+  return foundMonth ? values[foundMonth] : goal.currentValue
+}
+
+function sumGoalValuesUntilReportMonth(goal, month) {
+  const values = goal.values || {}
+  const selectedIndex = MONTHS.indexOf(month)
+  const monthsToCheck = selectedIndex >= 0 ? MONTHS.slice(0, selectedIndex + 1) : MONTHS
+
+  return monthsToCheck.reduce((sum, item) => sum + parseMetricNumber(values[item]), 0)
+}
+
+function findGoalByKeywords(goals, keywords) {
+  return goals.find((goal) => {
+    const haystack = `${goal.title || ''} ${goal.direction || ''} ${
+      goal.dataSource || ''
+    }`.toLowerCase()
+
+    return keywords.some((keyword) => haystack.includes(keyword.toLowerCase()))
+  })
+}
+
+function normalizeCoverageMetric(metric, fallback = {}) {
+  const source = metric || fallback
+  const segments = (source.segments || fallback.segments || [])
+    .map((segment) => ({
+      label: segment.label || segment.name || segment.channel || 'Канал',
+      value: parseReachNumber(segment.value ?? segment.count ?? segment.reach),
+      delta:
+        segment.delta ??
+        segment.change ??
+        segment.changePercent ??
+        segment.percentChange,
+    }))
+    .filter((segment) => segment.value || segment.label)
+
+  return {
+    value: parseReachNumber(source.value ?? source.total ?? fallback.value),
+    delta:
+      source.delta ??
+      source.change ??
+      source.changePercent ??
+      source.percentChange ??
+      fallback.delta,
+    segments,
+  }
+}
+
+function normalizeSentiment(sentiment = []) {
+  return sentiment
+    .map((item) => ({
+      name: item.name || item.label || 'Тональність',
+      value: Number(item.value ?? item.count ?? 0),
+    }))
+    .filter((item) => item.value)
+}
+
+function getCoverageOutlets(coverage = {}) {
+  const rawOutlets =
+    coverage.mediaOutlets ||
+    coverage.outlets ||
+    coverage.sources ||
+    coverage.publications ||
+    []
+
+  return rawOutlets
+    .map((item, index) => ({
+      name:
+        item.name ||
+        item.media ||
+        item.outlet ||
+        item.source ||
+        item.title ||
+        `Медіа ${index + 1}`,
+      mentions: Number(item.mentions ?? item.count ?? item.articles ?? 0),
+      reach: parseReachNumber(
+        item.reach ??
+          item.audience ??
+          item.potentialAudience ??
+          item.totalReach ??
+          item.totalAudience ??
+          item.views,
+      ),
+    }))
+    .filter((item) => item.name || item.mentions || item.reach)
+}
+
+function parseReachNumber(value) {
+  if (typeof value === 'number') return value
+
+  const text = String(value || '').trim().toLowerCase()
+  const number = parseMetricNumber(text)
+  if (!number) return 0
+
+  if (/млн|million|\bm\b/.test(text)) return number * 1_000_000
+  if (/тис|тыс|thousand|\bk\b/.test(text)) return number * 1_000
+
+  return number
+}
+
+function isOrganizedEvent(event) {
+  const role = String(event.role || '').toLowerCase()
+  return /owner|organizer|host|організ|власник/.test(role)
+}
+
+function isOwnBrand(brand) {
+  return String(brand || '').toLowerCase().includes('universe')
+}
+
+function isDoneValue(value) {
+  return ['так', 'yes', 'done', 'true', 'виконано'].includes(
+    String(value || '').trim().toLowerCase(),
+  )
+}
+
+function reportMonthName(month) {
+  return String(month || 'Місяць').split(' ')[0] || 'Місяць'
+}
+
+function reportNextMonthName(month) {
+  const index = MONTHS.indexOf(month)
+  if (index >= 0 && MONTHS[index + 1]) return reportMonthName(MONTHS[index + 1])
+  return 'Наступний місяць'
+}
+
+function formatCoverageChannels(
+  metric,
+  prefix = '',
+  suffix = '',
+  formatValue = formatReportNumber,
+) {
+  const parts = (metric.segments || [])
+    .filter((segment) => segment.value)
+    .map(
+      (segment) =>
+        `${segment.label}: ${formatValue(segment.value)}${formatDelta(
+          segment.delta,
+        )}`,
+    )
+
+  return parts.length ? `${prefix}${parts.join(' · ')}${suffix}` : ''
+}
+
+function formatCompetitorsLine(competitors = []) {
+  if (!competitors.length) return 'даних немає'
+
+  return competitors
+    .slice(0, 5)
+    .map((item) => {
+      const note = item.note ? ` (${item.note})` : ''
+      return `${item.brand} — ${formatReportNumber(item.count)}${note}`
+    })
+    .join(', ')
+}
+
+function formatSentimentLine(sentiment = []) {
+  const total = sentiment.reduce((sum, item) => sum + item.value, 0)
+
+  return sentiment
+    .map((item) => {
+      const share = total ? ` / ${Math.round((item.value / total) * 100)}%` : ''
+      return `${item.name}: ${formatReportNumber(item.value)}${share}`
+    })
+    .join(', ')
+}
+
+function formatOutletsLine(outlets = []) {
+  return outlets
+    .slice(0, 5)
+    .map((item) => {
+      const mentions = item.mentions ? `, ${item.mentions} зг.` : ''
+      const reach = item.reach ? `, ${formatReachShort(item.reach)}` : ''
+      return `${item.name}${mentions}${reach}`
+    })
+    .join('; ')
+}
+
+function formatTitleList(entries, limit) {
+  return formatTextList(
+    entries.map((entry) => cleanReportText(entry.title || entry.name, 80)),
+    limit,
+  )
+}
+
+function formatTextList(items, limit) {
+  const cleanItems = items.map((item) => cleanReportText(item, 80)).filter(Boolean)
+  const visibleItems = cleanItems.slice(0, limit)
+  const rest = cleanItems.length - visibleItems.length
+
+  return `${visibleItems.join('; ')}${rest > 0 ? ` та ще ${rest}` : ''}`
+}
+
+function focusPlanTitle(entry) {
+  return cleanReportText(entry.title || entry.name || entry.team || 'Фокус', 70).replace(
+    /[.:;]+$/,
     '',
-    `Загальний прогрес: ${progress}% (${completedGoals}/${totalGoals} цілей виконано).`,
-    '',
-    'Що зроблено по блоках:',
-    focus.length
-      ? focus
-          .filter((entry) => entry.achieved || entry.done)
-          .map(
-            (entry) =>
-              `- ${entry.team || entry.direction}: ${entry.title || entry.done}${
-                entry.metric ? ` (${entry.metric})` : ''
-              }`,
-          )
-          .join('\n') || '- Немає позначених виконаних фокусів.'
-      : '- Дані Monthly Focus ще не заповнені.',
-    `- Івенти: ${events.length} активностей, ${totalContacts} контактів.`,
-    `- Медіа кавередж: ${mentions || 'даних немає'}.`,
-    '',
-    'Що не виконано:',
-    focus.length
-      ? focus
-          .filter((entry) => !entry.achieved || entry.notDone)
-          .map(
-            (entry) =>
-              `- ${entry.team || entry.direction}: ${
-                entry.notDone || entry.title || 'фокус не виконано'
-              }${entry.comment ? ` — ${entry.comment}` : ''}`,
-          )
-          .join('\n') || '- Усі фокуси позначені як виконані.'
-      : '- Потрібно додати статуси команд.',
-    '',
-    'Болі команди:',
-    focus.length
-      ? focus
-          .map(
-            (entry) =>
-              `- ${entry.team || entry.direction}: ${
-                entry.pains || entry.comment || 'не зазначено'
-              }`,
-          )
-          .join('\n')
-      : '- Поки не зазначено.',
-    '',
-    'Плани на наступний місяць:',
-    focus.length
-      ? focus
-          .map(
-            (entry) =>
-              `- ${entry.direction}: ${entry.nextPriorities || 'потрібно уточнити'}`,
-          )
-          .join('\n')
-      : '- Синхронізувати пріоритети з власниками напрямків.',
-  ].join('\n')
+  )
+}
+
+function firstMeaningfulText(...values) {
+  const value = values.find(isMeaningfulReportText)
+  return value ? cleanReportText(value, 220) : ''
+}
+
+function isMeaningfulReportText(value) {
+  const text = cleanReportText(value).toLowerCase()
+  return Boolean(
+    text &&
+      !['-', '—', 'n/a', 'na', 'не зазначено', 'потрібно уточнити'].includes(text),
+  )
+}
+
+function cleanReportText(value, maxLength = 260) {
+  const text = String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .trim()
+
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}…`
+}
+
+function withFinalPeriod(value) {
+  const text = cleanReportText(value)
+  return /[.!?…]$/.test(text) ? text : `${text}.`
+}
+
+function uniqueReportLines(lines) {
+  const seen = new Set()
+  return lines.filter((line) => {
+    const key = cleanReportText(line).toLowerCase()
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function formatReportNumber(value) {
+  return new Intl.NumberFormat('uk-UA', {
+    maximumFractionDigits: Number.isInteger(value) ? 0 : 1,
+  }).format(value || 0)
+}
+
+function formatReachShort(value) {
+  if (!value) return '0'
+  if (Math.abs(value) >= 1_000_000) {
+    return `${formatReportNumber(Number((value / 1_000_000).toFixed(1)))} млн`
+  }
+  if (Math.abs(value) >= 1_000) {
+    return `${formatReportNumber(Number((value / 1_000).toFixed(1)))} тис.`
+  }
+  return formatReportNumber(value)
+}
+
+function activityLabel(value) {
+  const number = Math.abs(Number(value || 0))
+  const lastTwo = number % 100
+  const last = number % 10
+
+  if (lastTwo >= 11 && lastTwo <= 14) return 'активностей'
+  if (last === 1) return 'активність'
+  if (last >= 2 && last <= 4) return 'активності'
+  return 'активностей'
+}
+
+function formatDelta(value) {
+  if (value === null || value === undefined || value === '') return ''
+  const number = Number(value)
+  if (!Number.isFinite(number) || number === 0) return ''
+  return ` (${number > 0 ? '+' : ''}${number}%)`
 }
 
 function reportToBlocks(report) {

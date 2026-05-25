@@ -113,7 +113,12 @@ export function executiveSummary({ goals, focus, events, coverage, selectedMonth
 }
 
 export function mediaCoverageSummary(coverage) {
-  const mentions = coverage.mentions || []
+  const mentions = (coverage.mentions || []).map((item) => ({
+    ...item,
+    reachValue: parseReachNumber(
+      item.reach ?? item.audience ?? item.totalReach ?? item.totalAudience,
+    ),
+  }))
   const own = mentions.filter((item) => isOwnBrand(item.brand))
   const competitors = mentions.filter((item) => !isOwnBrand(item.brand))
   const ownTotal = own.reduce((sum, item) => sum + Number(item.count || 0), 0)
@@ -121,14 +126,58 @@ export function mediaCoverageSummary(coverage) {
     (sum, item) => sum + Number(item.count || 0),
     0,
   )
+  const ownReach = sumMentionReach(own)
+  const competitorReach = sumMentionReach(competitors)
+  const outlets = getCoverageOutlets(coverage)
   const totalReach = getCoverageReach(coverage, mentions)
   const reachDetail = getCoverageReachDetail(coverage)
+  const mentionsMetric = getCoverageMetric(coverage.mentionsMetric, {
+    value: ownTotal + competitorTotal,
+    segments: [
+      {
+        label: 'ЗМІ(Медіа)',
+        value: Number(coverage.mentionsByChannel?.media ?? 0),
+        delta: coverage.mentionsByChannel?.mediaDelta,
+        color: '#6678ff',
+      },
+      {
+        label: 'Соціальні мережі',
+        value: Number(coverage.mentionsByChannel?.social ?? 0),
+        delta: coverage.mentionsByChannel?.socialDelta,
+        color: '#2dd68f',
+      },
+    ],
+  })
+  const audienceMetric = getCoverageMetric(coverage.audienceMetric, {
+    value: totalReach,
+    delta: coverage.audienceDelta,
+    segments: [
+      {
+        label: 'ЗМІ(Медіа)',
+        value: parseReachNumber(coverage.audience?.media),
+        delta: coverage.audience?.mediaDelta,
+        color: '#6678ff',
+      },
+      {
+        label: 'Соціальні мережі',
+        value: parseReachNumber(coverage.audience?.social),
+        delta: coverage.audience?.socialDelta,
+        color: '#2dd68f',
+      },
+    ],
+  })
 
   return {
     own,
     competitors,
     ownTotal,
     competitorTotal,
+    ownReach,
+    competitorReach,
+    outlets,
+    outletsTotalReach: outlets.reduce((sum, item) => sum + item.reach, 0),
+    mentionsMetric,
+    audienceMetric,
     totalReach,
     reachDetail,
   }
@@ -357,6 +406,78 @@ function getCoverageReachDetail(coverage) {
   return parts
     .map(([label, value]) => `${label}: ${formatReachShort(parseReachNumber(value))}`)
     .join(' · ')
+}
+
+function sumMentionReach(mentions) {
+  return mentions.reduce(
+    (sum, item) =>
+      sum +
+      (item.reachValue ??
+        parseReachNumber(
+          item.reach ?? item.audience ?? item.totalReach ?? item.totalAudience,
+        )),
+    0,
+  )
+}
+
+function getCoverageOutlets(coverage) {
+  const rawOutlets =
+    coverage.mediaOutlets ||
+    coverage.outlets ||
+    coverage.sources ||
+    coverage.publications ||
+    []
+
+  return rawOutlets
+    .map((item, index) => {
+      const name =
+        item.name ||
+        item.media ||
+        item.outlet ||
+        item.source ||
+        item.title ||
+        `Медіа ${index + 1}`
+      const reach = parseReachNumber(
+        item.reach ??
+          item.audience ??
+          item.potentialAudience ??
+          item.totalReach ??
+          item.totalAudience ??
+          item.views,
+      )
+      const mentions = Number(item.mentions ?? item.count ?? item.articles ?? 0)
+
+      return { name, reach, mentions }
+    })
+    .filter((item) => item.name || item.reach || item.mentions)
+}
+
+function getCoverageMetric(metric, fallback) {
+  const source = metric || fallback || {}
+  const value = parseReachNumber(source.value ?? source.total ?? fallback?.value)
+  const segments = (source.segments || fallback?.segments || [])
+    .map((segment) => ({
+      label: segment.label || segment.name || segment.channel || 'Канал',
+      value: parseReachNumber(segment.value ?? segment.count ?? segment.reach),
+      delta:
+        segment.delta ??
+        segment.change ??
+        segment.changePercent ??
+        segment.percentChange,
+      color: segment.color,
+    }))
+    .filter((segment) => segment.label || segment.value)
+
+  return {
+    value,
+    delta:
+      source.delta ??
+      source.change ??
+      source.changePercent ??
+      source.percentChange ??
+      fallback?.delta,
+    segments,
+  }
 }
 
 function parseReachNumber(value) {
