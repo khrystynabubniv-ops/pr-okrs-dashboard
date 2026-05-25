@@ -1208,10 +1208,15 @@ app.get('/api/looqme/coverage', (request, response) => {
     month: request.query.month,
     source: process.env.LOOQME_TOKEN ? 'looqme-mock-token-present' : 'mock',
     mentions: [
-      { brand: 'Universe Group', count: 54 },
-      { brand: 'Skelar', count: 8 },
-      { brand: 'Headway', count: 2 },
+      { brand: 'Universe Group', count: 54, audience: 74200000 },
+      { brand: 'Skelar', count: 8, audience: 9600000 },
+      { brand: 'Headway', count: 2, audience: 4300000 },
     ],
+    audience: {
+      total: 88100000,
+      media: 86800000,
+      social: 1400000,
+    },
     sentiment: [
       { name: 'Позитив', value: 42, color: '#10b981' },
       { name: 'Нейтрал', value: 20, color: '#64748b' },

@@ -216,7 +216,7 @@ export function DashboardPage({ selectedMonth }) {
 
       {!dashboardQuery.loading && !dashboardQuery.error ? (
         <>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               label="Дані для C-level звіту"
               value={executive.readiness}
@@ -233,14 +233,6 @@ export function DashboardPage({ selectedMonth }) {
               tooltip="Більшість KPI річні. Ми дивимось, чи поточний прогрес не відстає від частки року. Для травня це приблизно 5/12 року, тобто 42%. KPI потрапляє у ризик, якщо він нижче цього темпу більш ніж на 5 п.п."
               tone={executive.kpi.atRisk ? 'orange' : 'green'}
             />
-            <MetricCard
-              label="Monthly Focus"
-              value={`${executive.focusDone}/${executive.focusTotal}`}
-              unit="закрито"
-              detail={`${executive.focusOpen} фокусів ще зі статусом “Не виконано”.`}
-              tooltip="Береться з Monthly Focuses у Notion за вибраний місяць. Закрито = статус “Виконано”."
-              tone={executive.focusOpen ? 'orange' : 'green'}
-            />
             <EventsMetricCard
               total={executive.eventsTotal}
               completed={eventStats.completed}
@@ -256,14 +248,6 @@ export function DashboardPage({ selectedMonth }) {
               detail={`Конкуренти: ${executive.competitorMentionsTotal}; тональність наших згадок нижче.`}
               tooltip="Поки це mock Looqme-дані. Universe Group рахуємо як наш бренд; Skelar і Headway показані окремо як конкурентний бенчмарк."
               tone="violet"
-            />
-            <MetricCard
-              label="Що треба дозаповнити"
-              value={executive.kpi.missingSelected}
-              unit="KPI"
-              detail={`Немає значення за ${selectedMonth.split(' ')[0]}. Це заважає чистому C-level звіту.`}
-              tooltip="Це KPI, де у місячній колонці Notion для вибраного місяця порожньо. Якщо значення ще не готове, картка допомагає швидко побачити, що саме блокує звіт."
-              tone={executive.kpi.missingSelected ? 'rose' : 'green'}
             />
           </section>
 
@@ -471,6 +455,17 @@ export function DashboardPage({ selectedMonth }) {
                 <InfoTooltip text="Поки блок працює на mock Looqme-даних. Donut нижче показує тональність наших згадок, а картки розділяють Universe Group і конкурентів." />
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-md bg-violet-50 px-3 py-3 ring-1 ring-inset ring-violet-100 sm:col-span-2">
+                  <p className="text-sm font-medium text-slate-950">
+                    Total охоплення всіх медіа
+                  </p>
+                  <p className="mt-1 text-xl font-semibold text-slate-950">
+                    {formatReachValue(mediaCoverage.totalReach)}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {mediaCoverage.reachDetail || 'даних немає'}
+                  </p>
+                </div>
                 <div className="rounded-md bg-blue-50 px-3 py-3 ring-1 ring-inset ring-blue-100">
                   <p className="text-sm font-medium text-slate-950">Наш бренд</p>
                   <p className="mt-1 text-xl font-semibold text-slate-950">
@@ -688,6 +683,13 @@ function MonthlyTooltip({ active, payload, metricLabel, label }) {
 
 function formatChartNumber(value) {
   if (value === null || value === undefined) return '—'
+  return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(value)
+}
+
+function formatReachValue(value) {
+  if (!value) return '—'
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} млн`
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)} тис.`
   return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(value)
 }
 

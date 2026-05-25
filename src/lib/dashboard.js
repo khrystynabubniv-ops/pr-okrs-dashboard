@@ -121,12 +121,16 @@ export function mediaCoverageSummary(coverage) {
     (sum, item) => sum + Number(item.count || 0),
     0,
   )
+  const totalReach = getCoverageReach(coverage, mentions)
+  const reachDetail = getCoverageReachDetail(coverage)
 
   return {
     own,
     competitors,
     ownTotal,
     competitorTotal,
+    totalReach,
+    reachDetail,
   }
 }
 
@@ -317,4 +321,60 @@ function formatDeltaNumber(value) {
 
 function isOwnBrand(brand) {
   return String(brand || '').toLowerCase().includes('universe')
+}
+
+function getCoverageReach(coverage, mentions) {
+  const directReach =
+    coverage.totalReach ??
+    coverage.totalAudience ??
+    coverage.reach ??
+    coverage.audience?.total ??
+    coverage.audience?.all
+
+  if (directReach !== null && directReach !== undefined) {
+    return parseReachNumber(directReach)
+  }
+
+  return mentions.reduce(
+    (sum, item) =>
+      sum +
+      parseReachNumber(
+        item.reach ?? item.audience ?? item.totalReach ?? item.totalAudience,
+      ),
+    0,
+  )
+}
+
+function getCoverageReachDetail(coverage) {
+  const audience = coverage.audience
+  if (!audience || typeof audience !== 'object') return ''
+
+  const parts = [
+    ['ЗМІ', audience.media],
+    ['Соцмережі', audience.social],
+  ].filter(([, value]) => value !== null && value !== undefined)
+
+  return parts
+    .map(([label, value]) => `${label}: ${formatReachShort(parseReachNumber(value))}`)
+    .join(' · ')
+}
+
+function parseReachNumber(value) {
+  if (typeof value === 'number') return value
+
+  const text = String(value || '').trim().toLowerCase()
+  const number = parseMetricNumber(text)
+  if (!number) return 0
+
+  if (/млн|million|\bm\b/.test(text)) return number * 1_000_000
+  if (/тис|тыс|thousand|\bk\b/.test(text)) return number * 1_000
+
+  return number
+}
+
+function formatReachShort(value) {
+  if (!value) return '0'
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} млн`
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)} тис.`
+  return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(value)
 }
