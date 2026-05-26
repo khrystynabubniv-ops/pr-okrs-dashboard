@@ -43,6 +43,10 @@ const MONTH_PROPERTY_NAMES = {
 }
 
 const MOCK_COVERAGE_MONTH = 'Травень 2026'
+const EVENTS_AWARENESS_SPREADSHEET_ID =
+  process.env.EVENTS_AWARENESS_SPREADSHEET_ID ||
+  '1StHTeMTN0m3WFaOmxucsR2njnmKv04_R7CqG-_ZjDhE'
+const EVENTS_AWARENESS_SHEETS = ['Students', 'Middle+']
 
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
@@ -716,6 +720,182 @@ function normalizedTitleTokens(value) {
     .filter((token) => token.length >= 3)
 }
 
+async function fetchPublicGoogleSheetCsv(spreadsheetId, sheetName) {
+  const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(
+    sheetName,
+  )}`
+  const response = await fetch(url)
+  const body = await response.text()
+
+  if (!response.ok || body.trimStart().startsWith('<!DOCTYPE html>')) {
+    throw createHttpError(
+      502,
+      `Не вдалося прочитати аркуш ${sheetName} з Google Sheets.`,
+    )
+  }
+
+  return parseCsvRows(body)
+}
+
+function parseEventAwarenessAudience(sheetName, rows) {
+  if (sheetName === 'Middle+') return parseMiddleEventAwareness(rows)
+  return parseStudentsEventAwareness(rows)
+}
+
+function parseStudentsEventAwareness(rows) {
+  const header = rows[0] || []
+  const dateIndex = findCsvColumn(header, 'дата')
+  const nameIndex = findCsvColumn(header, 'назва')
+  const knownIndex = findCsvColumn(header, 'чули про universe')
+  const unknownIndex = findCsvColumn(header, 'не чули про universe')
+
+  const totals = rows.slice(1).reduce(
+    (acc, row) => {
+      if (!normalizeCell(row[dateIndex]) && !normalizeCell(row[nameIndex])) {
+        return acc
+      }
+
+      const known = parseSheetNumber(row[knownIndex])
+      const unknown = parseSheetNumber(row[unknownIndex])
+
+      if (known === null || unknown === null) return acc
+
+      acc.known += known
+      acc.unknown += unknown
+      acc.eventsCount += 1
+      return acc
+    },
+    { known: 0, unknown: 0, eventsCount: 0 },
+  )
+  const total = totals.known + totals.unknown
+
+  return {
+    key: 'students',
+    label: 'Students',
+    awareness: total ? totals.known / total : null,
+    known: totals.known,
+    unknown: totals.unknown,
+    total,
+    eventsCount: totals.eventsCount,
+  }
+}
+
+function parseMiddleEventAwareness(rows) {
+  const header = rows[0] || []
+  const dateIndex = findCsvColumn(header, 'дата')
+  const nameIndex = findCsvColumn(header, 'назва')
+  const strongIndex = findCsvColumn(header, 'так добре знайомий')
+  const familiarIndex = findCsvColumn(header, 'щось чув')
+  const unknownIndex = findCsvColumn(header, 'чую вперше')
+
+  const totals = rows.slice(1).reduce(
+    (acc, row) => {
+      if (!normalizeCell(row[dateIndex]) && !normalizeCell(row[nameIndex])) {
+        return acc
+      }
+
+      const strong = parseSheetNumber(row[strongIndex])
+      const familiar = parseSheetNumber(row[familiarIndex])
+      const unknown = parseSheetNumber(row[unknownIndex])
+
+      if (strong === null || familiar === null || unknown === null) return acc
+
+      acc.known += strong + familiar
+      acc.unknown += unknown
+      acc.eventsCount += 1
+      return acc
+    },
+    { known: 0, unknown: 0, eventsCount: 0 },
+  )
+  const total = totals.known + totals.unknown
+
+  return {
+    key: 'middle',
+    label: 'Middle+',
+    awareness: total ? totals.known / total : null,
+    known: totals.known,
+    unknown: totals.unknown,
+    total,
+    eventsCount: totals.eventsCount,
+  }
+}
+
+function findCsvColumn(row, needle) {
+  const normalizedNeedle = normalizeCell(needle)
+  return row.findIndex((cell) => normalizeCell(cell).includes(normalizedNeedle))
+}
+
+function parseSheetNumber(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+
+  const normalized = String(value || '')
+    .replace('%', '')
+    .replace(',', '.')
+    .replace(/\s/g, '')
+    .trim()
+  if (!normalized) return null
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function normalizeCell(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[(),.:"'’`«»]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function parseCsvRows(csv) {
+  const rows = []
+  let row = []
+  let cell = ''
+  let inQuotes = false
+
+  for (let index = 0; index < csv.length; index += 1) {
+    const char = csv[index]
+    const nextChar = csv[index + 1]
+
+    if (char === '"' && inQuotes && nextChar === '"') {
+      cell += '"'
+      index += 1
+      continue
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes
+      continue
+    }
+
+    if (char === ',' && !inQuotes) {
+      row.push(cell)
+      cell = ''
+      continue
+    }
+
+    if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') index += 1
+      row.push(cell)
+      rows.push(row)
+      row = []
+      cell = ''
+      continue
+    }
+
+    cell += char
+  }
+
+  if (cell || row.length) {
+    row.push(cell)
+    rows.push(row)
+  }
+
+  return rows.filter((cells) => cells.some((value) => String(value).trim()))
+}
+
 function monthTagMatches(value, selectedMonth) {
   return (
     String(value || '').trim().toLowerCase() ===
@@ -1209,6 +1389,30 @@ app.get('/api/notion/events', asyncHandler(async (request, response) => {
   const events = mergeCalendarEventsWithActivities(calendarEvents, activityEvents)
 
   response.json({ events })
+}))
+
+app.get('/api/event-awareness', asyncHandler(async (request, response) => {
+  const audiences = await Promise.all(
+    EVENTS_AWARENESS_SHEETS.map(async (sheetName) => {
+      const rows = await fetchPublicGoogleSheetCsv(
+        EVENTS_AWARENESS_SPREADSHEET_ID,
+        sheetName,
+      )
+      return parseEventAwarenessAudience(sheetName, rows)
+    }),
+  )
+  const totalKnown = audiences.reduce((sum, item) => sum + item.known, 0)
+  const totalResponses = audiences.reduce((sum, item) => sum + item.total, 0)
+
+  response.json({
+    sourceUrl: `https://docs.google.com/spreadsheets/d/${EVENTS_AWARENESS_SPREADSHEET_ID}/edit`,
+    audiences,
+    overall: {
+      awareness: totalResponses ? totalKnown / totalResponses : null,
+      known: totalKnown,
+      total: totalResponses,
+    },
+  })
 }))
 
 app.get('/api/looqme/coverage', (request, response) => {

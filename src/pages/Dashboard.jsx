@@ -49,7 +49,7 @@ export function DashboardPage({ selectedMonth }) {
 
   const dashboardQuery = useAsyncData(
     async () => {
-      const [goalsPayload, events, focus, coverage] = await Promise.all([
+      const [goalsPayload, events, focus, coverage, eventAwareness] = await Promise.all([
         optionalRequest('/api/notion/kpi-goals', { goals: [] }),
         optionalRequest(
           `/api/notion/events?month=${encodeURIComponent(selectedMonth)}`,
@@ -63,6 +63,7 @@ export function DashboardPage({ selectedMonth }) {
           `/api/looqme/coverage?month=${encodeURIComponent(selectedMonth)}`,
           { mentions: [], sentiment: [] },
         ),
+        optionalRequest('/api/event-awareness', { audiences: [], overall: null }),
       ])
 
       return {
@@ -70,6 +71,7 @@ export function DashboardPage({ selectedMonth }) {
         events: events.events || [],
         focus: focus.entries || [],
         coverage,
+        eventAwareness,
       }
     },
     [selectedMonth],
@@ -89,6 +91,10 @@ export function DashboardPage({ selectedMonth }) {
   )
   const coverage = useMemo(
     () => dashboardQuery.data?.coverage || {},
+    [dashboardQuery.data],
+  )
+  const eventAwareness = useMemo(
+    () => dashboardQuery.data?.eventAwareness || { audiences: [], overall: null },
     [dashboardQuery.data],
   )
 
@@ -145,9 +151,10 @@ export function DashboardPage({ selectedMonth }) {
         focus,
         coverage,
         personalBrands,
+        eventAwareness,
         selectedMonth,
       }),
-    [coverage, events, focus, goals, personalBrands, selectedMonth],
+    [coverage, eventAwareness, events, focus, goals, personalBrands, selectedMonth],
   )
 
   const totalContacts = events.reduce(
@@ -236,7 +243,7 @@ export function DashboardPage({ selectedMonth }) {
 
       {!dashboardQuery.loading && !dashboardQuery.error && hasMonthData ? (
         <>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               label="KPI в темпі року"
               value={`${executive.kpi.onTrack}/${executive.kpi.measured}`}
@@ -260,6 +267,10 @@ export function DashboardPage({ selectedMonth }) {
               detail={`Конкуренти: ${executive.competitorMentionsTotal}; тональність наших згадок нижче.`}
               tooltip="Поки це mock Looqme-дані. Universe Group рахуємо як наш бренд; Skelar і Headway показані окремо як конкурентний бенчмарк."
               tone="violet"
+            />
+            <EventAwarenessMetricCard
+              awareness={eventAwareness}
+              tooltip="Показує awareness по бренду після івентів з Google Sheet Awaraness 2025-2026: окремо Students і Middle+."
             />
           </section>
 
@@ -631,6 +642,7 @@ function hasDashboardMonthData({
   focus,
   coverage,
   personalBrands,
+  eventAwareness,
   selectedMonth,
 }) {
   const hasKpiForMonth = goals.some((goal) =>
@@ -640,13 +652,17 @@ function hasDashboardMonthData({
     (item) => item.sourceMonth === selectedMonth && item.current !== null,
   )
   const hasCoverage = hasCoverageValues(coverage)
+  const hasEventAwareness = (eventAwareness?.audiences || []).some(
+    (item) => item.awareness !== null && item.awareness !== undefined,
+  )
 
   return Boolean(
     hasKpiForMonth ||
       hasPersonalBrandForMonth ||
       events.length ||
       focus.length ||
-      hasCoverage,
+      hasCoverage ||
+      hasEventAwareness,
   )
 }
 
@@ -839,6 +855,59 @@ function EventsMetricCard({
   )
 }
 
+function EventAwarenessMetricCard({ awareness, tooltip }) {
+  const audiences = awareness?.audiences || []
+  const students = audiences.find((item) => item.key === 'students')
+  const middle = audiences.find((item) => item.key === 'middle')
+  const overall = awareness?.overall
+
+  return (
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-4">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Awareness після івентів
+        </p>
+        <InfoTooltip text={tooltip} />
+      </div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <p className="text-3xl font-semibold leading-none text-slate-950">
+          {formatPercent(overall?.awareness)}
+        </p>
+        <span className="text-sm font-semibold leading-5 text-slate-600">
+          загалом
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <AwarenessAudiencePill audience={students} />
+        <AwarenessAudiencePill audience={middle} />
+      </div>
+      <p className="mt-2 text-xs leading-4 text-slate-500">
+        {overall?.total
+          ? `${formatChartNumber(overall.known)} з ${formatChartNumber(
+              overall.total,
+            )} відповідей`
+          : 'дані з таблиці не підтягнулись'}
+      </p>
+    </div>
+  )
+}
+
+function AwarenessAudiencePill({ audience }) {
+  return (
+    <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-emerald-100">
+      <p className="font-medium text-slate-500">{audience?.label || '—'}</p>
+      <p className="mt-0.5 text-sm font-semibold text-slate-950">
+        {formatPercent(audience?.awareness)}
+      </p>
+      {audience?.total ? (
+        <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
+          {formatChartNumber(audience.known)} / {formatChartNumber(audience.total)}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function DeltaLabel({ x, y, value }) {
   if (!value || x === undefined || y === undefined) return null
 
@@ -879,6 +948,14 @@ function MonthlyTooltip({ active, payload, metricLabel, label }) {
 function formatChartNumber(value) {
   if (value === null || value === undefined) return '—'
   return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(value)
+}
+
+function formatPercent(value) {
+  if (value === null || value === undefined) return '—'
+  return new Intl.NumberFormat('uk-UA', {
+    maximumFractionDigits: 1,
+    style: 'percent',
+  }).format(value)
 }
 
 function formatReachValue(value) {

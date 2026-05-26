@@ -34,6 +34,7 @@ NOTION_REPORTS_PARENT_PAGE_ID=
 ANTHROPIC_KEY=
 ANTHROPIC_MODEL=claude-3-5-sonnet-latest
 LOOQME_TOKEN=
+EVENTS_AWARENESS_SPREADSHEET_ID=1StHTeMTN0m3WFaOmxucsR2njnmKv04_R7CqG-_ZjDhE
 ```
 
 `NOTION_FOCUS_DB` можна залишити порожнім: тоді сервер створить базу `Comms Tool Monthly Focus` через Notion API. Якщо заданий `NOTION_PARENT_PAGE_ID`, база буде створена під цією сторінкою; інакше сервер спробує створити її на workspace-рівні. Після першого створення краще додати цей ID у Railway Variables як `NOTION_FOCUS_DB`.
