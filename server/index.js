@@ -48,9 +48,11 @@ const EVENTS_AWARENESS_SPREADSHEET_ID =
   process.env.EVENTS_AWARENESS_SPREADSHEET_ID ||
   '1StHTeMTN0m3WFaOmxucsR2njnmKv04_R7CqG-_ZjDhE'
 const EVENTS_AWARENESS_SHEETS = ['Students', 'Middle+']
-const KPI_SPREADSHEET_ID =
+const KPI_SPREADSHEET_INPUT =
   process.env.KPI_SPREADSHEET_ID || '1-wWo9W9gL4jYqpsZNrtZnb85XL5sLkAI4GKEqiMkEnI'
-const KPI_SHEET_GID = process.env.KPI_SHEET_GID || '0'
+const KPI_SPREADSHEET_ID =
+  parseGoogleSpreadsheetId(KPI_SPREADSHEET_INPUT) || '1-wWo9W9gL4jYqpsZNrtZnb85XL5sLkAI4GKEqiMkEnI'
+const KPI_SHEET_GID = process.env.KPI_SHEET_GID || parseGoogleSheetGid(KPI_SPREADSHEET_INPUT) || '0'
 const KPI_SHEET_NAME = process.env.KPI_SHEET_NAME || ''
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets'
@@ -484,6 +486,15 @@ function isFilledMetricValue(value) {
 function shouldReadKpiFromGoogleSheet() {
   const source = String(process.env.KPI_SOURCE || '').trim().toLowerCase()
   return source === 'google-sheet' || Boolean(process.env.KPI_SPREADSHEET_ID)
+}
+
+function parseGoogleSpreadsheetId(value) {
+  const text = String(value || '').trim()
+  return text.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/)?.[1] || text
+}
+
+function parseGoogleSheetGid(value) {
+  return String(value || '').match(/[?&#]gid=(\d+)/)?.[1] || ''
 }
 
 async function getGoogleSheetKpiPayload() {
