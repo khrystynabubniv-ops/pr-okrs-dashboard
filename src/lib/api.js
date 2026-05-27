@@ -47,12 +47,37 @@ export function parseMetricNumber(value) {
   const text = String(value || '').trim()
   if (!text) return 0
 
-  const match = text.match(/-?\d[\d\s\u00a0]*(?:[.,]\d+)?/)
+  const match = text.match(/-?\d[\d\s\u00a0.,]*(?:[.,]\d+)?/)
   if (!match) return 0
 
-  const normalized = match[0].replace(/[\s\u00a0]/g, '').replace(',', '.')
+  const normalized = normalizeNumericText(match[0])
   const number = Number(normalized)
   return Number.isNaN(number) ? 0 : number
+}
+
+function normalizeNumericText(value) {
+  let text = String(value || '').replace(/[\s\u00a0]/g, '')
+
+  if (text.includes(',') && text.includes('.')) {
+    const lastComma = text.lastIndexOf(',')
+    const lastDot = text.lastIndexOf('.')
+    const decimalSeparator = lastComma > lastDot ? ',' : '.'
+    const thousandsSeparator = decimalSeparator === ',' ? '.' : ','
+
+    return text
+      .replaceAll(thousandsSeparator, '')
+      .replace(decimalSeparator, '.')
+  }
+
+  const separator = text.includes(',') ? ',' : text.includes('.') ? '.' : null
+  if (!separator) return text
+
+  const parts = text.split(separator)
+  const fractional = parts.at(-1) || ''
+  const looksLikeThousands =
+    parts.length > 2 || (parts.length === 2 && fractional.length === 3 && parts[0].length <= 3)
+
+  return looksLikeThousands ? parts.join('') : text.replace(separator, '.')
 }
 
 export function formatMetricValue(goal) {

@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { createSign } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Anthropic from '@anthropic-ai/sdk'
@@ -47,6 +48,12 @@ const EVENTS_AWARENESS_SPREADSHEET_ID =
   process.env.EVENTS_AWARENESS_SPREADSHEET_ID ||
   '1StHTeMTN0m3WFaOmxucsR2njnmKv04_R7CqG-_ZjDhE'
 const EVENTS_AWARENESS_SHEETS = ['Students', 'Middle+']
+const KPI_SPREADSHEET_ID =
+  process.env.KPI_SPREADSHEET_ID || '1-wWo9W9gL4jYqpsZNrtZnb85XL5sLkAI4GKEqiMkEnI'
+const KPI_SHEET_GID = process.env.KPI_SHEET_GID || '0'
+const KPI_SHEET_NAME = process.env.KPI_SHEET_NAME || ''
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
+const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets'
 
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
@@ -54,6 +61,7 @@ let focusDatabaseId = process.env.NOTION_FOCUS_DB || ''
 let focusDatabasePromise = null
 const dataSourceCache = new Map()
 const dataSourceSchemaCache = new Map()
+let googleTokenCache = null
 
 app.use(cors())
 app.use(express.json({ limit: '1mb' }))
@@ -136,12 +144,37 @@ function parseMetricNumber(value) {
   const text = String(value || '').trim()
   if (!text) return 0
 
-  const match = text.match(/-?\d[\d\s\u00a0]*(?:[.,]\d+)?/)
+  const match = text.match(/-?\d[\d\s\u00a0.,]*(?:[.,]\d+)?/)
   if (!match) return 0
 
-  const normalized = match[0].replace(/[\s\u00a0]/g, '').replace(',', '.')
+  const normalized = normalizeNumericText(match[0])
   const number = Number(normalized)
   return Number.isNaN(number) ? 0 : number
+}
+
+function normalizeNumericText(value) {
+  let text = String(value || '').replace(/[\s\u00a0]/g, '')
+
+  if (text.includes(',') && text.includes('.')) {
+    const lastComma = text.lastIndexOf(',')
+    const lastDot = text.lastIndexOf('.')
+    const decimalSeparator = lastComma > lastDot ? ',' : '.'
+    const thousandsSeparator = decimalSeparator === ',' ? '.' : ','
+
+    return text
+      .replaceAll(thousandsSeparator, '')
+      .replace(decimalSeparator, '.')
+  }
+
+  const separator = text.includes(',') ? ',' : text.includes('.') ? '.' : null
+  if (!separator) return text
+
+  const parts = text.split(separator)
+  const fractional = parts.at(-1) || ''
+  const looksLikeThousands =
+    parts.length > 2 || (parts.length === 2 && fractional.length === 3 && parts[0].length <= 3)
+
+  return looksLikeThousands ? parts.join('') : text.replace(separator, '.')
 }
 
 function propertyDate(property) {
@@ -430,13 +463,342 @@ function latestMonthlyValue(values) {
   const latest = [...MONTHS]
     .reverse()
     .map((month) => values[month])
-    .find((value) => String(value || '').trim())
+    .find(isFilledMetricValue)
 
   return latest || 0
 }
 
 function sumMonthlyValues(values) {
-  return MONTHS.reduce((sum, month) => sum + parseMetricNumber(values[month]), 0)
+  return MONTHS.reduce(
+    (sum, month) =>
+      sum + (isFilledMetricValue(values[month]) ? parseMetricNumber(values[month]) : 0),
+    0,
+  )
+}
+
+function isFilledMetricValue(value) {
+  const text = String(value ?? '').trim()
+  return Boolean(text && text !== '-' && text !== '—' && !text.startsWith('#'))
+}
+
+function shouldReadKpiFromGoogleSheet() {
+  const source = String(process.env.KPI_SOURCE || '').trim().toLowerCase()
+  return source === 'google-sheet' || Boolean(process.env.KPI_SPREADSHEET_ID)
+}
+
+async function getGoogleSheetKpiPayload() {
+  const rows = await readGoogleSheetRows(KPI_SPREADSHEET_ID, {
+    gid: KPI_SHEET_GID,
+    sheetName: KPI_SHEET_NAME,
+  })
+  const goals = normalizeKpiSheetRows(rows)
+  const ownerOptions = uniqueOptionNames(goals.map((goal) => goal.owner))
+
+  return { goals, ownerOptions }
+}
+
+function normalizeKpiSheetRows(rows) {
+  let currentDirection = ''
+
+  return rows
+    .slice(1)
+    .map((row, index) => {
+      const rowNumber = index + 2
+      const title = cleanSheetCell(row[1])
+      if (!title) return null
+
+      const direction = cleanSheetCell(row[0])
+      if (direction) currentDirection = normalizeKpiDirection(direction)
+
+      const values = Object.fromEntries(
+        MONTHS.map((month, monthIndex) => [month, cleanSheetCell(row[monthIndex + 2])]),
+      )
+      const currentValue = latestMonthlyValue(values)
+      const targetText = cleanSheetCell(row[14])
+      const inferredMetricType = inferMetricType(targetText, currentValue, values)
+      const metricType = inferredMetricType || 'Кількісна'
+
+      return {
+        id: `sheet-row-${rowNumber}`,
+        sourceRow: rowNumber,
+        source: 'google-sheet',
+        title,
+        direction: currentDirection || 'Employer Brand',
+        metricType,
+        target: parseMetricNumber(targetText),
+        currentValue,
+        criterion: metricType === 'Якісна' ? targetText : '',
+        measurementPeriod: cleanSheetCell(row[29]),
+        dataSource: cleanSheetCell(row[28]),
+        framework: cleanSheetCell(row[30]),
+        owner: cleanSheetCell(row[27]),
+        values,
+      }
+    })
+    .filter(Boolean)
+}
+
+function normalizeKpiDirection(value) {
+  const text = cleanSheetCell(value)
+  const normalized = normalizeCell(text)
+
+  if (normalized === 'eb' || normalized.includes('employer brand')) return 'Employer Brand'
+  if (normalized.includes('smm')) return 'SMM'
+  if (normalized === 'pr') return 'PR'
+  if (normalized.includes('personal brand')) return 'Personal Brands'
+  if (normalized.includes('brand design')) return 'Brand Design'
+
+  return text
+}
+
+function cleanSheetCell(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim()
+}
+
+async function createGoogleSheetGoal(goal) {
+  const sheetTitle = await resolveGoogleSheetTitle(KPI_SPREADSHEET_ID, {
+    gid: KPI_SHEET_GID,
+    sheetName: KPI_SHEET_NAME,
+  })
+  const row = Array(31).fill('')
+  row[0] = goal.direction || ''
+  row[1] = goal.title || ''
+  row[14] = goal.metricType === 'Якісна' ? goal.criterion || '' : goal.target || ''
+  row[27] = goal.owner || ''
+  row[28] = goal.dataSource || ''
+  row[29] = goal.measurementPeriod || ''
+  row[30] = goal.framework || ''
+
+  const range = `${quoteSheetName(sheetTitle)}!A:AE`
+  const response = await googleSheetsFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${KPI_SPREADSHEET_ID}/values/${encodeURIComponent(
+      range,
+    )}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ values: [row] }),
+    },
+  )
+
+  if (!response.ok) {
+    throw createHttpError(502, 'Не вдалося створити KPI у Google Sheet.', await response.text())
+  }
+
+  return response.json()
+}
+
+async function updateGoogleSheetGoalValue(goalId, { month, value }) {
+  const rowNumber = parseGoogleSheetGoalRow(goalId)
+  const monthIndex = MONTHS.indexOf(month)
+
+  if (!rowNumber || monthIndex === -1) {
+    throw createHttpError(400, 'Не вдалося визначити рядок або місяць для оновлення KPI.')
+  }
+
+  const sheetTitle = await resolveGoogleSheetTitle(KPI_SPREADSHEET_ID, {
+    gid: KPI_SHEET_GID,
+    sheetName: KPI_SHEET_NAME,
+  })
+  const column = columnLetter(monthIndex + 3)
+  const range = `${quoteSheetName(sheetTitle)}!${column}${rowNumber}`
+  const response = await googleSheetsFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${KPI_SPREADSHEET_ID}/values/${encodeURIComponent(
+      range,
+    )}?valueInputOption=USER_ENTERED`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        range,
+        majorDimension: 'ROWS',
+        values: [[value]],
+      }),
+    },
+  )
+
+  if (!response.ok) {
+    throw createHttpError(502, 'Не вдалося оновити KPI у Google Sheet.', await response.text())
+  }
+
+  await response.json()
+  const { goals } = await getGoogleSheetKpiPayload()
+  return goals.find((goal) => goal.id === goalId) || null
+}
+
+function parseGoogleSheetGoalRow(goalId) {
+  const match = String(goalId || '').match(/^sheet-row-(\d+)$/)
+  return match ? Number(match[1]) : null
+}
+
+function columnLetter(columnNumber) {
+  let number = columnNumber
+  let letter = ''
+
+  while (number > 0) {
+    const remainder = (number - 1) % 26
+    letter = String.fromCharCode(65 + remainder) + letter
+    number = Math.floor((number - 1) / 26)
+  }
+
+  return letter
+}
+
+async function readGoogleSheetRows(spreadsheetId, { gid, sheetName } = {}) {
+  if (hasGoogleServiceAccountCredentials()) {
+    const title = await resolveGoogleSheetTitle(spreadsheetId, { gid, sheetName })
+    const range = `${quoteSheetName(title)}!A:AE`
+    const response = await googleSheetsFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+        range,
+      )}?majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE`,
+    )
+
+    if (!response.ok) {
+      throw createHttpError(502, 'Не вдалося прочитати KPI з Google Sheets API.', await response.text())
+    }
+
+    const payload = await response.json()
+    return payload.values || []
+  }
+
+  return fetchPublicGoogleSheetCsvByGid(spreadsheetId, gid)
+}
+
+async function resolveGoogleSheetTitle(spreadsheetId, { gid, sheetName } = {}) {
+  if (sheetName) return sheetName
+
+  if (!hasGoogleServiceAccountCredentials()) return String(gid || '0')
+
+  const response = await googleSheetsFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties(sheetId,title)`,
+  )
+
+  if (!response.ok) {
+    throw createHttpError(502, 'Не вдалося прочитати metadata Google Sheet.', await response.text())
+  }
+
+  const payload = await response.json()
+  const selected =
+    payload.sheets?.find((sheet) => String(sheet.properties?.sheetId) === String(gid || '0')) ||
+    payload.sheets?.[0]
+
+  if (!selected?.properties?.title) {
+    throw createHttpError(404, 'Не знайшов аркуш KPI у Google Sheet.')
+  }
+
+  return selected.properties.title
+}
+
+async function fetchPublicGoogleSheetCsvByGid(spreadsheetId, gid = '0') {
+  const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&gid=${encodeURIComponent(
+    gid,
+  )}`
+  const response = await fetch(url)
+  const body = await response.text()
+
+  if (!response.ok || body.trimStart().startsWith('<!DOCTYPE html>')) {
+    throw createHttpError(
+      502,
+      'Не вдалося прочитати KPI Google Sheet. Перевірте доступ для service account або public view.',
+    )
+  }
+
+  return parseCsvRows(body)
+}
+
+function hasGoogleServiceAccountCredentials() {
+  return Boolean(getGoogleServiceAccountCredentials())
+}
+
+function getGoogleServiceAccountCredentials() {
+  const rawJson =
+    process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_CREDENTIALS_JSON || ''
+
+  if (rawJson.trim()) {
+    try {
+      const parsed = JSON.parse(rawJson)
+      if (parsed.client_email && parsed.private_key) {
+        return {
+          email: parsed.client_email,
+          privateKey: parsed.private_key,
+        }
+      }
+    } catch {
+      return null
+    }
+  }
+
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
+  const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n')
+
+  return email && privateKey ? { email, privateKey } : null
+}
+
+async function googleSheetsFetch(url, options = {}) {
+  const accessToken = await getGoogleAccessToken()
+  return fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  })
+}
+
+async function getGoogleAccessToken() {
+  if (googleTokenCache && googleTokenCache.expiresAt > Date.now() + 60_000) {
+    return googleTokenCache.accessToken
+  }
+
+  const credentials = getGoogleServiceAccountCredentials()
+  if (!credentials) {
+    throw createHttpError(503, 'Не налаштований Google service account для KPI Google Sheet.')
+  }
+
+  const now = Math.floor(Date.now() / 1000)
+  const header = base64UrlJson({ alg: 'RS256', typ: 'JWT' })
+  const payload = base64UrlJson({
+    iss: credentials.email,
+    scope: GOOGLE_SHEETS_SCOPE,
+    aud: GOOGLE_TOKEN_URL,
+    exp: now + 3600,
+    iat: now,
+  })
+  const unsignedJwt = `${header}.${payload}`
+  const signature = createSign('RSA-SHA256')
+    .update(unsignedJwt)
+    .sign(credentials.privateKey)
+    .toString('base64url')
+  const assertion = `${unsignedJwt}.${signature}`
+
+  const response = await fetch(GOOGLE_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion,
+    }),
+  })
+
+  if (!response.ok) {
+    throw createHttpError(502, 'Google OAuth token error.', await response.text())
+  }
+
+  const token = await response.json()
+  googleTokenCache = {
+    accessToken: token.access_token,
+    expiresAt: Date.now() + Number(token.expires_in || 3600) * 1000,
+  }
+
+  return googleTokenCache.accessToken
+}
+
+function base64UrlJson(value) {
+  return Buffer.from(JSON.stringify(value)).toString('base64url')
+}
+
+function quoteSheetName(title) {
+  return `'${String(title).replaceAll("'", "''")}'`
 }
 
 function normalizeFocus(page) {
@@ -1177,6 +1539,11 @@ app.get('/api/health', (_request, response) => {
 })
 
 app.get('/api/notion/kpi-goals', asyncHandler(async (_request, response) => {
+  if (shouldReadKpiFromGoogleSheet()) {
+    response.json(await getGoogleSheetKpiPayload())
+    return
+  }
+
   const databaseId = getDatabaseId('NOTION_KPI_DB', 'KPI цілей')
   const [pages, schema] = await Promise.all([
     queryAllDatabase(databaseId),
@@ -1192,6 +1559,12 @@ app.get('/api/notion/kpi-goals', asyncHandler(async (_request, response) => {
 }))
 
 app.post('/api/notion/goals', asyncHandler(async (request, response) => {
+  if (shouldReadKpiFromGoogleSheet()) {
+    await createGoogleSheetGoal(request.body)
+    response.status(201).json({ ok: true })
+    return
+  }
+
   const notion = getNotion()
   const databaseId = getDatabaseId('NOTION_KPI_DB', 'KPI цілей')
   const goal = request.body
@@ -1207,6 +1580,12 @@ app.post('/api/notion/goals', asyncHandler(async (request, response) => {
 }))
 
 app.patch('/api/notion/goals/:id', asyncHandler(async (request, response) => {
+  if (shouldReadKpiFromGoogleSheet()) {
+    const goal = await updateGoogleSheetGoalValue(request.params.id, request.body)
+    response.json({ goal })
+    return
+  }
+
   const notion = getNotion()
   const { month, value } = request.body
   const page = await notion.pages.retrieve({ page_id: request.params.id })
