@@ -55,7 +55,8 @@ const KPI_SPREADSHEET_ID =
 const KPI_SHEET_GID = process.env.KPI_SHEET_GID || parseGoogleSheetGid(KPI_SPREADSHEET_INPUT) || '0'
 const KPI_SHEET_NAME = process.env.KPI_SHEET_NAME || ''
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
-const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets'
+const GOOGLE_SHEETS_SCOPE =
+  'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly'
 
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
@@ -489,12 +490,24 @@ function shouldReadKpiFromGoogleSheet() {
 }
 
 function parseGoogleSpreadsheetId(value) {
-  const text = String(value || '').trim()
+  const text = cleanEnvValue(value)
   return text.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/)?.[1] || text
 }
 
 function parseGoogleSheetGid(value) {
-  return String(value || '').match(/[?&#]gid=(\d+)/)?.[1] || ''
+  return cleanEnvValue(value).match(/[?&#]gid=(\d+)/)?.[1] || ''
+}
+
+function cleanEnvValue(value) {
+  let text = String(value || '').trim()
+  if (
+    (text.startsWith('"') && text.endsWith('"')) ||
+    (text.startsWith("'") && text.endsWith("'"))
+  ) {
+    text = text.slice(1, -1)
+  }
+
+  return text
 }
 
 async function getGoogleSheetKpiPayload() {
@@ -673,6 +686,13 @@ async function readGoogleSheetRows(spreadsheetId, { gid, sheetName } = {}) {
     } catch (error) {
       if (!gid) throw error
     }
+
+    try {
+      return await fetchAuthenticatedGoogleSheetCsvByGid(spreadsheetId, gid)
+    } catch {
+      // Fall through to the public CSV export below. This covers sheets that are
+      // intentionally published/viewable by link and XLSX files opened in Sheets.
+    }
   }
 
   return fetchPublicGoogleSheetCsvByGid(spreadsheetId, gid)
@@ -704,9 +724,7 @@ async function resolveGoogleSheetTitle(spreadsheetId, { gid, sheetName } = {}) {
 }
 
 async function fetchPublicGoogleSheetCsvByGid(spreadsheetId, gid = '0') {
-  const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&gid=${encodeURIComponent(
-    gid,
-  )}`
+  const url = googleSheetCsvExportUrl(spreadsheetId, gid, false)
   const response = await fetch(url)
   const body = await response.text()
 
@@ -718,6 +736,35 @@ async function fetchPublicGoogleSheetCsvByGid(spreadsheetId, gid = '0') {
   }
 
   return parseCsvRows(body)
+}
+
+async function fetchAuthenticatedGoogleSheetCsvByGid(spreadsheetId, gid = '0') {
+  const response = await googleSheetsFetch(googleSheetCsvExportUrl(spreadsheetId, gid, true), {
+    headers: { Accept: 'text/csv' },
+  })
+  const body = await response.text()
+
+  if (!response.ok || body.trimStart().startsWith('<!DOCTYPE html>')) {
+    throw createHttpError(
+      502,
+      'Не вдалося прочитати authenticated KPI CSV export з Google Sheet.',
+      body.slice(0, 500),
+    )
+  }
+
+  return parseCsvRows(body)
+}
+
+function googleSheetCsvExportUrl(spreadsheetId, gid, useExportEndpoint) {
+  if (useExportEndpoint) {
+    return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${encodeURIComponent(
+      gid || '0',
+    )}`
+  }
+
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&gid=${encodeURIComponent(
+    gid || '0',
+  )}`
 }
 
 function hasGoogleServiceAccountCredentials() {
