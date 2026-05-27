@@ -51,7 +51,7 @@ export function DashboardPage({ selectedMonth }) {
   const dashboardQuery = useAsyncData(
     async () => {
       const [goalsPayload, events, focus, coverage, eventAwareness] = await Promise.all([
-        optionalRequest('/api/notion/kpi-goals', { goals: [] }),
+        optionalRequest('/api/kpi-goals', { goals: [] }),
         optionalRequest(
           `/api/notion/events?month=${encodeURIComponent(selectedMonth)}`,
           { events: [] },
@@ -302,7 +302,7 @@ export function DashboardPage({ selectedMonth }) {
           <section className="grid gap-4 xl:grid-cols-2">
             <ChartPanel
               title="Instagram підписники помісячно"
-              tooltip="Бере значення з KPI-бази Notion: кожна місячна колонка показує фактичну кількість підписників на кінець місяця. Підпис +n/-n показує зміну до попереднього місяця."
+              tooltip="Бере значення з KPI-спредшиту: кожна місячна колонка показує фактичну кількість підписників на кінець місяця. Підпис +n/-n показує зміну до попереднього місяця."
             >
               {hasSeriesData(instagramSeries) ? (
                 <ResponsiveContainer width="100%" height={280}>
@@ -338,14 +338,14 @@ export function DashboardPage({ selectedMonth }) {
               ) : (
                 <EmptyState
                   title="Немає помісячних значень"
-                  text="Графік підтягнеться з KPI-цілі Instagram, коли у місячних колонках Notion будуть числа."
+                  text="Графік підтягнеться з KPI-цілі Instagram, коли у місячних колонках спредшиту будуть числа."
                 />
               )}
             </ChartPanel>
 
             <ChartPanel
               title="Медіа згадки: помісячна динаміка"
-              tooltip="Цей графік бере значення з KPI-бази, якщо є ціль/рядок про медіа згадки. Окремий блок нижче показує mock Looqme coverage."
+              tooltip="Цей графік бере значення з KPI-спредшиту, якщо є ціль/рядок про медіа згадки. Окремий блок нижче показує mock Looqme coverage."
             >
               {hasSeriesData(mediaSeries) ? (
                 <ResponsiveContainer width="100%" height={280}>
@@ -365,14 +365,14 @@ export function DashboardPage({ selectedMonth }) {
               ) : (
                 <EmptyState
                   title="Немає даних для графіка"
-                  text="Зараз графік бере значення тільки з KPI-бази. Looqme-блок нижче поки mock."
+                  text="Зараз графік бере значення тільки з KPI-спредшиту. Looqme-блок нижче поки mock."
                 />
               )}
             </ChartPanel>
 
             <ChartPanel
               title="Трафік із сайту: органічний"
-              tooltip="Показує органічний трафік сайту з KPI-бази Notion, якщо для цієї метрики заповнені місячні значення."
+              tooltip="Показує органічний трафік сайту з KPI-спредшиту, якщо для цієї метрики заповнені місячні значення."
             >
               {hasSeriesData(trafficSeries) ? (
                 <ResponsiveContainer width="100%" height={280}>
@@ -392,14 +392,14 @@ export function DashboardPage({ selectedMonth }) {
               ) : (
                 <EmptyState
                   title="Немає даних для графіка"
-                  text="Додайте у KPI-базі ціль/рядок про органічний трафік і помісячні значення."
+                  text="Додайте у KPI-спредшит ціль/рядок про органічний трафік і помісячні значення."
                 />
               )}
             </ChartPanel>
 
             <ChartPanel
               title="Personal Brands фоловери"
-              tooltip="Дані беруться з Excel-таблиці вимірювання результатів. Річна ціль = 100%, а значення місяця показує фактичну кількість фоловерів."
+              tooltip="Дані беруться з KPI-спредшиту. Значення місяця показує фактичну кількість фоловерів; якщо річна ціль у спредшиті порожня, прогрес не рахується."
             >
               {personalBrands.length ? (
                 <div className="space-y-4">
@@ -412,8 +412,12 @@ export function DashboardPage({ selectedMonth }) {
                           </p>
                           <p className="mt-1 text-xs text-slate-500">
                             {item.sourceMonth && item.sourceMonth !== selectedMonth
-                              ? `останнє значення: ${item.sourceMonth.split(' ')[0]}`
-                              : 'Річна ціль = 100%'}
+                              ? `останнє значення: ${item.sourceMonth.split(' ')[0]}${
+                                  item.target ? '' : ' · ціль не вказана'
+                                }`
+                              : item.target
+                                ? 'Річна ціль = 100%'
+                                : 'ціль не вказана'}
                           </p>
                         </div>
                         <p className="text-sm font-semibold text-slate-950">
@@ -444,18 +448,14 @@ export function DashboardPage({ selectedMonth }) {
                             {item.progress}% від річної цілі
                           </p>
                         </>
-                      ) : (
-                        <p className="mt-2 text-xs text-slate-500">
-                          Річна ціль у таблиці не вказана
-                        </p>
-                      )}
+                      ) : null}
                     </div>
                   ))}
                 </div>
               ) : (
                 <EmptyState
                   title="Немає Personal Brands цілей"
-                  text="Додайте цілі цього напрямку в KPI-базі."
+                  text="Додайте цілі цього напрямку в KPI-спредшит."
                 />
               )}
             </ChartPanel>
@@ -952,7 +952,7 @@ function CandidateAwarenessKpiCard({ kpi, tooltip }) {
         </div>
       </div>
       <p className="mt-2 text-xs leading-4 text-slate-500">
-        {detail || 'Додайте значення в KPI-базі'}
+        {detail || 'Додайте значення в KPI-спредшиті'}
       </p>
     </div>
   )
@@ -1115,7 +1115,7 @@ function DirectionHealthPanel({ items, selectedMonth, onDirectionOpen }) {
               <th className="px-3 py-3 font-semibold">
                 <HeaderWithInfo
                   label={`Заповнено за ${monthName}`}
-                  text="Скільки KPI мають значення у місячній колонці Notion для вибраного місяця."
+                  text="Скільки KPI мають значення у місячній колонці KPI-спредшиту для вибраного місяця."
                 />
               </th>
               <th className="px-3 py-3 font-semibold">

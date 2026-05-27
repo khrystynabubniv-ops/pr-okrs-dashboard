@@ -1,5 +1,4 @@
 import { DIRECTIONS, MONTHS } from '../constants'
-import { PERSONAL_BRANDS_FOLLOWERS } from '../data/personalBrandsFollowers'
 import { parseMetricNumber } from './api'
 
 export function progressSummary(goals, selectedMonth) {
@@ -251,24 +250,23 @@ export function hasSeriesData(series) {
 }
 
 export function personalBrandBars(goals, selectedMonth) {
-  if (PERSONAL_BRANDS_FOLLOWERS.length) {
-    return PERSONAL_BRANDS_FOLLOWERS.map((person) => {
-      const currentPoint = latestPointUpToMonth(person.values, selectedMonth)
+  return goals
+    .filter(isPersonalBrandFollowerGoal)
+    .map((goal) => {
+      const currentPoint = latestPointUpToMonth(goal.values || {}, selectedMonth)
       const previousPoint = currentPoint
-        ? latestPointBeforeMonth(person.values, currentPoint.month)
+        ? latestPointBeforeMonth(goal.values || {}, currentPoint.month)
         : null
       const current = currentPoint?.value ?? null
       const previous = previousPoint?.value ?? null
-      const target = person.target ? parseMetricNumber(person.target) : null
+      const target = parseMetricNumber(goal.target)
       const progress =
-        target && current !== null
-          ? Math.min(100, Math.round((current / target) * 100))
-          : 0
+        target && current !== null ? Math.min(100, Math.round((current / target) * 100)) : 0
       const delta = current !== null && previous !== null ? current - previous : null
 
       return {
-        id: person.id,
-        name: person.name,
+        id: goal.id,
+        name: personalBrandDisplayName(goal.title),
         current,
         target,
         progress,
@@ -278,44 +276,14 @@ export function personalBrandBars(goals, selectedMonth) {
           delta === null ? '' : `${delta > 0 ? '+' : ''}${formatDeltaNumber(delta)}`,
       }
     })
-  }
-
-  const selectedIndex = Math.max(0, MONTHS.indexOf(selectedMonth))
-  const previousMonth = selectedIndex > 0 ? MONTHS[selectedIndex - 1] : null
-
-  return goals
-    .filter((goal) => goal.direction === 'Personal Brands')
-    .slice(0, 8)
-    .map((goal) => {
-      const currentRaw = goal.values?.[selectedMonth]
-      const hasCurrent = String(currentRaw ?? '').trim() !== ''
-      const current = hasCurrent ? parseMetricNumber(currentRaw) : null
-      const previous = previousMonth ? parseMetricNumber(goal.values?.[previousMonth]) : null
-      const target = parseMetricNumber(goal.target)
-      const progress =
-        target && current !== null ? Math.min(100, Math.round((current / target) * 100)) : 0
-      const delta = current !== null && previous !== null ? current - previous : null
-
-      return {
-        id: goal.id,
-        name: goal.title,
-        current,
-        target,
-        progress,
-        delta,
-        deltaLabel:
-          delta === null ? '' : `${delta > 0 ? '+' : ''}${formatDeltaNumber(delta)}`,
-      }
-    })
 }
 
 function latestPointUpToMonth(values, selectedMonth) {
   const selectedIndex = MONTHS.indexOf(selectedMonth)
-  const monthsToCheck = MONTHS.slice(0, selectedIndex + 1).reverse()
+  const monthLimit = selectedIndex >= 0 ? selectedIndex + 1 : MONTHS.length
+  const monthsToCheck = MONTHS.slice(0, monthLimit).reverse()
 
-  const month = monthsToCheck.find(
-    (item) => values[item] !== null && values[item] !== undefined,
-  )
+  const month = monthsToCheck.find((item) => isFilledGoalValue(values[item]))
 
   return month ? { month, value: parseMetricNumber(values[month]) } : null
 }
@@ -323,13 +291,35 @@ function latestPointUpToMonth(values, selectedMonth) {
 function latestPointBeforeMonth(values, month) {
   const monthIndex = MONTHS.indexOf(month)
   const monthsToCheck = MONTHS.slice(0, Math.max(0, monthIndex)).reverse()
-  const previousMonth = monthsToCheck.find(
-    (item) => values[item] !== null && values[item] !== undefined,
-  )
+  const previousMonth = monthsToCheck.find((item) => isFilledGoalValue(values[item]))
 
   return previousMonth
     ? { month: previousMonth, value: parseMetricNumber(values[previousMonth]) }
     : null
+}
+
+function isPersonalBrandFollowerGoal(goal) {
+  if (goal.direction !== 'Personal Brands') return false
+
+  const haystack = normalizeDashboardSearchText(
+    `${goal.title || ''} ${goal.dataSource || ''}`,
+  )
+
+  return (
+    haystack.includes('фоловер') ||
+    haystack.includes('followers') ||
+    haystack.includes('підписник') ||
+    haystack.includes('підписників')
+  )
+}
+
+function personalBrandDisplayName(title) {
+  const text = String(title || '').trim()
+  const match = text.match(
+    /(?:на\s+сторінці|сторінці)\s+(.+?)(?:\s+до\s+[\d\s\u00a0,.]+)?$/i,
+  )
+
+  return match?.[1]?.trim() || text || 'Без назви'
 }
 
 function latestRawPointUpToMonth(values, selectedMonth) {

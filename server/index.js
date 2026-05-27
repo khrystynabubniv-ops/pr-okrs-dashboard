@@ -61,17 +61,6 @@ const GOOGLE_SHEETS_SCOPE =
 
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
-const PERSONAL_BRAND_TARGET_FALLBACKS = [
-  [/ярослава морозова/, '23000'],
-  [/федора котяя/, '7000'],
-  [/ольга бреславська/, '10000'],
-  [/ірини кра/, '4000'],
-  [/богдана житника/, '4000'],
-  [/саші шитя/, '2500'],
-  [/діми канєвського/, '90 фоловерів щомісяця'],
-  [/google|пошукових системах ai|пошукових системах аі/, '5 згадок у топ-10 запитів'],
-]
-
 let focusDatabaseId = process.env.NOTION_FOCUS_DB || ''
 let focusDatabasePromise = null
 const dataSourceCache = new Map()
@@ -1081,7 +1070,7 @@ function isFilledMetricValue(value) {
 
 function shouldReadKpiFromGoogleSheet() {
   const source = String(process.env.KPI_SOURCE || '').trim().toLowerCase()
-  return source === 'google-sheet' || Boolean(process.env.KPI_SPREADSHEET_ID)
+  return source !== 'notion'
 }
 
 function parseGoogleSpreadsheetId(value) {
@@ -1154,11 +1143,7 @@ function normalizeKpiSheetRows(rows) {
       const values = Object.fromEntries(
         MONTHS.map((month, monthIndex) => [month, cleanSheetCell(row[monthIndex + 2])]),
       )
-      const targetText = resolveKpiTargetText({
-        direction: currentDirection,
-        title,
-        targetText: cleanSheetCell(row[14]),
-      })
+      const targetText = cleanSheetCell(row[14])
       const calculation = buildKpiGoalCalculation({
         title,
         targetText,
@@ -1198,19 +1183,6 @@ function normalizeKpiSheetRows(rows) {
 
 function inheritSheetCell(value, fallback) {
   return cleanSheetCell(value) || fallback
-}
-
-function resolveKpiTargetText({ direction, title, targetText }) {
-  const explicitTarget = cleanSheetCell(targetText)
-  if (explicitTarget) return explicitTarget
-  if (direction !== 'Personal Brands') return ''
-
-  const normalizedTitle = normalizeCell(title)
-  const fallback = PERSONAL_BRAND_TARGET_FALLBACKS.find(([pattern]) =>
-    pattern.test(normalizedTitle),
-  )
-
-  return fallback?.[1] || ''
 }
 
 function normalizeKpiDirection(value) {
@@ -2262,6 +2234,10 @@ async function createFocusDatabase() {
 app.get('/api/health', (_request, response) => {
   response.json({ ok: true, service: 'Comms Tool' })
 })
+
+app.get('/api/kpi-goals', asyncHandler(async (_request, response) => {
+  response.json(await getGoogleSheetKpiPayload())
+}))
 
 app.get('/api/notion/kpi-goals', asyncHandler(async (_request, response) => {
   if (shouldReadKpiFromGoogleSheet()) {
