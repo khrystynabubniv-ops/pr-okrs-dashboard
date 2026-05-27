@@ -728,9 +728,21 @@ function getGoogleServiceAccountCredentials() {
   }
 
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
-  const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n')
+  const privateKey = normalizePrivateKey(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)
 
   return email && privateKey ? { email, privateKey } : null
+}
+
+function normalizePrivateKey(value) {
+  let key = String(value || '').trim()
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1)
+  }
+
+  return key.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').trim()
 }
 
 async function googleSheetsFetch(url, options = {}) {
