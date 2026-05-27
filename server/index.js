@@ -155,6 +155,17 @@ function parseMetricNumber(value) {
   return Number.isNaN(number) ? 0 : number
 }
 
+function parsePercentMetricNumber(value) {
+  const text = String(value || '').trim()
+  const percentMatches = [...text.matchAll(/(-?\d[\d\s\u00a0.,]*(?:[.,]\d+)?)\s*%/g)]
+
+  if (percentMatches.length) {
+    return parseMetricNumber(percentMatches.at(-1)[1])
+  }
+
+  return parseMetricNumber(value)
+}
+
 function normalizeNumericText(value) {
   let text = String(value || '').replace(/[\s\u00a0]/g, '')
 
@@ -479,6 +490,347 @@ function sumMonthlyValues(values) {
   )
 }
 
+function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod }) {
+  const effectiveTargetText =
+    targetText || extractGrowthTargetText(title) || extractPercentRangeTargetText(title)
+  const calculationType = inferKpiCalculationType({
+    title,
+    targetText: effectiveTargetText,
+    values,
+    measurementPeriod,
+  })
+  const target = parseMetricNumber(effectiveTargetText)
+  const latestValue = latestMonthlyValue(values)
+  const filledValues = filledMonthlyValues(values)
+
+  if (calculationType === 'cumulative_sum') {
+    const currentValue = sumMonthlyValues(values)
+    const progress = target ? Math.round((currentValue / target) * 100) : 0
+
+    return {
+      metricType: 'Накопичувальна',
+      calculationType,
+      calculationLabel: 'Накопичення за рік',
+      target,
+      currentValue,
+      displayCurrentValue: formatGoalNumber(currentValue),
+      displayTarget: target ? formatGoalNumber(target) : effectiveTargetText || '—',
+      progress: clampPercent(progress),
+      progressLabel: `${clampPercent(progress)}%`,
+      progressMode: 'bar',
+      statusLabel: 'Сума місяців',
+      statusTone: 'blue',
+      explanation: 'Поточне значення = сума всіх заповнених місяців.',
+      criterion: '',
+    }
+  }
+
+  if (calculationType === 'percent_monthly_average') {
+    const monthlyValues = filledValues.map(([, value]) => parsePercentMetricNumber(value))
+    const currentValue = monthlyValues.length
+      ? Math.round(monthlyValues.reduce((sum, value) => sum + value, 0) / monthlyValues.length)
+      : 0
+    const progress = target ? Math.round((currentValue / target) * 100) : currentValue
+
+    return {
+      metricType: 'Відсоткова',
+      calculationType,
+      calculationLabel: 'Середнє за місяці',
+      target: target || 100,
+      currentValue,
+      displayCurrentValue: monthlyValues.length
+        ? `${currentValue}% середнє за ${monthlyValues.length} міс.`
+        : '—',
+      displayTarget: effectiveTargetText || `${target || 100}%`,
+      progress: clampPercent(progress),
+      progressLabel: `${clampPercent(progress)}%`,
+      progressMode: 'bar',
+      statusLabel: 'Помісячний KPI',
+      statusTone: 'blue',
+      explanation: 'Для 100% KPI беремо середнє заповнених місяців.',
+      criterion: '',
+    }
+  }
+
+  if (calculationType === 'annual_snapshot') {
+    const currentPercent = parsePercentMetricNumber(latestValue)
+    const hasCurrent = filledValues.length > 0
+
+    return {
+      metricType: 'Відсоткова',
+      calculationType,
+      calculationLabel: 'Річний замір',
+      target,
+      currentValue: hasCurrent ? currentPercent : '',
+      displayCurrentValue: hasCurrent
+        ? `останній замір: ${formatPercentLike(latestValue)}`
+        : 'очікує річного заміру',
+      displayTarget: effectiveTargetText || (target ? `${target}%` : '—'),
+      progress: null,
+      progressLabel: '',
+      progressMode: 'none',
+      statusLabel: hasCurrent ? 'Є річний замір' : 'Очікує заміру',
+      statusTone: hasCurrent ? 'slate' : 'amber',
+      explanation: 'Це не щомісячний прогрес: показник оновлюється після заміру.',
+      criterion: '',
+    }
+  }
+
+  if (calculationType === 'growth_from_baseline') {
+    const hasCurrent = filledValues.length > 0
+
+    return {
+      metricType: 'Відсоткова',
+      calculationType,
+      calculationLabel: 'Ріст від старту',
+      target,
+      currentValue: hasCurrent ? latestValue : '',
+      displayCurrentValue: hasCurrent ? formatPercentLike(latestValue) : 'потрібен baseline',
+      displayTarget: effectiveTargetText || '—',
+      progress: null,
+      progressLabel: '',
+      progressMode: 'none',
+      statusLabel: 'Потрібен baseline',
+      statusTone: 'amber',
+      explanation: 'Для +20-30% треба вказати стартове значення і правило порівняння.',
+      criterion: effectiveTargetText,
+    }
+  }
+
+  if (calculationType === 'target_range_setup') {
+    const hasCurrent = filledValues.length > 0
+
+    return {
+      metricType: 'Відсоткова',
+      calculationType,
+      calculationLabel: 'Цільовий діапазон',
+      target,
+      currentValue: hasCurrent ? latestValue : '',
+      displayCurrentValue: hasCurrent ? formatPercentLike(latestValue) : 'потрібен замір',
+      displayTarget: effectiveTargetText || '—',
+      progress: null,
+      progressLabel: '',
+      progressMode: 'none',
+      statusLabel: hasCurrent ? 'Є замір' : 'Потрібен замір',
+      statusTone: hasCurrent ? 'slate' : 'amber',
+      explanation: 'У таблиці є цільовий діапазон, але треба зафіксувати факт і правило заміру.',
+      criterion: effectiveTargetText,
+    }
+  }
+
+  if (calculationType === 'cpc_guardrail') {
+    const monthlyPairs = parseCompositeMonthlyValues(values)
+    const clicks = monthlyPairs.reduce((sum, item) => sum + item.clicks, 0)
+    const latestPair = monthlyPairs.at(-1)
+    const cpcLimit = parseCpcLimit(`${title} ${effectiveTargetText}`)
+    const cpcOk =
+      latestPair?.cpc !== null && latestPair?.cpc !== undefined && cpcLimit
+        ? latestPair.cpc <= cpcLimit
+        : false
+
+    return {
+      metricType: 'Обмеження',
+      calculationType,
+      calculationLabel: 'Кліки + CPC',
+      target: cpcLimit || target,
+      currentValue: latestPair
+        ? `${latestPair.clicks}; ${latestPair.cpc ?? ''}`.trim()
+        : latestValue,
+      displayCurrentValue: latestPair
+        ? `${formatGoalNumber(clicks)} кліків · CPC ${formatGoalMoney(latestPair.cpc)}`
+        : '—',
+      displayTarget: cpcLimit ? `CPC ≤ ${formatGoalMoney(cpcLimit)}` : effectiveTargetText || '—',
+      progress: null,
+      progressLabel: '',
+      progressMode: 'none',
+      statusLabel: latestPair ? (cpcOk ? 'CPC в нормі' : 'CPC вище ліміту') : 'немає даних',
+      statusTone: latestPair ? (cpcOk ? 'green' : 'rose') : 'slate',
+      explanation: 'Це guardrail: сумуємо кліки, а CPC перевіряємо як ліміт.',
+      criterion: cpcLimit ? `CPC не вище ${formatGoalMoney(cpcLimit)}` : effectiveTargetText,
+    }
+  }
+
+  if (calculationType === 'qualitative') {
+    const done = ['так', 'yes', 'done', 'true', 'виконано'].includes(
+      String(latestValue || '').trim().toLowerCase(),
+    )
+
+    return {
+      metricType: 'Якісна',
+      calculationType,
+      calculationLabel: 'Так/ні',
+      target: 0,
+      currentValue: latestValue || '',
+      displayCurrentValue: latestValue || '—',
+      displayTarget: effectiveTargetText || 'Так/ні',
+      progress: done ? 100 : 0,
+      progressLabel: done ? '100%' : '0%',
+      progressMode: 'bar',
+      statusLabel: done ? 'Виконано' : 'Не виконано',
+      statusTone: done ? 'green' : 'slate',
+      explanation: '',
+      criterion: effectiveTargetText,
+    }
+  }
+
+  const currentValue =
+    String(effectiveTargetText || '').includes('%') || filledValues.some(([, value]) => String(value).includes('%'))
+      ? parsePercentMetricNumber(latestValue)
+      : parseMetricNumber(latestValue)
+  const progress = target ? Math.round((currentValue / target) * 100) : 0
+  const isPercent = String(effectiveTargetText || latestValue).includes('%')
+
+  return {
+    metricType: isPercent ? 'Відсоткова' : 'Кількісна',
+    calculationType,
+    calculationLabel: isPercent ? 'Останнє значення' : 'Поточне значення',
+    target,
+    currentValue,
+    displayCurrentValue: isPercent ? formatPercentLike(latestValue) : formatGoalNumber(currentValue),
+    displayTarget: isPercent
+      ? effectiveTargetText || `${target}%`
+      : effectiveTargetText || formatGoalNumber(target),
+    progress: clampPercent(progress),
+    progressLabel: `${clampPercent(progress)}%`,
+    progressMode: 'bar',
+    statusLabel: 'Останній місяць',
+    statusTone: 'blue',
+    explanation: 'Для цієї метрики беремо останнє заповнене значення.',
+    criterion: '',
+  }
+}
+
+function inferKpiCalculationType({ title, targetText, values, measurementPeriod }) {
+  const text = `${title || ''} ${targetText || ''} ${measurementPeriod || ''}`.toLowerCase()
+  const filledValues = filledMonthlyValues(values)
+  const target = parseMetricNumber(targetText)
+  const hasPercentTargetOrValues =
+    String(targetText || '').includes('%') ||
+    filledValues.some(([, value]) => String(value || '').includes('%'))
+
+  if (/cpc|cost per click|клік|клики|кліки/.test(text) && hasCompositeMonthlyValue(values)) {
+    return 'cpc_guardrail'
+  }
+
+  const hasPercentRange = /\d+\s*[-–—]\s*\d+\s*%/.test(text)
+  const isGrowthLike = /\+\s*\d|на\s*\+?\s*\d|ріст|зростан|скорот|зменш/.test(text)
+
+  if (isGrowthLike && (hasPercentRange || /\+\s*\d/.test(text))) {
+    return 'growth_from_baseline'
+  }
+
+  if (hasPercentRange) {
+    return 'target_range_setup'
+  }
+
+  if (
+    /раз\s+на\s+рік|річн|dou|опитув|survey|research/.test(text) &&
+    hasPercentTargetOrValues
+  ) {
+    return 'annual_snapshot'
+  }
+
+  if (hasPercentTargetOrValues && target === 100) {
+    return 'percent_monthly_average'
+  }
+
+  if (!target && !hasPercentTargetOrValues) {
+    return 'qualitative'
+  }
+
+  if (!hasPercentTargetOrValues) {
+    return 'cumulative_sum'
+  }
+
+  return 'latest_value'
+}
+
+function filledMonthlyValues(values) {
+  return MONTHS.map((month) => [month, values[month]]).filter(([, value]) =>
+    isFilledMetricValue(value),
+  )
+}
+
+function hasCompositeMonthlyValue(values) {
+  return filledMonthlyValues(values).some(([, value]) => /[;/|]/.test(String(value)))
+}
+
+function parseCompositeMonthlyValues(values) {
+  return filledMonthlyValues(values)
+    .map(([month, value]) => {
+      const [clicksText, cpcText] = String(value)
+        .split(/[;/|]/)
+        .map((part) => part.trim())
+
+      return {
+        month,
+        clicks: parseMetricNumber(clicksText),
+        cpc: cpcText ? parseMetricNumber(cpcText) : null,
+      }
+    })
+    .filter((item) => item.clicks || item.cpc !== null)
+}
+
+function parseCpcLimit(value) {
+  const text = String(value || '').toLowerCase()
+  const match = text.match(/(?:cpc|срс|ціні кліка|клік[^\d]{0,20})(?:[^\d]{0,20})(\d+(?:[.,]\d+)?)/)
+  return match ? parseMetricNumber(match[1]) : 0
+}
+
+function extractGrowthTargetText(value) {
+  const text = String(value || '')
+  const normalized = text.toLowerCase()
+  const rangeMatch = text.match(/\+?\s*(\d+(?:[.,]\d+)?)\s*[-–—]\s*(\d+(?:[.,]\d+)?)\s*%/)
+
+  if (rangeMatch) {
+    const isGrowthLike = /\+\s*\d|на\s*\+?\s*\d|ріст|зростан|скорот|зменш/.test(
+      normalized,
+    )
+    if (!isGrowthLike) return ''
+
+    const prefix = normalized.includes('+') ? '+' : ''
+    return `${prefix}${rangeMatch[1]}-${rangeMatch[2]}%`
+  }
+
+  const singleMatch = text.match(/\+\s*(\d+(?:[.,]\d+)?)\s*%/)
+  return singleMatch ? `+${singleMatch[1]}%` : ''
+}
+
+function extractPercentRangeTargetText(value) {
+  const text = String(value || '')
+  const rangeMatch = text.match(/(\d+(?:[.,]\d+)?)\s*[-–—]\s*(\d+(?:[.,]\d+)?)\s*%/)
+  return rangeMatch ? `${rangeMatch[1]}-${rangeMatch[2]}%` : ''
+}
+
+function clampPercent(value) {
+  const number = Number(value)
+  if (Number.isNaN(number)) return 0
+  return Math.max(0, Math.min(100, number))
+}
+
+function formatPercentLike(value) {
+  const text = String(value ?? '').trim()
+  if (!text || text === '-' || text === '—') return '—'
+  if (text.includes('%')) return text
+  if (!/-?\d/.test(text)) return text
+  return `${parsePercentMetricNumber(text)}%`
+}
+
+function formatGoalNumber(value) {
+  const number = Number(value)
+  if (Number.isNaN(number)) return String(value || '—')
+
+  return new Intl.NumberFormat('uk-UA', {
+    maximumFractionDigits: Number.isInteger(number) ? 0 : 2,
+  }).format(number)
+}
+
+function formatGoalMoney(value) {
+  const number = Number(value)
+  if (Number.isNaN(number)) return '—'
+  return `$${number.toFixed(2)}`
+}
+
 function isFilledMetricValue(value) {
   const text = String(value ?? '').trim()
   return Boolean(text && text !== '-' && text !== '—' && !text.startsWith('#'))
@@ -537,10 +889,13 @@ function normalizeKpiSheetRows(rows) {
       const values = Object.fromEntries(
         MONTHS.map((month, monthIndex) => [month, cleanSheetCell(row[monthIndex + 2])]),
       )
-      const currentValue = latestMonthlyValue(values)
       const targetText = cleanSheetCell(row[14])
-      const inferredMetricType = inferMetricType(targetText, currentValue, values)
-      const metricType = inferredMetricType || 'Кількісна'
+      const calculation = buildKpiGoalCalculation({
+        title,
+        targetText,
+        values,
+        measurementPeriod: cleanSheetCell(row[29]),
+      })
 
       return {
         id: `sheet-row-${rowNumber}`,
@@ -548,10 +903,20 @@ function normalizeKpiSheetRows(rows) {
         source: 'google-sheet',
         title,
         direction: currentDirection || 'Employer Brand',
-        metricType,
-        target: parseMetricNumber(targetText),
-        currentValue,
-        criterion: metricType === 'Якісна' ? targetText : '',
+        metricType: calculation.metricType,
+        calculationType: calculation.calculationType,
+        calculationLabel: calculation.calculationLabel,
+        target: calculation.target,
+        currentValue: calculation.currentValue,
+        displayCurrentValue: calculation.displayCurrentValue,
+        displayTarget: calculation.displayTarget,
+        progress: calculation.progress,
+        progressLabel: calculation.progressLabel,
+        progressMode: calculation.progressMode,
+        statusLabel: calculation.statusLabel,
+        statusTone: calculation.statusTone,
+        explanation: calculation.explanation,
+        criterion: calculation.criterion,
         measurementPeriod: cleanSheetCell(row[29]),
         dataSource: cleanSheetCell(row[28]),
         framework: cleanSheetCell(row[30]),
@@ -2162,8 +2527,9 @@ function buildBoardDoneSections(reportData) {
 }
 
 function buildGoalCompletionSummary(goals, month) {
-  const total = goals.length
-  const completed = goals.filter((goal) => goalProgressForReport(goal, month) >= 100)
+  const measurableGoals = goals.filter((goal) => goal.progressMode !== 'none')
+  const total = measurableGoals.length
+  const completed = measurableGoals.filter((goal) => goalProgressForReport(goal, month) >= 100)
     .length
 
   return {
@@ -2533,6 +2899,9 @@ function focusSectionKey(entry) {
 }
 
 function goalProgressForReport(goal, month) {
+  if (goal.progressMode === 'none') return 0
+  if (typeof goal.progress === 'number') return clampPercent(Math.round(goal.progress))
+
   if (goal.metricType === 'Якісна') {
     return isDoneValue(latestGoalValueForReport(goal, month)) ? 100 : 0
   }
@@ -2545,6 +2914,8 @@ function goalProgressForReport(goal, month) {
 }
 
 function goalValueForReport(goal, month) {
+  if (goal.progressMode === 'none') return parseMetricNumber(goal.currentValue)
+
   if (goal.metricType === 'Накопичувальна') {
     return sumGoalValuesUntilReportMonth(goal, month)
   }

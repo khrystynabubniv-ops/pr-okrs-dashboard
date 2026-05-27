@@ -39,7 +39,7 @@ export function progressSummary(goals, selectedMonth) {
 }
 
 export function directionProgressSummary(goals, selectedMonth) {
-  return DIRECTIONS.map((direction) => {
+  return uniqueGoalDirections(goals).map((direction) => {
     const directionGoals = goals.filter((goal) => goal.direction === direction)
     return {
       direction,
@@ -299,6 +299,7 @@ function latestPointBeforeMonth(values, month) {
 }
 
 function isMeasurableGoal(goal) {
+  if (goal.progressMode === 'none') return false
   if (goal.metricType === 'Якісна') return true
   return parseMetricNumber(goal.target) > 0
 }
@@ -312,6 +313,11 @@ function hasAnyValueUntilMonth(goal, selectedMonth) {
 }
 
 function getGoalProgressForMonth(goal, selectedMonth) {
+  if (goal.progressMode === 'none') return 0
+  if (typeof goal.progress === 'number') {
+    return Math.max(0, Math.min(100, Math.round(goal.progress)))
+  }
+
   if (goal.metricType === 'Якісна') {
     const value = latestGoalValueUntilMonth(goal, selectedMonth)
     return ['так', 'yes', 'done', 'true', 'виконано'].includes(
@@ -360,6 +366,21 @@ function expectedProgress(selectedMonth) {
 
 function hasValueForMonth(goal, selectedMonth) {
   return String(goal?.values?.[selectedMonth] ?? '').trim() !== ''
+}
+
+function uniqueGoalDirections(goals) {
+  const directions = [...DIRECTIONS]
+
+  goals.forEach((goal) => {
+    const direction = String(goal.direction || '').trim()
+    if (direction && !directions.includes(direction)) {
+      directions.push(direction)
+    }
+  })
+
+  return directions.filter((direction) =>
+    goals.length ? goals.some((goal) => goal.direction === direction) : true,
+  )
 }
 
 function formatDeltaNumber(value) {

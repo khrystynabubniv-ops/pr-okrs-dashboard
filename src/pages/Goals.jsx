@@ -59,7 +59,6 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
     [],
   )
 
-  const directionFilter = validDirectionFilter(searchParams.get('direction'))
   const rawGoals = useMemo(() => data?.goals || [], [data])
   const goals = useMemo(
     () =>
@@ -70,6 +69,14 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
           : goal
       }),
     [localGoalEdits, rawGoals],
+  )
+  const directionOptions = useMemo(
+    () => uniqueOptions([...DIRECTIONS, ...goals.map((goal) => goal.direction)]),
+    [goals],
+  )
+  const directionFilter = validDirectionFilter(
+    searchParams.get('direction'),
+    directionOptions,
   )
   const ownerOptions = useMemo(
     () =>
@@ -242,7 +249,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {['Усі', ...DIRECTIONS].map((direction) => {
+            {['Усі', ...directionOptions].map((direction) => {
               const isActive = directionFilter === direction
               return (
                 <button
@@ -320,7 +327,14 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                         <DirectionBadge direction={goal.direction} />
                       </td>
                       <td className="whitespace-nowrap px-3 py-4 text-slate-600">
-                        {goal.metricType}
+                        <div className="space-y-1">
+                          <p>{goal.calculationLabel || goal.metricType}</p>
+                          {goal.explanation ? (
+                            <p className="max-w-56 whitespace-normal text-xs leading-5 text-slate-500">
+                              {goal.explanation}
+                            </p>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="whitespace-nowrap px-3 py-4 text-slate-600">
                         {displayTarget(goal)}
@@ -329,7 +343,11 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                         {formatMetricValue(goal)}
                       </td>
                       <td className="px-3 py-4">
-                        <ProgressBar value={getProgress(goal)} />
+                        {goal.progressMode === 'none' ? (
+                          <ProgressStatus goal={goal} />
+                        ) : (
+                          <ProgressBar value={getProgress(goal)} />
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-3 py-4">
                         <div className="flex flex-wrap gap-2">
@@ -391,6 +409,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
           <form id="create-goal" onSubmit={handleCreateGoal}>
             <GoalFormFields
               form={form}
+              directionOptions={directionOptions}
               ownerOptions={ownerOptions}
               onChange={(field, value) => setForm({ ...form, [field]: value })}
             />
@@ -440,6 +459,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
           <form id="edit-goal" onSubmit={handleSaveGoalDraft}>
             <GoalFormFields
               form={editForm}
+              directionOptions={directionOptions}
               ownerOptions={ownerOptions}
               onChange={(field, value) =>
                 setEditForm({ ...editForm, [field]: value })
@@ -512,7 +532,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
   )
 }
 
-function GoalFormFields({ form, ownerOptions, onChange }) {
+function GoalFormFields({ form, directionOptions = DIRECTIONS, ownerOptions, onChange }) {
   const needsTarget = goalNeedsTarget(form)
 
   return (
@@ -532,7 +552,7 @@ function GoalFormFields({ form, ownerOptions, onChange }) {
           value={form.direction}
           onChange={(event) => onChange('direction', event.target.value)}
         >
-          {DIRECTIONS.map((direction) => (
+          {directionOptions.map((direction) => (
             <option key={direction}>{direction}</option>
           ))}
         </select>
@@ -620,8 +640,33 @@ function GoalFormFields({ form, ownerOptions, onChange }) {
   )
 }
 
-function validDirectionFilter(value) {
-  return DIRECTIONS.includes(value) ? value : 'Усі'
+function ProgressStatus({ goal }) {
+  return (
+    <div className="space-y-1">
+      <span
+        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${statusToneClass(
+          goal.statusTone,
+        )}`}
+      >
+        {goal.statusLabel || 'Без прогресу'}
+      </span>
+      {goal.progressLabel ? (
+        <p className="text-xs text-slate-500">{goal.progressLabel}</p>
+      ) : null}
+    </div>
+  )
+}
+
+function statusToneClass(tone) {
+  if (tone === 'green') return 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+  if (tone === 'rose') return 'bg-rose-50 text-rose-700 ring-rose-200'
+  if (tone === 'amber') return 'bg-amber-50 text-amber-700 ring-amber-200'
+  if (tone === 'blue') return 'bg-blue-50 text-blue-700 ring-blue-200'
+  return 'bg-slate-50 text-slate-700 ring-slate-200'
+}
+
+function validDirectionFilter(value, directionOptions) {
+  return directionOptions.includes(value) ? value : 'Усі'
 }
 
 function uniqueOptions(options) {

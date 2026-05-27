@@ -26,6 +26,11 @@ export async function apiRequest(path, options = {}) {
 export function getProgress(goal) {
   if (!goal) return 0
 
+  if (goal.progressMode === 'none') return 0
+  if (typeof goal.progress === 'number') {
+    return Math.max(0, Math.min(100, Math.round(goal.progress)))
+  }
+
   if (goal.metricType === 'Якісна') {
     const current = String(goal.currentValue || '').trim().toLowerCase()
     return ['так', 'yes', 'done', 'true', 'виконано'].includes(current) ? 100 : 0
@@ -82,6 +87,8 @@ function normalizeNumericText(value) {
 
 export function formatMetricValue(goal) {
   if (!goal) return '0'
+  if (goal.displayCurrentValue) return goal.displayCurrentValue
+
   const value = goal.currentValue
   const text = String(value ?? '').trim()
 
@@ -98,6 +105,7 @@ export function formatMetricValue(goal) {
 
 export function displayTarget(goal) {
   if (!goal) return '—'
+  if (goal.displayTarget) return goal.displayTarget
 
   if (goal.metricType === 'Якісна') {
     return goal.criterion || 'Так/ні'

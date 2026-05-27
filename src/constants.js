@@ -19,6 +19,7 @@ export const DIRECTIONS = [
   'PR',
   'Personal Brands',
   'Brand Design',
+  'Operations',
 ]
 
 export const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
@@ -49,6 +50,11 @@ export const DIRECTION_STYLES = {
     dot: 'bg-emerald-500',
     chart: '#10b981',
   },
+  Operations: {
+    badge: 'bg-slate-50 text-slate-700 ring-slate-200',
+    dot: 'bg-slate-400',
+    chart: '#64748b',
+  },
 }
 
 export const METRIC_TYPES = [
@@ -56,6 +62,10 @@ export const METRIC_TYPES = [
   'Відсоткова',
   'Якісна',
   'Накопичувальна',
+  'Річний замір',
+  'Ріст від старту',
+  'Цільовий діапазон',
+  'Обмеження',
 ]
 
 export const MEASUREMENT_PERIODS = ['щомісяця', 'щокварталу', 'раз на рік']
