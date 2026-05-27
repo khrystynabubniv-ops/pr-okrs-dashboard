@@ -644,20 +644,24 @@ function columnLetter(columnNumber) {
 
 async function readGoogleSheetRows(spreadsheetId, { gid, sheetName } = {}) {
   if (hasGoogleServiceAccountCredentials()) {
-    const title = await resolveGoogleSheetTitle(spreadsheetId, { gid, sheetName })
-    const range = `${quoteSheetName(title)}!A:AE`
-    const response = await googleSheetsFetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
-        range,
-      )}?majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE`,
-    )
+    try {
+      const title = await resolveGoogleSheetTitle(spreadsheetId, { gid, sheetName })
+      const range = `${quoteSheetName(title)}!A:AE`
+      const response = await googleSheetsFetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+          range,
+        )}?majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE`,
+      )
 
-    if (!response.ok) {
-      throw createHttpError(502, 'Не вдалося прочитати KPI з Google Sheets API.', await response.text())
+      if (!response.ok) {
+        throw createHttpError(502, 'Не вдалося прочитати KPI з Google Sheets API.', await response.text())
+      }
+
+      const payload = await response.json()
+      return payload.values || []
+    } catch (error) {
+      if (!gid) throw error
     }
-
-    const payload = await response.json()
-    return payload.values || []
   }
 
   return fetchPublicGoogleSheetCsvByGid(spreadsheetId, gid)
