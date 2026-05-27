@@ -61,6 +61,17 @@ const GOOGLE_SHEETS_SCOPE =
 
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
+const PERSONAL_BRAND_TARGET_FALLBACKS = [
+  [/ярослава морозова/, '23000'],
+  [/федора котяя/, '7000'],
+  [/ольга бреславська/, '10000'],
+  [/ірини кра/, '4000'],
+  [/богдана житника/, '4000'],
+  [/саші шитя/, '2500'],
+  [/діми канєвського/, '90 фоловерів щомісяця'],
+  [/google|пошукових системах ai|пошукових системах аі/, '5 згадок у топ-10 запитів'],
+]
+
 let focusDatabaseId = process.env.NOTION_FOCUS_DB || ''
 let focusDatabasePromise = null
 const dataSourceCache = new Map()
@@ -580,6 +591,38 @@ function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod 
     }
   }
 
+  if (calculationType === 'monthly_delta_target') {
+    const monthlyTarget = target
+    const deltas = monthlyValueDeltas(values)
+    const latestDelta = deltas.at(-1)
+    const achievedMonths = deltas.filter((item) => item.delta >= monthlyTarget).length
+    const latestProgress =
+      monthlyTarget && latestDelta ? Math.round((latestDelta.delta / monthlyTarget) * 100) : 0
+
+    return {
+      metricType: 'Кількісна',
+      calculationType,
+      calculationLabel: 'Приріст за місяць',
+      target: monthlyTarget,
+      currentValue: latestDelta?.delta ?? '',
+      displayCurrentValue: latestDelta
+        ? `${formatSignedGoalNumber(latestDelta.delta)} за ${monthShortName(
+            latestDelta.month,
+          )} (${clampPercent(latestProgress)}%)`
+        : 'потрібен попередній місяць',
+      displayTarget: monthlyTarget ? `${formatGoalNumber(monthlyTarget)} / місяць` : effectiveTargetText || '—',
+      progress: latestDelta ? clampPercent(latestProgress) : null,
+      progressLabel: latestDelta ? `${clampPercent(latestProgress)}%` : '',
+      progressMode: latestDelta ? 'bar' : 'none',
+      statusLabel: deltas.length ? `${achievedMonths} з ${deltas.length} міс. виконано` : 'Потрібні 2 місяці',
+      statusTone: deltas.length && achievedMonths === deltas.length ? 'green' : 'amber',
+      explanation: deltas.length
+        ? `Порівнюємо кожен місяць з попереднім: ${formatMonthlyDeltaDetails(deltas)}.`
+        : 'Щоб порахувати щомісячний приріст, потрібні значення мінімум за два місяці.',
+      criterion: effectiveTargetText || (monthlyTarget ? `${monthlyTarget} фоловерів щомісяця` : ''),
+    }
+  }
+
   if (calculationType === 'latest_value') {
     const currentValue =
       String(effectiveTargetText || '').includes('%') ||
@@ -588,6 +631,7 @@ function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod 
         : parseMetricNumber(latestValue)
     const progress = target ? Math.round((currentValue / target) * 100) : 0
     const isPercent = String(effectiveTargetText || latestValue).includes('%')
+    const hasTarget = Boolean(target)
 
     return {
       metricType: isPercent ? 'Відсоткова' : 'Кількісна',
@@ -601,12 +645,14 @@ function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod 
         : target
           ? formatGoalNumber(target)
           : effectiveTargetText || '—',
-      progress: clampPercent(progress),
-      progressLabel: `${clampPercent(progress)}%`,
-      progressMode: 'bar',
-      statusLabel: 'Останній місяць',
-      statusTone: 'blue',
-      explanation: 'Поточне значення = останнє заповнене значення, без сумування місяців.',
+      progress: hasTarget ? clampPercent(progress) : null,
+      progressLabel: hasTarget ? `${clampPercent(progress)}%` : '',
+      progressMode: hasTarget ? 'bar' : 'none',
+      statusLabel: hasTarget ? 'Останній місяць' : 'Потрібна ціль',
+      statusTone: hasTarget ? 'blue' : 'amber',
+      explanation: hasTarget
+        ? 'Поточне значення = останнє заповнене значення, без сумування місяців.'
+        : 'Є поточне значення, але в таблиці немає цілі 100%.',
       criterion: '',
     }
   }
@@ -708,6 +754,27 @@ function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod 
     }
   }
 
+  if (calculationType === 'search_visibility_setup') {
+    const hasCurrent = filledValues.length > 0
+
+    return {
+      metricType: 'Якісна',
+      calculationType,
+      calculationLabel: 'Потрібне правило',
+      target,
+      currentValue: hasCurrent ? latestValue : '',
+      displayCurrentValue: hasCurrent ? latestValue : 'потрібен замір',
+      displayTarget: effectiveTargetText || '—',
+      progress: null,
+      progressLabel: '',
+      progressMode: 'none',
+      statusLabel: 'Потрібне правило',
+      statusTone: 'amber',
+      explanation: 'Треба визначити 10 запитів і що саме рахується згадкою у топ-10.',
+      criterion: effectiveTargetText,
+    }
+  }
+
   if (calculationType === 'cpc_guardrail') {
     const monthlyPairs = parseCompositeMonthlyValues(values)
     const clicks = monthlyPairs.reduce((sum, item) => sum + item.clicks, 0)
@@ -794,6 +861,7 @@ function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod 
 
 function inferKpiCalculationType({ title, targetText, values, measurementPeriod }) {
   const text = `${title || ''} ${targetText || ''} ${measurementPeriod || ''}`.toLowerCase()
+  const targetOnlyText = String(targetText || '').toLowerCase()
   const filledValues = filledMonthlyValues(values)
   const target = parseMetricNumber(targetText)
   const hasPercentTargetOrValues =
@@ -812,8 +880,16 @@ function inferKpiCalculationType({ title, targetText, values, measurementPeriod 
     return 'monthly_average'
   }
 
+  if (/фоловер|підписник|followers/.test(text) && /щомісяц|на\s+місяц/.test(targetOnlyText)) {
+    return 'monthly_delta_target'
+  }
+
   if (/instagram|підписник|підписників|followers|фоловер/.test(text)) {
     return 'latest_value'
+  }
+
+  if (/google|пошукових системах ai|пошукових системах аі/.test(text)) {
+    return 'search_visibility_setup'
   }
 
   if (/органічн.*траф|брендов.*запит/.test(text)) {
@@ -888,6 +964,28 @@ function parseCompositeMonthlyValues(values) {
     .filter((item) => item.clicks || item.cpc !== null)
 }
 
+function monthlyValueDeltas(values) {
+  const numericValues = filledMonthlyValues(values)
+    .map(([month, value]) => [month, parseMetricNumber(value)])
+    .filter(([, value]) => value)
+
+  return numericValues.slice(1).map(([month, value], index) => {
+    const [, previousValue] = numericValues[index]
+    return {
+      month,
+      value,
+      previousValue,
+      delta: value - previousValue,
+    }
+  })
+}
+
+function formatMonthlyDeltaDetails(deltas) {
+  return deltas
+    .map((item) => `${monthShortName(item.month)} ${formatSignedGoalNumber(item.delta)}`)
+    .join(', ')
+}
+
 function parseCpcLimit(value) {
   const text = String(value || '').toLowerCase()
   const match = text.match(/(?:cpc|срс|ціні кліка|клік[^\d]{0,20})(?:[^\d]{0,20})(\d+(?:[.,]\d+)?)/)
@@ -949,6 +1047,14 @@ function formatGoalNumber(value) {
   }).format(number)
 }
 
+function formatSignedGoalNumber(value) {
+  const number = Number(value)
+  if (Number.isNaN(number)) return String(value || '—')
+
+  const sign = number > 0 ? '+' : ''
+  return `${sign}${formatGoalNumber(number)}`
+}
+
 function formatGoalPercent(value) {
   const number = Number(value)
   if (Number.isNaN(number)) return '0%'
@@ -956,6 +1062,10 @@ function formatGoalPercent(value) {
   return `${new Intl.NumberFormat('uk-UA', {
     maximumFractionDigits: number >= 10 ? 0 : 1,
   }).format(number)}%`
+}
+
+function monthShortName(month) {
+  return MONTH_PROPERTY_NAMES[month] || String(month || '').replace(/\s+2026$/, '')
 }
 
 function formatGoalMoney(value) {
@@ -1008,6 +1118,10 @@ async function getGoogleSheetKpiPayload() {
 
 function normalizeKpiSheetRows(rows) {
   let currentDirection = ''
+  let currentOwner = ''
+  let currentDataSource = ''
+  let currentMeasurementPeriod = ''
+  let currentFramework = ''
 
   return rows
     .slice(1)
@@ -1017,17 +1131,39 @@ function normalizeKpiSheetRows(rows) {
       if (!title) return null
 
       const direction = cleanSheetCell(row[0])
-      if (direction) currentDirection = normalizeKpiDirection(direction)
+      if (direction) {
+        const nextDirection = normalizeKpiDirection(direction)
+        if (nextDirection !== currentDirection) {
+          currentOwner = ''
+          currentDataSource = ''
+          currentMeasurementPeriod = ''
+          currentFramework = ''
+        }
+        currentDirection = nextDirection
+      }
+
+      const owner = inheritSheetCell(row[27], currentOwner)
+      const dataSource = inheritSheetCell(row[28], currentDataSource)
+      const measurementPeriod = inheritSheetCell(row[29], currentMeasurementPeriod)
+      const framework = inheritSheetCell(row[30], currentFramework)
+      currentOwner = owner || currentOwner
+      currentDataSource = dataSource || currentDataSource
+      currentMeasurementPeriod = measurementPeriod || currentMeasurementPeriod
+      currentFramework = framework || currentFramework
 
       const values = Object.fromEntries(
         MONTHS.map((month, monthIndex) => [month, cleanSheetCell(row[monthIndex + 2])]),
       )
-      const targetText = cleanSheetCell(row[14])
+      const targetText = resolveKpiTargetText({
+        direction: currentDirection,
+        title,
+        targetText: cleanSheetCell(row[14]),
+      })
       const calculation = buildKpiGoalCalculation({
         title,
         targetText,
         values,
-        measurementPeriod: cleanSheetCell(row[29]),
+        measurementPeriod,
       })
 
       return {
@@ -1050,14 +1186,31 @@ function normalizeKpiSheetRows(rows) {
         statusTone: calculation.statusTone,
         explanation: calculation.explanation,
         criterion: calculation.criterion,
-        measurementPeriod: cleanSheetCell(row[29]),
-        dataSource: cleanSheetCell(row[28]),
-        framework: cleanSheetCell(row[30]),
-        owner: cleanSheetCell(row[27]),
+        measurementPeriod,
+        dataSource,
+        framework,
+        owner,
         values,
       }
     })
     .filter(Boolean)
+}
+
+function inheritSheetCell(value, fallback) {
+  return cleanSheetCell(value) || fallback
+}
+
+function resolveKpiTargetText({ direction, title, targetText }) {
+  const explicitTarget = cleanSheetCell(targetText)
+  if (explicitTarget) return explicitTarget
+  if (direction !== 'Personal Brands') return ''
+
+  const normalizedTitle = normalizeCell(title)
+  const fallback = PERSONAL_BRAND_TARGET_FALLBACKS.find(([pattern]) =>
+    pattern.test(normalizedTitle),
+  )
+
+  return fallback?.[1] || ''
 }
 
 function normalizeKpiDirection(value) {
