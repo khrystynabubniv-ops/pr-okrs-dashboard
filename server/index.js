@@ -675,14 +675,14 @@ function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod 
       calculationLabel: 'Ріст від старту',
       target,
       currentValue: hasCurrent ? latestValue : '',
-      displayCurrentValue: hasCurrent ? formatPercentLike(latestValue) : 'потрібен baseline',
+      displayCurrentValue: hasCurrent ? formatBaselineCurrentValue(latestValue) : 'потрібен baseline',
       displayTarget: effectiveTargetText || '—',
       progress: null,
       progressLabel: '',
       progressMode: 'none',
       statusLabel: 'Потрібен baseline',
       statusTone: 'amber',
-      explanation: 'Для +20-30% треба вказати стартове значення і правило порівняння.',
+      explanation: 'Треба вказати стартове значення і правило порівняння.',
       criterion: effectiveTargetText,
     }
   }
@@ -816,6 +816,19 @@ function inferKpiCalculationType({ title, targetText, values, measurementPeriod 
     return 'latest_value'
   }
 
+  if (/органічн.*траф|брендов.*запит/.test(text)) {
+    return 'monthly_average'
+  }
+
+  if (
+    hasPercentTargetOrValues &&
+    (/згадок у медіа|кількість згадок|українських користувачів|користувачів застосунків/.test(
+      text,
+    ))
+  ) {
+    return 'growth_from_baseline'
+  }
+
   const hasPercentRange = /\d+\s*[-–—]\s*\d+\s*%/.test(text)
   const isGrowthLike = /\+\s*\d|на\s*\+?\s*\d|ріст|зростан|скорот|зменш/.test(text)
 
@@ -918,6 +931,13 @@ function formatPercentLike(value) {
   if (text.includes('%')) return text
   if (!/-?\d/.test(text)) return text
   return `${parsePercentMetricNumber(text)}%`
+}
+
+function formatBaselineCurrentValue(value) {
+  const text = String(value ?? '').trim()
+  if (!text || text === '-' || text === '—') return '—'
+  if (text.includes('%')) return formatPercentLike(text)
+  return text
 }
 
 function formatGoalNumber(value) {
