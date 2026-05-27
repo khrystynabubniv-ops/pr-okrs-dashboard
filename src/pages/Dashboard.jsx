@@ -26,6 +26,7 @@ import { useAsyncData } from '../hooks/useAsyncData'
 import { apiRequest } from '../lib/api'
 import {
   buildMonthlySeries,
+  candidateAwarenessKpi,
   directionProgressSummary,
   executiveSummary,
   hasSeriesData,
@@ -97,6 +98,10 @@ export function DashboardPage({ selectedMonth }) {
     () => dashboardQuery.data?.eventAwareness || { audiences: [], overall: null },
     [dashboardQuery.data],
   )
+  const candidateAwareness = useMemo(
+    () => candidateAwarenessKpi(goals, selectedMonth),
+    [goals, selectedMonth],
+  )
 
   const executive = useMemo(
     () =>
@@ -152,9 +157,19 @@ export function DashboardPage({ selectedMonth }) {
         coverage,
         personalBrands,
         eventAwareness,
+        candidateAwareness,
         selectedMonth,
       }),
-    [coverage, eventAwareness, events, focus, goals, personalBrands, selectedMonth],
+    [
+      candidateAwareness,
+      coverage,
+      eventAwareness,
+      events,
+      focus,
+      goals,
+      personalBrands,
+      selectedMonth,
+    ],
   )
 
   const totalContacts = events.reduce(
@@ -243,7 +258,7 @@ export function DashboardPage({ selectedMonth }) {
 
       {!dashboardQuery.loading && !dashboardQuery.error && hasMonthData ? (
         <>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <MetricCard
               label="KPI в темпі року"
               value={`${executive.kpi.onTrack}/${executive.kpi.measured}`}
@@ -271,6 +286,10 @@ export function DashboardPage({ selectedMonth }) {
             <EventAwarenessMetricCard
               awareness={eventAwareness}
               tooltip="Показує awareness по бренду після івентів з Google Sheet Awaraness 2025-2026: окремо Students і Middle+."
+            />
+            <CandidateAwarenessKpiCard
+              kpi={candidateAwareness}
+              tooltip="Показує KPI з рядка “Збільшити к-сть кандидатів, які знають про компанію”: відсоток awareness, ціль і прогрес до 70%."
             />
           </section>
 
@@ -643,6 +662,7 @@ function hasDashboardMonthData({
   coverage,
   personalBrands,
   eventAwareness,
+  candidateAwareness,
   selectedMonth,
 }) {
   const hasKpiForMonth = goals.some((goal) =>
@@ -655,6 +675,9 @@ function hasDashboardMonthData({
   const hasEventAwareness = (eventAwareness?.audiences || []).some(
     (item) => item.awareness !== null && item.awareness !== undefined,
   )
+  const hasCandidateAwareness =
+    candidateAwareness &&
+    (candidateAwareness.awareness !== null || candidateAwareness.knownCount !== null)
 
   return Boolean(
     hasKpiForMonth ||
@@ -662,7 +685,8 @@ function hasDashboardMonthData({
       events.length ||
       focus.length ||
       hasCoverage ||
-      hasEventAwareness,
+      hasEventAwareness ||
+      hasCandidateAwareness,
   )
 }
 
@@ -892,6 +916,62 @@ function EventAwarenessMetricCard({ awareness, tooltip }) {
   )
 }
 
+function CandidateAwarenessKpiCard({ kpi, tooltip }) {
+  const progress =
+    typeof kpi?.progress === 'number' ? Math.max(0, Math.min(100, kpi.progress)) : null
+  const sourceMonth = kpi?.sourceMonth ? kpi.sourceMonth.split(' ')[0] : ''
+  const detail = kpi
+    ? [
+        kpi.knownCount ? `${formatChartNumber(kpi.knownCount)} кандидатів` : null,
+        sourceMonth ? `останній замір: ${sourceMonth}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : 'KPI-рядок ще не знайдено'
+
+  return (
+    <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-4">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          KPI awareness
+        </p>
+        <InfoTooltip text={tooltip} />
+      </div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <p className="text-3xl font-semibold leading-none text-slate-950">
+          {formatPercentNumber(kpi?.awareness)}
+        </p>
+        <span className="text-sm font-semibold leading-5 text-slate-600">
+          знають
+        </span>
+      </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-cyan-100">
+        <div
+          className="h-full rounded-full bg-cyan-500"
+          style={{ width: `${progress || 0}%` }}
+        />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-cyan-100">
+          <p className="font-medium text-slate-500">Ціль</p>
+          <p className="mt-0.5 text-sm font-semibold text-slate-950">
+            {formatPercentNumber(kpi?.target)}
+          </p>
+        </div>
+        <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-cyan-100">
+          <p className="font-medium text-slate-500">Прогрес</p>
+          <p className="mt-0.5 text-sm font-semibold text-slate-950">
+            {formatPercentNumber(progress)}
+          </p>
+        </div>
+      </div>
+      <p className="mt-2 text-xs leading-4 text-slate-500">
+        {detail || 'Додайте значення в KPI-базі'}
+      </p>
+    </div>
+  )
+}
+
 function AwarenessAudiencePill({ audience }) {
   return (
     <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-emerald-100">
@@ -956,6 +1036,13 @@ function formatPercent(value) {
     maximumFractionDigits: 1,
     style: 'percent',
   }).format(value)
+}
+
+function formatPercentNumber(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
+  return `${new Intl.NumberFormat('uk-UA', {
+    maximumFractionDigits: 1,
+  }).format(value)}%`
 }
 
 function formatReachValue(value) {

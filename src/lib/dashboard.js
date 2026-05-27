@@ -212,6 +212,40 @@ export function buildMonthlySeries(goals, keywords, selectedMonth) {
   })
 }
 
+export function candidateAwarenessKpi(goals, selectedMonth) {
+  const goal = findCandidateAwarenessGoal(goals)
+  if (!goal) return null
+
+  const target = parseMetricNumber(goal.target)
+  const point = latestRawPointUpToMonth(goal.values || {}, selectedMonth)
+  const rawValue =
+    point?.value ||
+    goal.currentValue ||
+    goal.displayCurrentValue ||
+    goal.progressLabel ||
+    ''
+  const awareness = parseAwarenessPercent(rawValue, target)
+  const knownCount = parseKnownCount(rawValue, target)
+  const progress =
+    typeof goal.progress === 'number'
+      ? goal.progress
+      : target && awareness !== null
+        ? clampDashboardPercent(Math.round((awareness / target) * 100))
+        : null
+
+  return {
+    goal,
+    title: goal.title,
+    owner: goal.owner,
+    framework: goal.framework,
+    target,
+    awareness,
+    knownCount,
+    progress,
+    sourceMonth: point?.month || selectedMonth,
+  }
+}
+
 export function hasSeriesData(series) {
   return series.some((item) => item.value !== null && item.value !== undefined)
 }
@@ -296,6 +330,99 @@ function latestPointBeforeMonth(values, month) {
   return previousMonth
     ? { month: previousMonth, value: parseMetricNumber(values[previousMonth]) }
     : null
+}
+
+function latestRawPointUpToMonth(values, selectedMonth) {
+  const selectedIndex = MONTHS.indexOf(selectedMonth)
+  const monthLimit = selectedIndex >= 0 ? selectedIndex + 1 : MONTHS.length
+  const month = MONTHS.slice(0, monthLimit)
+    .reverse()
+    .find((item) => isFilledGoalValue(values[item]))
+
+  return month ? { month, value: values[month] } : null
+}
+
+function findCandidateAwarenessGoal(goals) {
+  const scoredGoals = goals
+    .map((goal) => ({
+      goal,
+      score: candidateAwarenessScore(goal),
+    }))
+    .filter((item) => item.score >= 5)
+    .sort((a, b) => b.score - a.score)
+
+  return scoredGoals[0]?.goal || null
+}
+
+function candidateAwarenessScore(goal) {
+  const haystack = normalizeDashboardSearchText(
+    `${goal.title || ''} ${goal.dataSource || ''} ${goal.direction || ''} ${
+      goal.framework || ''
+    }`,
+  )
+  let score = 0
+
+  if (haystack.includes('знають про компан')) score += 6
+  if (haystack.includes('знають про universe')) score += 6
+  if (haystack.includes('кандидат')) score += 3
+  if (haystack.includes('awareness') || haystack.includes('евернес')) score += 3
+  if (haystack.includes('everness') || haystack.includes('впізнаван')) score += 3
+  if (goal.direction === 'PR') score += 1
+
+  return score
+}
+
+function normalizeDashboardSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}%]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function parseAwarenessPercent(value, target) {
+  const percentMatches = [
+    ...String(value || '').matchAll(/(-?\d[\d\s\u00a0]*(?:[.,]\d+)?)\s*%/g),
+  ]
+
+  if (percentMatches.length) {
+    return parseMetricNumber(percentMatches.at(-1)[1])
+  }
+
+  const numbers = extractDashboardNumbers(value)
+  if (!numbers.length) return null
+
+  if (target > 0 && target <= 100 && numbers.length > 1) return numbers.at(-1)
+  if (numbers.length === 1 && numbers[0] <= 100) return numbers[0]
+
+  return null
+}
+
+function parseKnownCount(value, target) {
+  const numbers = extractDashboardNumbers(value)
+  if (!numbers.length) return null
+  if (numbers.length > 1) return numbers[0]
+  if (target > 0 && target <= 100 && numbers[0] > 100) return numbers[0]
+  return null
+}
+
+function extractDashboardNumbers(value) {
+  return [
+    ...String(value || '').matchAll(
+      /-?\d+(?:[\s\u00a0]?\d{3})*(?:[.,]\d+)?|-?\d+(?:[.,]\d+)?/g,
+    ),
+  ]
+    .map((match) => parseMetricNumber(match[0]))
+    .filter((number) => Number.isFinite(number))
+}
+
+function clampDashboardPercent(value) {
+  return Math.max(0, Math.min(100, value))
+}
+
+function isFilledGoalValue(value) {
+  const text = String(value ?? '').trim()
+  return Boolean(text && text !== '-' && text !== '—' && !text.startsWith('#'))
 }
 
 function isMeasurableGoal(goal) {
