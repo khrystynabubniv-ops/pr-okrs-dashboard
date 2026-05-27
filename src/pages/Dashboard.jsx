@@ -917,8 +917,6 @@ function EventAwarenessMetricCard({ awareness, tooltip }) {
 }
 
 function CandidateAwarenessKpiCard({ kpi, tooltip }) {
-  const progress =
-    typeof kpi?.progress === 'number' ? Math.max(0, Math.min(100, kpi.progress)) : null
   const sourceMonth = kpi?.sourceMonth ? kpi.sourceMonth.split(' ')[0] : ''
   const detail = kpi
     ? [
@@ -933,7 +931,7 @@ function CandidateAwarenessKpiCard({ kpi, tooltip }) {
     <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-4">
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          KPI awareness
+          Awareness кандидатів
         </p>
         <InfoTooltip text={tooltip} />
       </div>
@@ -945,23 +943,11 @@ function CandidateAwarenessKpiCard({ kpi, tooltip }) {
           знають
         </span>
       </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-cyan-100">
-        <div
-          className="h-full rounded-full bg-cyan-500"
-          style={{ width: `${progress || 0}%` }}
-        />
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+      <div className="mt-4 grid gap-2 text-xs">
         <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-cyan-100">
-          <p className="font-medium text-slate-500">Ціль</p>
+          <p className="font-medium text-slate-500">Річна ціль</p>
           <p className="mt-0.5 text-sm font-semibold text-slate-950">
             {formatPercentNumber(kpi?.target)}
-          </p>
-        </div>
-        <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-cyan-100">
-          <p className="font-medium text-slate-500">Прогрес</p>
-          <p className="mt-0.5 text-sm font-semibold text-slate-950">
-            {formatPercentNumber(progress)}
           </p>
         </div>
       </div>
