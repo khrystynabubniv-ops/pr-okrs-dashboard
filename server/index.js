@@ -54,6 +54,7 @@ const KPI_SPREADSHEET_ID =
   parseGoogleSpreadsheetId(KPI_SPREADSHEET_INPUT) || '1-wWo9W9gL4jYqpsZNrtZnb85XL5sLkAI4GKEqiMkEnI'
 const KPI_SHEET_GID = process.env.KPI_SHEET_GID || parseGoogleSheetGid(KPI_SPREADSHEET_INPUT) || '0'
 const KPI_SHEET_NAME = process.env.KPI_SHEET_NAME || ''
+const SMM_EMPLOYEE_COUNT = Number(process.env.SMM_EMPLOYEE_COUNT || 305)
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GOOGLE_SHEETS_SCOPE =
   'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly'
@@ -552,6 +553,95 @@ function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod 
     }
   }
 
+  if (calculationType === 'monthly_average') {
+    const monthlyValues = filledValues.map(([, value]) => parseMetricNumber(value))
+    const currentValue = monthlyValues.length
+      ? monthlyValues.reduce((sum, value) => sum + value, 0) / monthlyValues.length
+      : 0
+    const progress = target ? Math.round((currentValue / target) * 100) : 0
+
+    return {
+      metricType: 'Кількісна',
+      calculationType,
+      calculationLabel: 'Середнє за місяці',
+      target,
+      currentValue,
+      displayCurrentValue: monthlyValues.length
+        ? `${formatGoalNumber(Math.round(currentValue))} середнє за ${monthlyValues.length} міс.`
+        : '—',
+      displayTarget: target ? formatGoalNumber(target) : effectiveTargetText || '—',
+      progress: clampPercent(progress),
+      progressLabel: `${clampPercent(progress)}%`,
+      progressMode: 'bar',
+      statusLabel: 'Середнє значення',
+      statusTone: 'blue',
+      explanation: 'Поточне значення = середнє всіх заповнених місяців.',
+      criterion: '',
+    }
+  }
+
+  if (calculationType === 'latest_value') {
+    const currentValue =
+      String(effectiveTargetText || '').includes('%') ||
+      filledValues.some(([, value]) => String(value).includes('%'))
+        ? parsePercentMetricNumber(latestValue)
+        : parseMetricNumber(latestValue)
+    const progress = target ? Math.round((currentValue / target) * 100) : 0
+    const isPercent = String(effectiveTargetText || latestValue).includes('%')
+
+    return {
+      metricType: isPercent ? 'Відсоткова' : 'Кількісна',
+      calculationType,
+      calculationLabel: 'Останнє значення',
+      target,
+      currentValue,
+      displayCurrentValue: isPercent ? formatPercentLike(latestValue) : formatGoalNumber(currentValue),
+      displayTarget: isPercent
+        ? effectiveTargetText || `${target}%`
+        : target
+          ? formatGoalNumber(target)
+          : effectiveTargetText || '—',
+      progress: clampPercent(progress),
+      progressLabel: `${clampPercent(progress)}%`,
+      progressMode: 'bar',
+      statusLabel: 'Останній місяць',
+      statusTone: 'blue',
+      explanation: 'Поточне значення = останнє заповнене значення, без сумування місяців.',
+      criterion: '',
+    }
+  }
+
+  if (calculationType === 'employee_share') {
+    const currentCount = parseMetricNumber(latestValue)
+    const employeeShare = SMM_EMPLOYEE_COUNT
+      ? (currentCount / SMM_EMPLOYEE_COUNT) * 100
+      : 0
+    const progress = target ? Math.round((employeeShare / target) * 100) : 0
+
+    return {
+      metricType: 'Відсоткова',
+      calculationType,
+      calculationLabel: 'Частка від команди',
+      target,
+      currentValue: employeeShare,
+      displayCurrentValue: currentCount
+        ? `${formatGoalNumber(currentCount)} з ${formatGoalNumber(
+            SMM_EMPLOYEE_COUNT,
+          )} = ${formatGoalPercent(employeeShare)}`
+        : '—',
+      displayTarget: effectiveTargetText || `${target}%`,
+      progress: clampPercent(progress),
+      progressLabel: `${clampPercent(progress)}%`,
+      progressMode: 'bar',
+      statusLabel: 'Частка співробітників',
+      statusTone: 'blue',
+      explanation: `Поточне значення = останній EGC count / ${formatGoalNumber(
+        SMM_EMPLOYEE_COUNT,
+      )} співробітників.`,
+      criterion: '',
+    }
+  }
+
   if (calculationType === 'annual_snapshot') {
     const currentPercent = parsePercentMetricNumber(latestValue)
     const hasCurrent = filledValues.length > 0
@@ -689,7 +779,9 @@ function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod 
     displayCurrentValue: isPercent ? formatPercentLike(latestValue) : formatGoalNumber(currentValue),
     displayTarget: isPercent
       ? effectiveTargetText || `${target}%`
-      : effectiveTargetText || formatGoalNumber(target),
+      : target
+        ? formatGoalNumber(target)
+        : effectiveTargetText || '—',
     progress: clampPercent(progress),
     progressLabel: `${clampPercent(progress)}%`,
     progressMode: 'bar',
@@ -710,6 +802,18 @@ function inferKpiCalculationType({ title, targetText, values, measurementPeriod 
 
   if (/cpc|cost per click|клік|клики|кліки/.test(text) && hasCompositeMonthlyValue(values)) {
     return 'cpc_guardrail'
+  }
+
+  if (/egc/.test(text) && /співробіт|employee|команд/.test(text)) {
+    return 'employee_share'
+  }
+
+  if (/середн|average|avg/.test(text) && /охопл|reach|reels|рілс/.test(text)) {
+    return 'monthly_average'
+  }
+
+  if (/instagram|підписник|підписників|followers|фоловер/.test(text)) {
+    return 'latest_value'
   }
 
   const hasPercentRange = /\d+\s*[-–—]\s*\d+\s*%/.test(text)
@@ -823,6 +927,15 @@ function formatGoalNumber(value) {
   return new Intl.NumberFormat('uk-UA', {
     maximumFractionDigits: Number.isInteger(number) ? 0 : 2,
   }).format(number)
+}
+
+function formatGoalPercent(value) {
+  const number = Number(value)
+  if (Number.isNaN(number)) return '0%'
+
+  return `${new Intl.NumberFormat('uk-UA', {
+    maximumFractionDigits: number >= 10 ? 0 : 1,
+  }).format(number)}%`
 }
 
 function formatGoalMoney(value) {
