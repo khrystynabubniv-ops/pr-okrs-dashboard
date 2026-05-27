@@ -9,6 +9,7 @@ import {
   MONTHS,
 } from '../constants'
 import { DirectionBadge } from '../components/Badge'
+import { InfoTooltip } from '../components/InfoTooltip'
 import { Modal } from '../components/Modal'
 import { ProgressBar } from '../components/ProgressBar'
 import { EmptyState, ErrorState, LoadingState } from '../components/Status'
@@ -294,7 +295,9 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                     <th className="whitespace-nowrap px-3 py-3 font-semibold">
                       Напрямок
                     </th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">Тип</th>
+                    <th className="w-12 whitespace-nowrap px-3 py-3 text-center font-semibold">
+                      Тип
+                    </th>
                     <th className="whitespace-nowrap px-3 py-3 font-semibold">
                       Ціль 100%
                     </th>
@@ -326,15 +329,11 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                       <td className="px-3 py-4">
                         <DirectionBadge direction={goal.direction} />
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-slate-600">
-                        <div className="space-y-1">
-                          <p>{goal.calculationLabel || goal.metricType}</p>
-                          {goal.explanation ? (
-                            <p className="max-w-56 whitespace-normal text-xs leading-5 text-slate-500">
-                              {goal.explanation}
-                            </p>
-                          ) : null}
-                        </div>
+                      <td className="w-12 px-3 py-4 text-center text-slate-600">
+                        <InfoTooltip
+                          label={`Тип: ${goal.calculationLabel || goal.metricType}`}
+                          text={goalTypeTooltip(goal)}
+                        />
                       </td>
                       <td className="whitespace-nowrap px-3 py-4 text-slate-600">
                         {displayTarget(goal)}
@@ -663,6 +662,13 @@ function statusToneClass(tone) {
   if (tone === 'amber') return 'bg-amber-50 text-amber-700 ring-amber-200'
   if (tone === 'blue') return 'bg-blue-50 text-blue-700 ring-blue-200'
   return 'bg-slate-50 text-slate-700 ring-slate-200'
+}
+
+function goalTypeTooltip(goal) {
+  const label = goal.calculationLabel || goal.metricType || 'Тип метрики'
+  const details = [goal.explanation, goal.statusLabel].filter(Boolean).join(' ')
+
+  return details ? `${label}. ${details}` : label
 }
 
 function validDirectionFilter(value, directionOptions) {
