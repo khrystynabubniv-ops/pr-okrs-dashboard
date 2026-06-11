@@ -15,13 +15,22 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { ArrowDown, ArrowUp, ClipboardCopy, FileText, Save } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  ClipboardCopy,
+  FileText,
+  Plus,
+  Save,
+  Trash2,
+} from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { DirectionBadge } from '../components/Badge'
 import { InfoTooltip } from '../components/InfoTooltip'
 import { MetricCard } from '../components/MetricCard'
 import { Modal } from '../components/Modal'
 import { EmptyState, ErrorState, LoadingState } from '../components/Status'
+import { MONTHS } from '../constants'
 import { useAsyncData } from '../hooks/useAsyncData'
 import { apiRequest } from '../lib/api'
 import {
@@ -47,6 +56,11 @@ export function DashboardPage({ selectedMonth }) {
   const [reportLoading, setReportLoading] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
   const [reportError, setReportError] = useState(null)
+  const [competitorModalOpen, setCompetitorModalOpen] = useState(false)
+  const [competitorSaving, setCompetitorSaving] = useState(false)
+  const [competitorForm, setCompetitorForm] = useState(() =>
+    createEmptyCompetitorForm(selectedMonth),
+  )
 
   const dashboardQuery = useAsyncData(
     async () => {
@@ -139,6 +153,13 @@ export function DashboardPage({ selectedMonth }) {
   )
   const mediaCoverage = useMemo(
     () => mediaCoverageSummary(coverage),
+    [coverage],
+  )
+  const manualCompetitors = useMemo(
+    () =>
+      (coverage.mentions || []).filter(
+        (item) => item.source === 'manual-competitor',
+      ),
     [coverage],
   )
   const activeReport = report?.month === selectedMonth ? report.text : null
@@ -235,6 +256,44 @@ export function DashboardPage({ selectedMonth }) {
     if (!activeReport) return
     await navigator.clipboard.writeText(activeReport)
     setSaveStatus('Скопійовано')
+  }
+
+  function openCompetitorModal() {
+    setReportError(null)
+    setCompetitorForm(createEmptyCompetitorForm(selectedMonth))
+    setCompetitorModalOpen(true)
+  }
+
+  async function saveCompetitor(event) {
+    event.preventDefault()
+    setCompetitorSaving(true)
+    setReportError(null)
+
+    try {
+      await apiRequest('/api/coverage/competitors', {
+        method: 'POST',
+        body: JSON.stringify(competitorForm),
+      })
+      setCompetitorModalOpen(false)
+      await dashboardQuery.retry()
+    } catch (error) {
+      setReportError(error)
+    } finally {
+      setCompetitorSaving(false)
+    }
+  }
+
+  async function removeCompetitor(id) {
+    setReportError(null)
+
+    try {
+      await apiRequest(`/api/coverage/competitors/${id}`, {
+        method: 'DELETE',
+      })
+      await dashboardQuery.retry()
+    } catch (error) {
+      setReportError(error)
+    }
   }
 
   function openDirectionGoals(direction) {
@@ -494,7 +553,17 @@ export function DashboardPage({ selectedMonth }) {
                     Наші згадки окремо від конкурентного бенчмарку.
                   </p>
                 </div>
-                <InfoTooltip text="Блок показує згадки, охоплення брендів і потенційне охоплення конкретних медіа з Looqme-структури." />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={openCompetitorModal}
+                    className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Конкурент
+                  </button>
+                  <InfoTooltip text="Блок показує згадки, охоплення брендів і потенційне охоплення конкретних медіа з Looqme-структури." />
+                </div>
               </div>
               <div className="mt-4 space-y-4">
                 <div className="grid gap-3 2xl:grid-cols-2">
@@ -537,6 +606,33 @@ export function DashboardPage({ selectedMonth }) {
                       .join(' · ')}
                   />
                 </div>
+                {manualCompetitors.length ? (
+                  <div className="border-t border-slate-100 pt-4">
+                    <p className="text-sm font-medium text-slate-950">
+                      Ручний конкурентний бенчмарк
+                    </p>
+                    <div className="mt-3 space-y-2">
+                      {manualCompetitors.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                        >
+                          <span className="min-w-0 truncate text-slate-700">
+                            {item.brand} · {item.count} зг. · {formatReachValue(item.reach)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeCompetitor(item.id)}
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-white hover:text-rose-600"
+                            aria-label="Видалити конкурента"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="border-t border-slate-100 pt-4">
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-sm font-medium text-slate-950">
@@ -615,6 +711,103 @@ export function DashboardPage({ selectedMonth }) {
               </button>
             </div>
           </section>
+
+          {competitorModalOpen ? (
+            <Modal
+              title="Конкурентний бенчмарк"
+              onClose={() => setCompetitorModalOpen(false)}
+              footer={
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setCompetitorModalOpen(false)}
+                    className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Скасувати
+                  </button>
+                  <button
+                    type="submit"
+                    form="competitor-form"
+                    disabled={competitorSaving || !competitorForm.brand.trim()}
+                    className="inline-flex h-10 items-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    <Save className="h-4 w-4" />
+                    Зберегти
+                  </button>
+                </>
+              }
+            >
+              <form id="competitor-form" onSubmit={saveCompetitor} className="space-y-4">
+                <label className="field">
+                  <span>Бренд</span>
+                  <input
+                    value={competitorForm.brand}
+                    onChange={(event) =>
+                      setCompetitorForm({ ...competitorForm, brand: event.target.value })
+                    }
+                    placeholder="Наприклад, Skelar"
+                    required
+                  />
+                </label>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <label className="field">
+                    <span>Місяць</span>
+                    <select
+                      value={competitorForm.month}
+                      onChange={(event) =>
+                        setCompetitorForm({
+                          ...competitorForm,
+                          month: event.target.value,
+                        })
+                      }
+                    >
+                      {MONTHS.map((month) => (
+                        <option key={month}>{month}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Згадки</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={competitorForm.mentions}
+                      onChange={(event) =>
+                        setCompetitorForm({
+                          ...competitorForm,
+                          mentions: event.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Охоплення</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={competitorForm.reach}
+                      onChange={(event) =>
+                        setCompetitorForm({
+                          ...competitorForm,
+                          reach: event.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="field">
+                  <span>Нотатка</span>
+                  <textarea
+                    value={competitorForm.note}
+                    onChange={(event) =>
+                      setCompetitorForm({ ...competitorForm, note: event.target.value })
+                    }
+                    rows="3"
+                  />
+                </label>
+              </form>
+            </Modal>
+          ) : null}
         </>
       ) : null}
 
@@ -709,7 +902,17 @@ function hasCoverageValues(coverage) {
       coverage.reach ||
       coverage.audience?.total ||
       coverage.audience?.all,
-  )
+    )
+}
+
+function createEmptyCompetitorForm(selectedMonth) {
+  return {
+    month: selectedMonth,
+    brand: '',
+    mentions: '',
+    reach: '',
+    note: '',
+  }
 }
 
 function LooqmeMetricPanel({ title, metric, formatValue }) {
