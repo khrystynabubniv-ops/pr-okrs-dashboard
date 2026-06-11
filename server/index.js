@@ -7,7 +7,13 @@ import Anthropic from '@anthropic-ai/sdk'
 import { Client as NotionClient } from '@notionhq/client'
 import cors from 'cors'
 import express from 'express'
-import { attachUser, authStatus, registerAuthRoutes, requireAuth } from './auth.js'
+import {
+  attachUser,
+  authStatus,
+  registerAuthRoutes,
+  requireAuth,
+  requirePageAuth,
+} from './auth.js'
 import {
   createBoardReport,
   createCompetitorCoverage,
@@ -2374,6 +2380,8 @@ app.get('/api/health', asyncHandler(async (_request, response) => {
   })
 }))
 
+app.use('/api', requireAuth)
+
 app.get('/api/kpi-goals', asyncHandler(async (_request, response) => {
   response.json(await getMergedKpiPayload())
 }))
@@ -3658,6 +3666,7 @@ function asyncHandler(handler) {
 
 if (process.env.NODE_ENV === 'production') {
   const distPath = path.join(__dirname, '..', 'dist')
+  app.use(requirePageAuth)
   app.use(express.static(distPath))
   app.get(/^\/(?!api).*/, (_request, response) => {
     response.sendFile(path.join(distPath, 'index.html'))

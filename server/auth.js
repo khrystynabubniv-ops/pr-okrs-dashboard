@@ -56,11 +56,25 @@ export function requireAuth(request, _response, next) {
   }
 
   if (!request.user) {
-    next(createHttpError(401, 'Потрібно увійти, щоб зберігати зміни.'))
+    next(createHttpError(401, 'Потрібно увійти, щоб користуватись Comms Tool.'))
     return
   }
 
   next()
+}
+
+export function requirePageAuth(request, response, next) {
+  if (!isAuthRequired() || request.user) {
+    next()
+    return
+  }
+
+  if (!authStatus().sessionStoreReady) {
+    next(createHttpError(503, 'Auth requires DATABASE_URL and migrated auth tables.'))
+    return
+  }
+
+  response.redirect('/api/auth/google/start')
 }
 
 export function registerAuthRoutes(app) {
