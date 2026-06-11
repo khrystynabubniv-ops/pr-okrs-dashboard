@@ -1,9 +1,13 @@
+import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   BarChart3,
   CalendarDays,
   ClipboardList,
+  FileText,
   Gauge,
+  LogIn,
+  LogOut,
   Target,
 } from 'lucide-react'
 import { MONTHS } from '../constants'
@@ -13,6 +17,7 @@ const navItems = [
   { to: '/goals', label: 'Goals & Metrics', icon: Target },
   { to: '/monthly', label: 'Monthly Focus', icon: ClipboardList },
   { to: '/events', label: 'Events', icon: CalendarDays },
+  { to: '/reports/events', label: 'Event Reports', icon: FileText },
 ]
 
 const pageTitles = {
@@ -20,11 +25,33 @@ const pageTitles = {
   '/goals': 'Goals & Metrics',
   '/monthly': 'Monthly Focus',
   '/events': 'Events',
+  '/reports/events': 'Звіти по івентах',
 }
 
 export function Layout({ selectedMonth, onMonthChange, children }) {
   const location = useLocation()
   const title = pageTitles[location.pathname] || 'Comms Tool'
+  const [authInfo, setAuthInfo] = useState({ auth: { enabled: false }, user: null })
+
+  useEffect(() => {
+    let isMounted = true
+
+    fetch('/api/auth/me')
+      .then((response) => response.json())
+      .then((payload) => {
+        if (isMounted) setAuthInfo(payload)
+      })
+      .catch(() => {})
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    setAuthInfo((current) => ({ ...current, user: null }))
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -72,7 +99,27 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
                 <h1 className="text-xl font-semibold text-slate-950">{title}</h1>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {authInfo.auth?.enabled ? (
+                authInfo.user ? (
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    {authInfo.user.name || authInfo.user.email || 'Вийти'}
+                  </button>
+                ) : (
+                  <a
+                    href="/api/auth/google/start"
+                    className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <LogIn className="h-4 w-4" />
+                    Увійти
+                  </a>
+                )
+              ) : null}
               <label className="text-sm font-medium text-slate-600" htmlFor="month">
                 Місяць
               </label>

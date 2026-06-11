@@ -1,14 +1,35 @@
 import 'dotenv/config'
-import { createSign } from 'node:crypto'
+import { createSign, randomUUID } from 'node:crypto'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Anthropic from '@anthropic-ai/sdk'
 import { Client as NotionClient } from '@notionhq/client'
 import cors from 'cors'
 import express from 'express'
+import { attachUser, authStatus, registerAuthRoutes, requireAuth } from './auth.js'
+import {
+  createBoardReport,
+  createCompetitorCoverage,
+  createStoredEventReport,
+  deleteCompetitorCoverage,
+  getDatabaseStatus,
+  insertStoredKpiGoal,
+  isDatabaseConfigured,
+  listCompetitorCoverage,
+  listStoredEventReports,
+  listStoredKpiGoals,
+  listStoredMonthlyFocusEntries,
+  saveStoredMonthlyFocusEntry,
+  updateBoardReportNotionPage,
+  updateStoredKpiGoalValue,
+  upsertStoredKpiGoalFromExternal,
+} from './db/index.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+const EVENT_REPORTS_FILE =
+  process.env.EVENT_REPORTS_FILE || path.join(__dirname, 'data', 'event-reports.json')
 
 const app = express()
 const port = process.env.PORT || 3001
@@ -54,7 +75,6 @@ const KPI_SPREADSHEET_ID =
   parseGoogleSpreadsheetId(KPI_SPREADSHEET_INPUT) || '1-wWo9W9gL4jYqpsZNrtZnb85XL5sLkAI4GKEqiMkEnI'
 const KPI_SHEET_GID = process.env.KPI_SHEET_GID || parseGoogleSheetGid(KPI_SPREADSHEET_INPUT) || '0'
 const KPI_SHEET_NAME = process.env.KPI_SHEET_NAME || ''
-const SMM_EMPLOYEE_COUNT = Number(process.env.SMM_EMPLOYEE_COUNT || 305)
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GOOGLE_SHEETS_SCOPE =
   'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly'
@@ -69,6 +89,8 @@ let googleTokenCache = null
 
 app.use(cors())
 app.use(express.json({ limit: '1mb' }))
+app.use(attachUser)
+registerAuthRoutes(app)
 
 function getNotion() {
   if (!process.env.NOTION_TOKEN) {
@@ -158,10 +180,10 @@ function parseMetricNumber(value) {
 
 function parsePercentMetricNumber(value) {
   const text = String(value || '').trim()
-  const percentMatches = [...text.matchAll(/(-?\d[\d\s\u00a0.,]*(?:[.,]\d+)?)\s*%/g)]
+  const percentMatches = [...text.matchAll(/(-?\d[\d\s\u00a0]*(?:[.,]\d+)?)\s*%/g)]
 
   if (percentMatches.length) {
-    return parseMetricNumber(percentMatches.at(-1)[1])
+    return parseMetricNumber(percentMatches[percentMatches.length - 1][1])
   }
 
   return parseMetricNumber(value)
@@ -427,6 +449,7 @@ function normalizeGoal(page) {
 
   return {
     id: page.id,
+    source: 'notion',
     title: title || 'Без назви',
     direction: direction || 'Employer Brand',
     metricType,
@@ -492,575 +515,249 @@ function sumMonthlyValues(values) {
 }
 
 function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod }) {
-  const effectiveTargetText =
-    targetText || extractGrowthTargetText(title) || extractPercentRangeTargetText(title)
-  const calculationType = inferKpiCalculationType({
-    title,
-    targetText: effectiveTargetText,
-    values,
-    measurementPeriod,
-  })
-  const target = parseMetricNumber(effectiveTargetText)
-  const latestValue = latestMonthlyValue(values)
+  const type = inferKpiCalculationType({ title, targetText, values, measurementPeriod })
   const filledValues = filledMonthlyValues(values)
+  const target = parseMetricNumber(targetText)
 
-  if (calculationType === 'cumulative_sum') {
-    const currentValue = sumMonthlyValues(values)
-    const progress = target ? Math.round((currentValue / target) * 100) : 0
+  if (type === 'cumulative') {
+    const current = sumMonthlyValues(values)
+    const progress = target ? clampPercent(Math.round((current / target) * 100)) : null
 
     return {
+      type,
+      label: 'Річна сума',
       metricType: 'Накопичувальна',
-      calculationType,
-      calculationLabel: 'Накопичення за рік',
       target,
-      currentValue,
-      displayCurrentValue: formatGoalNumber(currentValue),
-      displayTarget: target ? formatGoalNumber(target) : effectiveTargetText || '—',
-      progress: clampPercent(progress),
-      progressLabel: `${clampPercent(progress)}%`,
-      progressMode: 'bar',
-      statusLabel: 'Сума місяців',
-      statusTone: 'blue',
-      explanation: 'Поточне значення = сума всіх заповнених місяців.',
-      criterion: '',
+      currentValue: current,
+      displayCurrentValue: `${formatGoalNumber(current)} за рік`,
+      displayTarget: target ? formatGoalNumber(target) : 'Потрібна річна ціль',
+      progress,
+      progressLabel: progress === null ? 'Без річної цілі' : `${progress}%`,
+      progressMode: progress === null ? 'none' : 'bar',
+      statusLabel: progress === null ? 'Додайте ціль' : progress >= 100 ? 'Виконано' : 'В процесі',
+      statusTone: progress === null ? 'danger' : progress >= 100 ? 'success' : 'warning',
+      explanation: 'Сумуємо всі заповнені місяці, а не показуємо останній місяць.',
     }
   }
 
-  if (calculationType === 'percent_monthly_average') {
-    const monthlyValues = filledValues.map(([, value]) => parsePercentMetricNumber(value))
-    const currentValue = monthlyValues.length
-      ? Math.round(monthlyValues.reduce((sum, value) => sum + value, 0) / monthlyValues.length)
+  if (type === 'monthlyPercent') {
+    const valuesOnly = filledValues.map(({ value }) => parsePercentMetricNumber(value))
+    const current = valuesOnly.length
+      ? Math.round(valuesOnly.reduce((sum, value) => sum + value, 0) / valuesOnly.length)
       : 0
-    const progress = target ? Math.round((currentValue / target) * 100) : currentValue
+    const progress = target ? clampPercent(Math.round((current / target) * 100)) : null
 
     return {
+      type,
+      label: '100% щомісяця',
       metricType: 'Відсоткова',
-      calculationType,
-      calculationLabel: 'Середнє за місяці',
       target: target || 100,
-      currentValue,
-      displayCurrentValue: monthlyValues.length
-        ? `${currentValue}% середнє за ${monthlyValues.length} міс.`
-        : '—',
-      displayTarget: effectiveTargetText || `${target || 100}%`,
-      progress: clampPercent(progress),
-      progressLabel: `${clampPercent(progress)}%`,
-      progressMode: 'bar',
-      statusLabel: 'Помісячний KPI',
-      statusTone: 'blue',
-      explanation: 'Для 100% KPI беремо середнє заповнених місяців.',
-      criterion: '',
+      currentValue: current,
+      displayCurrentValue: valuesOnly.length ? `${current}% середнє` : 'Немає даних',
+      displayTarget: `${target || 100}%`,
+      progress,
+      progressLabel: progress === null ? 'Немає даних' : `${progress}%`,
+      progressMode: progress === null ? 'none' : 'bar',
+      statusLabel: progress === null ? 'Ще немає даних' : progress >= 100 ? 'Виконано' : 'В процесі',
+      statusTone: progress === null ? 'muted' : progress >= 100 ? 'success' : 'warning',
+      explanation: 'Рахуємо середнє тільки по заповнених місяцях.',
     }
   }
 
-  if (calculationType === 'monthly_average') {
-    const monthlyValues = filledValues.map(([, value]) => parseMetricNumber(value))
-    const currentValue = monthlyValues.length
-      ? monthlyValues.reduce((sum, value) => sum + value, 0) / monthlyValues.length
-      : 0
-    const progress = target ? Math.round((currentValue / target) * 100) : 0
+  if (type === 'snapshot') {
+    const latest = latestMonthlyValue(values)
+    const latestText = isFilledMetricValue(latest) ? formatPercentLike(latest) : ''
 
     return {
-      metricType: 'Кількісна',
-      calculationType,
-      calculationLabel: 'Середнє за місяці',
+      type,
+      label: 'Річний замір',
+      metricType: 'Річний замір',
       target,
-      currentValue,
-      displayCurrentValue: monthlyValues.length
-        ? `${formatGoalNumber(Math.round(currentValue))} середнє за ${monthlyValues.length} міс.`
-        : '—',
-      displayTarget: target ? formatGoalNumber(target) : effectiveTargetText || '—',
-      progress: clampPercent(progress),
-      progressLabel: `${clampPercent(progress)}%`,
-      progressMode: 'bar',
-      statusLabel: 'Середнє значення',
-      statusTone: 'blue',
-      explanation: 'Поточне значення = середнє всіх заповнених місяців.',
-      criterion: '',
-    }
-  }
-
-  if (calculationType === 'monthly_delta_target') {
-    const monthlyTarget = target
-    const deltas = monthlyValueDeltas(values)
-    const latestDelta = deltas.at(-1)
-    const achievedMonths = deltas.filter((item) => item.delta >= monthlyTarget).length
-    const latestProgress =
-      monthlyTarget && latestDelta ? Math.round((latestDelta.delta / monthlyTarget) * 100) : 0
-
-    return {
-      metricType: 'Кількісна',
-      calculationType,
-      calculationLabel: 'Приріст за місяць',
-      target: monthlyTarget,
-      currentValue: latestDelta?.delta ?? '',
-      displayCurrentValue: latestDelta
-        ? `${formatSignedGoalNumber(latestDelta.delta)} за ${monthShortName(
-            latestDelta.month,
-          )} (${clampPercent(latestProgress)}%)`
-        : 'потрібен попередній місяць',
-      displayTarget: monthlyTarget ? `${formatGoalNumber(monthlyTarget)} / місяць` : effectiveTargetText || '—',
-      progress: latestDelta ? clampPercent(latestProgress) : null,
-      progressLabel: latestDelta ? `${clampPercent(latestProgress)}%` : '',
-      progressMode: latestDelta ? 'bar' : 'none',
-      statusLabel: deltas.length ? `${achievedMonths} з ${deltas.length} міс. виконано` : 'Потрібні 2 місяці',
-      statusTone: deltas.length && achievedMonths === deltas.length ? 'green' : 'amber',
-      explanation: deltas.length
-        ? `Порівнюємо кожен місяць з попереднім: ${formatMonthlyDeltaDetails(deltas)}.`
-        : 'Щоб порахувати щомісячний приріст, потрібні значення мінімум за два місяці.',
-      criterion: effectiveTargetText || (monthlyTarget ? `${monthlyTarget} фоловерів щомісяця` : ''),
-    }
-  }
-
-  if (calculationType === 'latest_value') {
-    const currentValue =
-      String(effectiveTargetText || '').includes('%') ||
-      filledValues.some(([, value]) => String(value).includes('%'))
-        ? parsePercentMetricNumber(latestValue)
-        : parseMetricNumber(latestValue)
-    const progress = target ? Math.round((currentValue / target) * 100) : 0
-    const isPercent = String(effectiveTargetText || latestValue).includes('%')
-    const hasTarget = Boolean(target)
-
-    return {
-      metricType: isPercent ? 'Відсоткова' : 'Кількісна',
-      calculationType,
-      calculationLabel: 'Останнє значення',
-      target,
-      currentValue,
-      displayCurrentValue: isPercent ? formatPercentLike(latestValue) : formatGoalNumber(currentValue),
-      displayTarget: isPercent
-        ? effectiveTargetText || `${target}%`
-        : target
-          ? formatGoalNumber(target)
-          : effectiveTargetText || '—',
-      progress: hasTarget ? clampPercent(progress) : null,
-      progressLabel: hasTarget ? `${clampPercent(progress)}%` : '',
-      progressMode: hasTarget ? 'bar' : 'none',
-      statusLabel: hasTarget ? 'Останній місяць' : 'Потрібна ціль',
-      statusTone: hasTarget ? 'blue' : 'amber',
-      explanation: hasTarget
-        ? 'Поточне значення = останнє заповнене значення, без сумування місяців.'
-        : 'Є поточне значення, але в таблиці немає цілі 100%.',
-      criterion: '',
-    }
-  }
-
-  if (calculationType === 'employee_share') {
-    const currentCount = parseMetricNumber(latestValue)
-    const employeeShare = SMM_EMPLOYEE_COUNT
-      ? (currentCount / SMM_EMPLOYEE_COUNT) * 100
-      : 0
-    const progress = target ? Math.round((employeeShare / target) * 100) : 0
-
-    return {
-      metricType: 'Відсоткова',
-      calculationType,
-      calculationLabel: 'Частка від команди',
-      target,
-      currentValue: employeeShare,
-      displayCurrentValue: currentCount
-        ? `${formatGoalNumber(currentCount)} з ${formatGoalNumber(
-            SMM_EMPLOYEE_COUNT,
-          )} = ${formatGoalPercent(employeeShare)}`
-        : '—',
-      displayTarget: effectiveTargetText || `${target}%`,
-      progress: clampPercent(progress),
-      progressLabel: `${clampPercent(progress)}%`,
-      progressMode: 'bar',
-      statusLabel: 'Частка співробітників',
-      statusTone: 'blue',
-      explanation: `Поточне значення = останній EGC count / ${formatGoalNumber(
-        SMM_EMPLOYEE_COUNT,
-      )} співробітників.`,
-      criterion: '',
-    }
-  }
-
-  if (calculationType === 'annual_snapshot') {
-    const currentPercent = parsePercentMetricNumber(latestValue)
-    const hasCurrent = filledValues.length > 0
-
-    return {
-      metricType: 'Відсоткова',
-      calculationType,
-      calculationLabel: 'Річний замір',
-      target,
-      currentValue: hasCurrent ? currentPercent : '',
-      displayCurrentValue: hasCurrent
-        ? `останній замір: ${formatPercentLike(latestValue)}`
-        : 'очікує річного заміру',
-      displayTarget: effectiveTargetText || (target ? `${target}%` : '—'),
+      currentValue: latest,
+      displayCurrentValue: latestText
+        ? `Очікує фінального заміру · останній ${latestText}`
+        : 'Очікує фінального заміру',
+      displayTarget: targetText || 'Річна ціль',
       progress: null,
-      progressLabel: '',
+      progressLabel: 'Без прогрес-бару',
       progressMode: 'none',
-      statusLabel: hasCurrent ? 'Є річний замір' : 'Очікує заміру',
-      statusTone: hasCurrent ? 'slate' : 'amber',
-      explanation: 'Це не щомісячний прогрес: показник оновлюється після заміру.',
-      criterion: '',
+      statusLabel: latestText && target && parsePercentMetricNumber(latest) >= target ? 'Виконано' : 'Очікує заміру',
+      statusTone: latestText && target && parsePercentMetricNumber(latest) >= target ? 'success' : 'muted',
+      explanation: 'Разовий річний замір не має щомісячного progress-bar.',
     }
   }
 
-  if (calculationType === 'growth_from_baseline') {
-    const hasCurrent = filledValues.length > 0
-
+  if (type === 'growth') {
     return {
-      metricType: 'Відсоткова',
-      calculationType,
-      calculationLabel: 'Ріст від старту',
+      type,
+      label: 'Ріст від старту',
+      metricType: 'Ріст від старту',
       target,
-      currentValue: hasCurrent ? latestValue : '',
-      displayCurrentValue: hasCurrent ? formatBaselineCurrentValue(latestValue) : 'потрібен baseline',
-      displayTarget: effectiveTargetText || '—',
+      currentValue: latestMonthlyValue(values),
+      displayCurrentValue: 'Потрібен baseline',
+      displayTarget: targetText || '+20-30%',
       progress: null,
-      progressLabel: '',
+      progressLabel: 'Не рахуємо до сетапу',
       progressMode: 'none',
-      statusLabel: 'Потрібен baseline',
-      statusTone: 'amber',
-      explanation: 'Треба вказати стартове значення і правило порівняння.',
-      criterion: effectiveTargetText,
+      statusLabel: 'Потрібен сетап',
+      statusTone: 'danger',
+      explanation: 'Для росту треба знати стартове значення і правило: % росту або процентні пункти.',
     }
   }
 
-  if (calculationType === 'target_range_setup') {
-    const hasCurrent = filledValues.length > 0
+  if (type === 'guardrail') {
+    const composite = parseCompositeMonthlyValues(values)
+    const clicks = composite.reduce((sum, item) => sum + (item.primary || 0), 0)
+    const guardrailValues = composite
+      .map((item) => item.guardrail)
+      .filter((value) => value !== null)
+    const maxGuardrail = guardrailValues.length ? Math.max(...guardrailValues) : null
+    const limit = parseCpcLimit(`${title} ${targetText}`)
+    const isHealthy = maxGuardrail !== null && limit !== null ? maxGuardrail <= limit : false
 
     return {
-      metricType: 'Відсоткова',
-      calculationType,
-      calculationLabel: 'Цільовий діапазон',
-      target,
-      currentValue: hasCurrent ? latestValue : '',
-      displayCurrentValue: hasCurrent ? formatPercentLike(latestValue) : 'потрібен замір',
-      displayTarget: effectiveTargetText || '—',
-      progress: null,
-      progressLabel: '',
-      progressMode: 'none',
-      statusLabel: hasCurrent ? 'Є замір' : 'Потрібен замір',
-      statusTone: hasCurrent ? 'slate' : 'amber',
-      explanation: 'У таблиці є цільовий діапазон, але треба зафіксувати факт і правило заміру.',
-      criterion: effectiveTargetText,
-    }
-  }
-
-  if (calculationType === 'search_visibility_setup') {
-    const hasCurrent = filledValues.length > 0
-
-    return {
-      metricType: 'Якісна',
-      calculationType,
-      calculationLabel: 'Потрібне правило',
-      target,
-      currentValue: hasCurrent ? latestValue : '',
-      displayCurrentValue: hasCurrent ? latestValue : 'потрібен замір',
-      displayTarget: effectiveTargetText || '—',
-      progress: null,
-      progressLabel: '',
-      progressMode: 'none',
-      statusLabel: 'Потрібне правило',
-      statusTone: 'amber',
-      explanation: 'Треба визначити 10 запитів і що саме рахується згадкою у топ-10.',
-      criterion: effectiveTargetText,
-    }
-  }
-
-  if (calculationType === 'cpc_guardrail') {
-    const monthlyPairs = parseCompositeMonthlyValues(values)
-    const clicks = monthlyPairs.reduce((sum, item) => sum + item.clicks, 0)
-    const latestPair = monthlyPairs.at(-1)
-    const cpcLimit = parseCpcLimit(`${title} ${effectiveTargetText}`)
-    const cpcOk =
-      latestPair?.cpc !== null && latestPair?.cpc !== undefined && cpcLimit
-        ? latestPair.cpc <= cpcLimit
-        : false
-
-    return {
+      type,
+      label: 'Кількість + ліміт',
       metricType: 'Обмеження',
-      calculationType,
-      calculationLabel: 'Кліки + CPC',
-      target: cpcLimit || target,
-      currentValue: latestPair
-        ? `${latestPair.clicks}; ${latestPair.cpc ?? ''}`.trim()
-        : latestValue,
-      displayCurrentValue: latestPair
-        ? `${formatGoalNumber(clicks)} кліків · CPC ${formatGoalMoney(latestPair.cpc)}`
-        : '—',
-      displayTarget: cpcLimit ? `CPC ≤ ${formatGoalMoney(cpcLimit)}` : effectiveTargetText || '—',
+      target: limit || target,
+      currentValue: maxGuardrail ?? latestMonthlyValue(values),
+      displayCurrentValue: clicks
+        ? `${formatGoalNumber(clicks)} кліків; CPC max ${formatGoalMoney(maxGuardrail)}`
+        : formatGoalMoney(maxGuardrail),
+      displayTarget: limit ? `CPC ≤ ${formatGoalMoney(limit)}` : targetText || 'Ліміт',
       progress: null,
-      progressLabel: '',
+      progressLabel: 'Без прогрес-бару',
       progressMode: 'none',
-      statusLabel: latestPair ? (cpcOk ? 'CPC в нормі' : 'CPC вище ліміту') : 'немає даних',
-      statusTone: latestPair ? (cpcOk ? 'green' : 'rose') : 'slate',
-      explanation: 'Це guardrail: сумуємо кліки, а CPC перевіряємо як ліміт.',
-      criterion: cpcLimit ? `CPC не вище ${formatGoalMoney(cpcLimit)}` : effectiveTargetText,
+      statusLabel: limit ? (isHealthy ? 'В нормі' : 'Поза лімітом') : 'Додайте ліміт',
+      statusTone: limit ? (isHealthy ? 'success' : 'danger') : 'danger',
+      explanation: 'Кліки сумуються окремо, CPC перевіряється як обмеження.',
     }
   }
 
-  if (calculationType === 'qualitative') {
-    const done = ['так', 'yes', 'done', 'true', 'виконано'].includes(
-      String(latestValue || '').trim().toLowerCase(),
-    )
-
-    return {
-      metricType: 'Якісна',
-      calculationType,
-      calculationLabel: 'Так/ні',
-      target: 0,
-      currentValue: latestValue || '',
-      displayCurrentValue: latestValue || '—',
-      displayTarget: effectiveTargetText || 'Так/ні',
-      progress: done ? 100 : 0,
-      progressLabel: done ? '100%' : '0%',
-      progressMode: 'bar',
-      statusLabel: done ? 'Виконано' : 'Не виконано',
-      statusTone: done ? 'green' : 'slate',
-      explanation: '',
-      criterion: effectiveTargetText,
-    }
-  }
-
+  const inferredMetricType = inferMetricType(targetText, latestMonthlyValue(values), values)
+  const metricType = inferredMetricType || 'Кількісна'
   const currentValue =
-    String(effectiveTargetText || '').includes('%') || filledValues.some(([, value]) => String(value).includes('%'))
-      ? parsePercentMetricNumber(latestValue)
-      : parseMetricNumber(latestValue)
-  const progress = target ? Math.round((currentValue / target) * 100) : 0
-  const isPercent = String(effectiveTargetText || latestValue).includes('%')
+    metricType === 'Накопичувальна' ? sumMonthlyValues(values) : latestMonthlyValue(values)
 
   return {
-    metricType: isPercent ? 'Відсоткова' : 'Кількісна',
-    calculationType,
-    calculationLabel: isPercent ? 'Останнє значення' : 'Поточне значення',
+    type: 'default',
+    label: metricType,
+    metricType,
     target,
     currentValue,
-    displayCurrentValue: isPercent ? formatPercentLike(latestValue) : formatGoalNumber(currentValue),
-    displayTarget: isPercent
-      ? effectiveTargetText || `${target}%`
-      : target
-        ? formatGoalNumber(target)
-        : effectiveTargetText || '—',
-    progress: clampPercent(progress),
-    progressLabel: `${clampPercent(progress)}%`,
+    displayCurrentValue: '',
+    displayTarget: '',
+    progress: null,
+    progressLabel: '',
     progressMode: 'bar',
-    statusLabel: 'Останній місяць',
-    statusTone: 'blue',
-    explanation: 'Для цієї метрики беремо останнє заповнене значення.',
-    criterion: '',
+    statusLabel: '',
+    statusTone: 'muted',
+    explanation: '',
   }
 }
 
 function inferKpiCalculationType({ title, targetText, values, measurementPeriod }) {
-  const text = `${title || ''} ${targetText || ''} ${measurementPeriod || ''}`.toLowerCase()
-  const targetOnlyText = String(targetText || '').toLowerCase()
-  const filledValues = filledMonthlyValues(values)
+  const haystack = normalizeCell(`${title} ${targetText} ${measurementPeriod}`)
+  const filled = filledMonthlyValues(values)
   const target = parseMetricNumber(targetText)
-  const hasPercentTargetOrValues =
-    String(targetText || '').includes('%') ||
-    filledValues.some(([, value]) => String(value || '').includes('%'))
 
-  if (/cpc|cost per click|клік|клики|кліки/.test(text) && hasCompositeMonthlyValue(values)) {
-    return 'cpc_guardrail'
-  }
-
-  if (/egc/.test(text) && /співробіт|employee|команд/.test(text)) {
-    return 'employee_share'
-  }
-
-  if (/середн|average|avg/.test(text) && /охопл|reach|reels|рілс/.test(text)) {
-    return 'monthly_average'
-  }
-
-  if (/фоловер|підписник|followers/.test(text) && /щомісяц|на\s+місяц/.test(targetOnlyText)) {
-    return 'monthly_delta_target'
-  }
-
-  if (/instagram|підписник|підписників|followers|фоловер/.test(text)) {
-    return 'latest_value'
-  }
-
-  if (/google|пошукових системах ai|пошукових системах аі/.test(text)) {
-    return 'search_visibility_setup'
-  }
-
-  if (/органічн.*траф|брендов.*запит/.test(text)) {
-    return 'monthly_average'
+  if (haystack.includes('cpc') || haystack.includes('цпц') || hasCompositeMonthlyValue(values)) {
+    return 'guardrail'
   }
 
   if (
-    hasPercentTargetOrValues &&
-    (/згадок у медіа|кількість згадок|українських користувачів|користувачів застосунків/.test(
-      text,
-    ))
+    haystack.includes('20 30') ||
+    haystack.includes('+20') ||
+    haystack.includes('рост') ||
+    haystack.includes('ріст')
   ) {
-    return 'growth_from_baseline'
-  }
-
-  const hasPercentRange = /\d+\s*[-–—]\s*\d+\s*%/.test(text)
-  const isGrowthLike = /\+\s*\d|на\s*\+?\s*\d|ріст|зростан|скорот|зменш/.test(text)
-
-  if (isGrowthLike && (hasPercentRange || /\+\s*\d/.test(text))) {
-    return 'growth_from_baseline'
-  }
-
-  if (hasPercentRange) {
-    return 'target_range_setup'
+    return 'growth'
   }
 
   if (
-    /раз\s+на\s+рік|річн|dou|опитув|survey|research/.test(text) &&
-    hasPercentTargetOrValues
+    haystack.includes('dou') ||
+    haystack.includes('опитуван') ||
+    haystack.includes('раз на рік')
   ) {
-    return 'annual_snapshot'
+    return 'snapshot'
   }
 
-  if (hasPercentTargetOrValues && target === 100) {
-    return 'percent_monthly_average'
+  if (String(targetText || '').includes('%') && target > 0 && target <= 100) {
+    const hasOnlyPercentValues = filled.every(({ value }) => String(value).includes('%') || parseMetricNumber(value) <= 100)
+    if (target >= 100 && hasOnlyPercentValues) return 'monthlyPercent'
+    if (target < 100 && haystack.includes('впізнаван')) return 'snapshot'
+    if (hasOnlyPercentValues) return 'monthlyPercent'
   }
 
-  if (!target && !hasPercentTargetOrValues) {
-    return 'qualitative'
-  }
+  if (target > 1) return 'cumulative'
 
-  if (!hasPercentTargetOrValues) {
-    return 'cumulative_sum'
-  }
-
-  return 'latest_value'
+  return 'default'
 }
 
 function filledMonthlyValues(values) {
-  return MONTHS.map((month) => [month, values[month]]).filter(([, value]) =>
+  return MONTHS.map((month) => ({ month, value: values[month] })).filter(({ value }) =>
     isFilledMetricValue(value),
   )
 }
 
 function hasCompositeMonthlyValue(values) {
-  return filledMonthlyValues(values).some(([, value]) => /[;/|]/.test(String(value)))
+  return filledMonthlyValues(values).some(({ value }) => /[;|/]/.test(String(value)))
 }
 
 function parseCompositeMonthlyValues(values) {
   return filledMonthlyValues(values)
-    .map(([month, value]) => {
-      const [clicksText, cpcText] = String(value)
-        .split(/[;/|]/)
-        .map((part) => part.trim())
-
+    .map(({ value }) => {
+      const numbers = extractMetricNumbers(value)
       return {
-        month,
-        clicks: parseMetricNumber(clicksText),
-        cpc: cpcText ? parseMetricNumber(cpcText) : null,
+        primary: numbers.find((number) => Math.abs(number) >= 1) ?? null,
+        guardrail: numbers.find((number) => Math.abs(number) < 1) ?? null,
       }
     })
-    .filter((item) => item.clicks || item.cpc !== null)
-}
-
-function monthlyValueDeltas(values) {
-  const numericValues = filledMonthlyValues(values)
-    .map(([month, value]) => [month, parseMetricNumber(value)])
-    .filter(([, value]) => value)
-
-  return numericValues.slice(1).map(([month, value], index) => {
-    const [, previousValue] = numericValues[index]
-    return {
-      month,
-      value,
-      previousValue,
-      delta: value - previousValue,
-    }
-  })
-}
-
-function formatMonthlyDeltaDetails(deltas) {
-  return deltas
-    .map((item) => `${monthShortName(item.month)} ${formatSignedGoalNumber(item.delta)}`)
-    .join(', ')
+    .filter((item) => item.primary !== null || item.guardrail !== null)
 }
 
 function parseCpcLimit(value) {
-  const text = String(value || '').toLowerCase()
-  const match = text.match(/(?:cpc|срс|ціні кліка|клік[^\d]{0,20})(?:[^\d]{0,20})(\d+(?:[.,]\d+)?)/)
-  return match ? parseMetricNumber(match[1]) : 0
+  const match = String(value || '').match(/(?:cpc|цпц)[^0-9]*(\d+(?:[.,]\d+)?)/i)
+  if (!match) return null
+
+  const parsed = Number(match[1].replace(',', '.'))
+  return Number.isFinite(parsed) ? parsed : null
 }
 
-function extractGrowthTargetText(value) {
-  const text = String(value || '')
-  const normalized = text.toLowerCase()
-  const rangeMatch = text.match(/\+?\s*(\d+(?:[.,]\d+)?)\s*[-–—]\s*(\d+(?:[.,]\d+)?)\s*%/)
-
-  if (rangeMatch) {
-    const isGrowthLike = /\+\s*\d|на\s*\+?\s*\d|ріст|зростан|скорот|зменш/.test(
-      normalized,
-    )
-    if (!isGrowthLike) return ''
-
-    const prefix = normalized.includes('+') ? '+' : ''
-    return `${prefix}${rangeMatch[1]}-${rangeMatch[2]}%`
-  }
-
-  const singleMatch = text.match(/\+\s*(\d+(?:[.,]\d+)?)\s*%/)
-  return singleMatch ? `+${singleMatch[1]}%` : ''
-}
-
-function extractPercentRangeTargetText(value) {
-  const text = String(value || '')
-  const rangeMatch = text.match(/(\d+(?:[.,]\d+)?)\s*[-–—]\s*(\d+(?:[.,]\d+)?)\s*%/)
-  return rangeMatch ? `${rangeMatch[1]}-${rangeMatch[2]}%` : ''
+function extractMetricNumbers(value) {
+  return [
+    ...String(value || '').matchAll(
+      /-?\d+(?:[\s\u00a0]?\d{3})*(?:[.,]\d+)?|-?\d+(?:[.,]\d+)?/g,
+    ),
+  ]
+    .map((match) => Number(normalizeNumericText(match[0])))
+    .filter((number) => Number.isFinite(number))
 }
 
 function clampPercent(value) {
-  const number = Number(value)
-  if (Number.isNaN(number)) return 0
-  return Math.max(0, Math.min(100, number))
+  return Math.max(0, Math.min(100, value))
 }
 
 function formatPercentLike(value) {
   const text = String(value ?? '').trim()
-  if (!text || text === '-' || text === '—') return '—'
+  if (!text) return ''
   if (text.includes('%')) return text
-  if (!/-?\d/.test(text)) return text
   return `${parsePercentMetricNumber(text)}%`
 }
 
-function formatBaselineCurrentValue(value) {
-  const text = String(value ?? '').trim()
-  if (!text || text === '-' || text === '—') return '—'
-  if (text.includes('%')) return formatPercentLike(text)
-  return text
-}
-
 function formatGoalNumber(value) {
-  const number = Number(value)
-  if (Number.isNaN(number)) return String(value || '—')
-
-  return new Intl.NumberFormat('uk-UA', {
-    maximumFractionDigits: Number.isInteger(number) ? 0 : 2,
-  }).format(number)
-}
-
-function formatSignedGoalNumber(value) {
-  const number = Number(value)
-  if (Number.isNaN(number)) return String(value || '—')
-
-  const sign = number > 0 ? '+' : ''
-  return `${sign}${formatGoalNumber(number)}`
-}
-
-function formatGoalPercent(value) {
-  const number = Number(value)
-  if (Number.isNaN(number)) return '0%'
-
-  return `${new Intl.NumberFormat('uk-UA', {
-    maximumFractionDigits: number >= 10 ? 0 : 1,
-  }).format(number)}%`
-}
-
-function monthShortName(month) {
-  return MONTH_PROPERTY_NAMES[month] || String(month || '').replace(/\s+2026$/, '')
+  return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(value || 0)
 }
 
 function formatGoalMoney(value) {
-  const number = Number(value)
-  if (Number.isNaN(number)) return '—'
-  return `$${number.toFixed(2)}`
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
+
+  return new Intl.NumberFormat('en-US', {
+    currency: 'USD',
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: 'currency',
+  }).format(Number(value))
 }
 
 function isFilledMetricValue(value) {
@@ -1107,10 +804,6 @@ async function getGoogleSheetKpiPayload() {
 
 function normalizeKpiSheetRows(rows) {
   let currentDirection = ''
-  let currentOwner = ''
-  let currentDataSource = ''
-  let currentMeasurementPeriod = ''
-  let currentFramework = ''
 
   return rows
     .slice(1)
@@ -1120,25 +813,7 @@ function normalizeKpiSheetRows(rows) {
       if (!title) return null
 
       const direction = cleanSheetCell(row[0])
-      if (direction) {
-        const nextDirection = normalizeKpiDirection(direction)
-        if (nextDirection !== currentDirection) {
-          currentOwner = ''
-          currentDataSource = ''
-          currentMeasurementPeriod = ''
-          currentFramework = ''
-        }
-        currentDirection = nextDirection
-      }
-
-      const owner = inheritSheetCell(row[27], currentOwner)
-      const dataSource = inheritSheetCell(row[28], currentDataSource)
-      const measurementPeriod = inheritSheetCell(row[29], currentMeasurementPeriod)
-      const framework = inheritSheetCell(row[30], currentFramework)
-      currentOwner = owner || currentOwner
-      currentDataSource = dataSource || currentDataSource
-      currentMeasurementPeriod = measurementPeriod || currentMeasurementPeriod
-      currentFramework = framework || currentFramework
+      if (direction) currentDirection = normalizeKpiDirection(direction)
 
       const values = Object.fromEntries(
         MONTHS.map((month, monthIndex) => [month, cleanSheetCell(row[monthIndex + 2])]),
@@ -1148,7 +823,7 @@ function normalizeKpiSheetRows(rows) {
         title,
         targetText,
         values,
-        measurementPeriod,
+        measurementPeriod: cleanSheetCell(row[29]),
       })
 
       return {
@@ -1158,8 +833,8 @@ function normalizeKpiSheetRows(rows) {
         title,
         direction: currentDirection || 'Employer Brand',
         metricType: calculation.metricType,
-        calculationType: calculation.calculationType,
-        calculationLabel: calculation.calculationLabel,
+        calculationType: calculation.type,
+        calculationLabel: calculation.label,
         target: calculation.target,
         currentValue: calculation.currentValue,
         displayCurrentValue: calculation.displayCurrentValue,
@@ -1170,19 +845,15 @@ function normalizeKpiSheetRows(rows) {
         statusLabel: calculation.statusLabel,
         statusTone: calculation.statusTone,
         explanation: calculation.explanation,
-        criterion: calculation.criterion,
-        measurementPeriod,
-        dataSource,
-        framework,
-        owner,
+        criterion: calculation.metricType === 'Якісна' ? targetText : '',
+        measurementPeriod: cleanSheetCell(row[29]),
+        dataSource: cleanSheetCell(row[28]),
+        framework: cleanSheetCell(row[30]),
+        owner: cleanSheetCell(row[27]),
         values,
       }
     })
     .filter(Boolean)
-}
-
-function inheritSheetCell(value, fallback) {
-  return cleanSheetCell(value) || fallback
 }
 
 function normalizeKpiDirection(value) {
@@ -2231,18 +1902,9 @@ async function createFocusDatabase() {
   return database.id
 }
 
-app.get('/api/health', (_request, response) => {
-  response.json({ ok: true, service: 'Comms Tool' })
-})
-
-app.get('/api/kpi-goals', asyncHandler(async (_request, response) => {
-  response.json(await getGoogleSheetKpiPayload())
-}))
-
-app.get('/api/notion/kpi-goals', asyncHandler(async (_request, response) => {
+async function getExternalKpiPayload() {
   if (shouldReadKpiFromGoogleSheet()) {
-    response.json(await getGoogleSheetKpiPayload())
-    return
+    return getGoogleSheetKpiPayload()
   }
 
   const databaseId = getDatabaseId('NOTION_KPI_DB', 'KPI цілей')
@@ -2256,10 +1918,477 @@ app.get('/api/notion/kpi-goals', asyncHandler(async (_request, response) => {
     ...goals.map((goal) => goal.owner),
   ])
 
-  response.json({ goals, ownerOptions })
+  return { goals, ownerOptions }
+}
+
+async function getMergedKpiPayload() {
+  const payload = await getExternalKpiPayload()
+  if (!isDatabaseConfigured()) return payload
+
+  const storedGoals = await listStoredKpiGoals()
+  return mergeStoredKpiGoals(payload, storedGoals)
+}
+
+function mergeStoredKpiGoals(payload, storedGoals) {
+  const goals = [...(payload.goals || [])]
+  const ownerOptions = [...(payload.ownerOptions || [])]
+  const indexByExternalKey = new Map(
+    goals.map((goal, index) => [`${legacyKpiSource(goal)}:${goal.id}`, index]),
+  )
+
+  storedGoals.forEach((storedGoal) => {
+    const normalized = normalizeStoredKpiGoal(storedGoal)
+    const externalKey =
+      storedGoal.externalSource && storedGoal.externalId
+        ? `${storedGoal.externalSource}:${storedGoal.externalId}`
+        : ''
+
+    if (externalKey && indexByExternalKey.has(externalKey)) {
+      goals[indexByExternalKey.get(externalKey)] = normalized
+    } else {
+      goals.push(normalized)
+    }
+
+    ownerOptions.push(normalized.owner)
+  })
+
+  return { goals, ownerOptions: uniqueOptionNames(ownerOptions) }
+}
+
+function normalizeStoredKpiGoal(goal) {
+  const targetText = goal.targetText || goal.criterion || goal.target || ''
+  const calculation = buildKpiGoalCalculation({
+    title: goal.title,
+    targetText,
+    values: goal.values || {},
+    measurementPeriod: goal.measurementPeriod,
+  })
+
+  return {
+    ...goal,
+    source: goal.source || 'app',
+    metricType: goal.metricType || calculation.metricType,
+    calculationType: goal.calculationType || calculation.type,
+    calculationLabel: goal.calculationLabel || calculation.label,
+    target: calculation.target || goal.target || 0,
+    currentValue: calculation.currentValue,
+    displayCurrentValue: calculation.displayCurrentValue,
+    displayTarget: calculation.displayTarget,
+    progress: calculation.progress,
+    progressLabel: calculation.progressLabel,
+    progressMode: calculation.progressMode,
+    statusLabel: calculation.statusLabel,
+    statusTone: calculation.statusTone,
+    explanation: calculation.explanation,
+    values: goal.values || {},
+  }
+}
+
+function legacyKpiSource(goal = {}) {
+  return goal.source || (shouldReadKpiFromGoogleSheet() ? 'google-sheet' : 'notion')
+}
+
+async function getMergedMonthlyFocusPayload(month) {
+  const externalPayload = await getExternalMonthlyFocusPayload(month)
+  if (!isDatabaseConfigured()) return externalPayload
+
+  const storedEntries = await listStoredMonthlyFocusEntries()
+  const entries = mergeStoredMonthlyFocusEntries(externalPayload.entries, storedEntries, month)
+  const ownerOptions = uniqueOwnerOptions([
+    ...(externalPayload.ownerOptions || []),
+    ...entries.map((entry) => entry.owner),
+  ])
+
+  return {
+    ...externalPayload,
+    entries,
+    ownerOptions,
+  }
+}
+
+async function getExternalMonthlyFocusPayload(month) {
+  const databaseId = await getFocusDatabaseId()
+  const [pages, schema] = await Promise.all([
+    queryAllDatabase(databaseId),
+    getDataSourceSchema(databaseId),
+  ])
+  const entries = pages
+    .map(normalizeFocus)
+    .filter((entry) => {
+      return month
+        ? entry.months.some((item) => monthTagMatches(item, month)) ||
+            monthTagMatches(entry.month, month)
+        : true
+    })
+    .map((entry) => (month ? { ...entry, month } : entry))
+  const ownerOptions = uniqueOwnerOptions([
+    ...schemaOptionNames(schema, ['Owner', 'Власник', 'Менеджер']),
+    ...pages.flatMap((page) =>
+      propertyPeopleOptions(
+        getProperty(page.properties || {}, [
+          'Owner',
+          'Власник',
+          'Менеджер',
+          'Person',
+          'Відповідальний',
+        ]),
+      ),
+    ),
+    ...pages.map((page) =>
+      propertyText(
+        getProperty(page.properties || {}, [
+          'Owner',
+          'Власник',
+          'Менеджер',
+          'Person',
+          'Відповідальний',
+        ]),
+      ),
+    ),
+  ])
+
+  return { entries, ownerOptions, focusDatabaseId: databaseId }
+}
+
+function mergeStoredMonthlyFocusEntries(externalEntries = [], storedEntries = [], month) {
+  const entries = [...externalEntries]
+  const indexByExternalId = new Map(
+    entries.map((entry, index) => [`notion:${entry.id}`, index]),
+  )
+
+  storedEntries.forEach((entry) => {
+    const normalized = month ? { ...entry, month } : entry
+    const matchesMonth = month
+      ? normalized.months.some((item) => monthTagMatches(item, month)) ||
+        monthTagMatches(normalized.month, month)
+      : true
+
+    if (!matchesMonth) return
+
+    const externalKey =
+      normalized.externalSource && normalized.externalId
+        ? `${normalized.externalSource}:${normalized.externalId}`
+        : ''
+
+    if (externalKey && indexByExternalId.has(externalKey)) {
+      entries[indexByExternalId.get(externalKey)] = normalized
+    } else {
+      entries.push(normalized)
+    }
+  })
+
+  return entries
+}
+
+async function getManualCompetitorMentions(month) {
+  if (!isDatabaseConfigured()) return []
+  return listCompetitorCoverage(month)
+}
+
+async function applyManualCompetitors(coverage, month) {
+  const competitors = await getManualCompetitorMentions(month)
+  if (!competitors.length) return coverage
+
+  const competitorReach = competitors.reduce((sum, item) => sum + Number(item.reach || 0), 0)
+
+  return {
+    ...coverage,
+    source:
+      coverage.source === 'mock'
+        ? 'mock+manual-competitors'
+        : `${coverage.source || 'coverage'}+manual-competitors`,
+    mentions: [...(coverage.mentions || []), ...competitors],
+    audienceMetric: coverage.audienceMetric
+      ? {
+          ...coverage.audienceMetric,
+          value: Number(coverage.audienceMetric.value || 0) + competitorReach,
+        }
+    : coverage.audienceMetric,
+  }
+}
+
+async function listEventReports() {
+  if (isDatabaseConfigured()) return listStoredEventReports()
+  return readLocalEventReports()
+}
+
+async function createEventReport(report, userId) {
+  const normalized = normalizeEventReportPayload(report)
+  if (!normalized.name) {
+    throw createHttpError(400, 'Назва звіту обовʼязкова.')
+  }
+
+  if (isDatabaseConfigured()) {
+    return createStoredEventReport(normalized, userId)
+  }
+
+  const reports = await readLocalEventReports()
+  const created = {
+    ...normalized,
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+  }
+
+  reports.unshift(created)
+  await writeLocalEventReports(reports)
+  return created
+}
+
+async function readLocalEventReports() {
+  try {
+    const content = await readFile(EVENT_REPORTS_FILE, 'utf8')
+    const reports = JSON.parse(content)
+    if (!Array.isArray(reports)) return []
+
+    return reports
+      .map(normalizeStoredEventReport)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  } catch (error) {
+    if (error.code === 'ENOENT') return []
+    throw error
+  }
+}
+
+async function writeLocalEventReports(reports) {
+  await mkdir(path.dirname(EVENT_REPORTS_FILE), { recursive: true })
+  await writeFile(EVENT_REPORTS_FILE, JSON.stringify(reports, null, 2), 'utf8')
+}
+
+function normalizeStoredEventReport(report) {
+  return {
+    ...normalizeEventReportPayload(report),
+    id: String(report.id || randomUUID()),
+    createdAt: String(report.createdAt || new Date().toISOString()),
+  }
+}
+
+function normalizeEventReportPayload(report = {}) {
+  const type = report.type === 'partnership' ? 'partnership' : 'event'
+  const sentiment = ['Позитивна', 'Нейтральна', 'Змішана', 'Негативна'].includes(
+    report.sentiment,
+  )
+    ? report.sentiment
+    : 'Нейтральна'
+
+  return {
+    type,
+    name: textValue(report.name),
+    date: textValue(report.date),
+    description: textValue(report.description),
+    goalText: textValue(report.goalText),
+    planAttendees: numberValue(report.planAttendees),
+    leadsGoogle: numberValue(report.leadsGoogle),
+    leadsMeta: numberValue(report.leadsMeta),
+    confirmed: numberValue(report.confirmed),
+    attended: numberValue(report.attended),
+    teamCount: numberValue(report.teamCount),
+    partnershipCost: numberValue(report.partnershipCost),
+    partnershipClicks: numberValue(report.partnershipClicks),
+    partnershipLeads: numberValue(report.partnershipLeads),
+    partnershipViews: numberValue(report.partnershipViews),
+    campaigns: Array.isArray(report.campaigns)
+      ? report.campaigns.map(normalizeEventCampaign)
+      : [],
+    promoSpendUsd: numberValue(report.promoSpendUsd),
+    orgSpendUsd: numberValue(report.orgSpendUsd),
+    publications: numberValue(report.publications),
+    mediaMentions: numberValue(report.mediaMentions),
+    totalReach: numberValue(report.totalReach),
+    sentiment,
+    engagement: textValue(report.engagement),
+    feedback: textValue(report.feedback),
+    notes: textValue(report.notes),
+    aiSummary: textValue(report.aiSummary),
+    aiInsights: Array.isArray(report.aiInsights)
+      ? report.aiInsights.map(textValue).filter(Boolean)
+      : [],
+    aiPlanFact: textValue(report.aiPlanFact),
+  }
+}
+
+function normalizeEventCampaign(campaign = {}) {
+  return {
+    name: textValue(campaign.name),
+    ctype: campaign.ctype === 'Leads' ? 'Leads' : 'Clicks',
+    spendEur: numberValue(campaign.spendEur),
+    result: numberValue(campaign.result),
+    clicks: numberValue(campaign.clicks),
+    impressions: numberValue(campaign.impressions),
+    reach: numberValue(campaign.reach),
+  }
+}
+
+function textValue(value) {
+  return String(value || '').trim()
+}
+
+function numberValue(value) {
+  if (value === '' || value === null || value === undefined) return 0
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
+}
+
+async function generateEventReportAi(facts) {
+  const preferredProvider = String(process.env.EVENT_REPORTS_AI_PROVIDER || '')
+    .trim()
+    .toLowerCase()
+  const anthropicKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY
+
+  if (preferredProvider !== 'anthropic' && process.env.OPENROUTER_API_KEY) {
+    return generateEventReportViaOpenRouter(facts)
+  }
+
+  if (anthropicKey) {
+    return generateEventReportViaAnthropic(facts, anthropicKey)
+  }
+
+  throw createHttpError(
+    503,
+    'AI-ключ не налаштований. Додайте OPENROUTER_API_KEY або ANTHROPIC_API_KEY у змінні середовища.',
+  )
+}
+
+async function generateEventReportViaAnthropic(facts, apiKey) {
+  const anthropic = new Anthropic({ apiKey })
+  const message = await anthropic.messages.create({
+    model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest',
+    max_tokens: 1200,
+    temperature: 0.2,
+    system: eventReportAiSystemPrompt(),
+    messages: [
+      {
+        role: 'user',
+        content: eventReportAiUserPrompt(facts),
+      },
+    ],
+  })
+
+  const text = message.content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n')
+
+  return parseEventReportAiResponse(text)
+}
+
+async function generateEventReportViaOpenRouter(facts) {
+  const apiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.APP_BASE_URL || 'http://localhost:5173',
+      'X-OpenRouter-Title': 'Comms Tool',
+    },
+    body: JSON.stringify({
+      model:
+        process.env.OPENROUTER_MODEL ||
+        process.env.ANTHROPIC_MODEL ||
+        'anthropic/claude-sonnet-4.6',
+      max_tokens: 1200,
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: eventReportAiSystemPrompt() },
+        { role: 'user', content: eventReportAiUserPrompt(facts) },
+      ],
+    }),
+  })
+
+  if (!apiResponse.ok) {
+    throw createHttpError(
+      502,
+      'OpenRouter не згенерував текст звіту.',
+      await apiResponse.text(),
+    )
+  }
+
+  const payload = await apiResponse.json()
+  const content = payload.choices?.[0]?.message?.content || ''
+  return parseEventReportAiResponse(content)
+}
+
+function eventReportAiSystemPrompt() {
+  return [
+    'Ти senior Communications/PR аналітик. Пиши українською, стисло і business-facing.',
+    'Критичне правило: не рахуй, не перераховуй і не вигадуй жодних чисел. Усі числові метрики вже пораховані кодом у facts. Використовуй числа тільки з facts або пропускай їх.',
+    'Поверни тільки валідний JSON без markdown, пояснень чи code fence.',
+    'Схема відповіді: {"summary":"2-3 речення executive summary","insights":["4-6 коротких інсайтів"],"planFact":"1 короткий абзац про план/факт"}',
+    'Якщо даних мало, чесно напиши про обмеження даних без вигаданих висновків.',
+  ].join('\n')
+}
+
+function eventReportAiUserPrompt(facts) {
+  return `Facts JSON, precomputed by code:\n${JSON.stringify(facts, null, 2)}`
+}
+
+function parseEventReportAiResponse(text) {
+  const json = parseJsonObject(text)
+
+  return {
+    summary: textValue(json.summary),
+    insights: Array.isArray(json.insights)
+      ? json.insights.map(textValue).filter(Boolean).slice(0, 8)
+      : [],
+    planFact: textValue(json.planFact),
+  }
+}
+
+function parseJsonObject(text) {
+  const cleaned = String(text || '')
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```$/i, '')
+    .trim()
+
+  try {
+    return JSON.parse(cleaned)
+  } catch {
+    const start = cleaned.indexOf('{')
+    const end = cleaned.lastIndexOf('}')
+
+    if (start !== -1 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1))
+      } catch {
+        throw createHttpError(502, 'AI повернув невалідний JSON.')
+      }
+    }
+
+    throw createHttpError(502, 'AI повернув невалідний JSON.')
+  }
+}
+
+app.get('/api/health', asyncHandler(async (_request, response) => {
+  response.json({
+    ok: true,
+    service: 'Comms Tool',
+    database: await getDatabaseStatus(),
+    auth: authStatus(),
+    integrations: {
+      notion: Boolean(process.env.NOTION_TOKEN),
+      googleSheetsServiceAccount: hasGoogleServiceAccountCredentials(),
+      anthropic: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY),
+      openRouter: Boolean(process.env.OPENROUTER_API_KEY),
+      looqmeTokenPresent: Boolean(process.env.LOOQME_TOKEN),
+    },
+  })
 }))
 
-app.post('/api/notion/goals', asyncHandler(async (request, response) => {
+app.get('/api/kpi-goals', asyncHandler(async (_request, response) => {
+  response.json(await getMergedKpiPayload())
+}))
+
+app.get('/api/notion/kpi-goals', asyncHandler(async (_request, response) => {
+  response.json(await getMergedKpiPayload())
+}))
+
+app.post('/api/notion/goals', requireAuth, asyncHandler(async (request, response) => {
+  if (isDatabaseConfigured()) {
+    const goal = await insertStoredKpiGoal(request.body, request.user?.id)
+    response.status(201).json({ goal: normalizeStoredKpiGoal(goal) })
+    return
+  }
+
   if (shouldReadKpiFromGoogleSheet()) {
     await createGoogleSheetGoal(request.body)
     response.status(201).json({ ok: true })
@@ -2280,7 +2409,30 @@ app.post('/api/notion/goals', asyncHandler(async (request, response) => {
   response.status(201).json({ goal: normalizeGoal(page) })
 }))
 
-app.patch('/api/notion/goals/:id', asyncHandler(async (request, response) => {
+app.patch('/api/notion/goals/:id', requireAuth, asyncHandler(async (request, response) => {
+  if (isDatabaseConfigured()) {
+    let goal = await updateStoredKpiGoalValue(request.params.id, request.body, request.user?.id)
+
+    if (!goal) {
+      const externalPayload = await getExternalKpiPayload()
+      const externalGoal = externalPayload.goals.find((item) => item.id === request.params.id)
+
+      if (!externalGoal) {
+        throw createHttpError(404, 'Не знайшов KPI для оновлення.')
+      }
+
+      const storedGoal = await upsertStoredKpiGoalFromExternal(
+        externalGoal,
+        legacyKpiSource(externalGoal),
+        request.user?.id,
+      )
+      goal = await updateStoredKpiGoalValue(storedGoal.id, request.body, request.user?.id)
+    }
+
+    response.json({ goal: normalizeStoredKpiGoal(goal) })
+    return
+  }
+
   if (shouldReadKpiFromGoogleSheet()) {
     const goal = await updateGoogleSheetGoalValue(request.params.id, request.body)
     response.json({ goal })
@@ -2326,51 +2478,17 @@ app.patch('/api/notion/goals/:id', asyncHandler(async (request, response) => {
 }))
 
 app.get('/api/notion/monthly-focus', asyncHandler(async (request, response) => {
-  const databaseId = await getFocusDatabaseId()
   const month = request.query.month
-  const [pages, schema] = await Promise.all([
-    queryAllDatabase(databaseId),
-    getDataSourceSchema(databaseId),
-  ])
-  const entries = pages
-    .map(normalizeFocus)
-    .filter((entry) => {
-      return month
-        ? entry.months.some((item) => monthTagMatches(item, month)) ||
-            monthTagMatches(entry.month, month)
-        : true
-    })
-    .map((entry) => (month ? { ...entry, month } : entry))
-  const ownerOptions = uniqueOwnerOptions([
-    ...schemaOptionNames(schema, ['Owner', 'Власник', 'Менеджер']),
-    ...pages.flatMap((page) =>
-      propertyPeopleOptions(
-        getProperty(page.properties || {}, [
-          'Owner',
-          'Власник',
-          'Менеджер',
-          'Person',
-          'Відповідальний',
-        ]),
-      ),
-    ),
-    ...pages.map((page) =>
-      propertyText(
-        getProperty(page.properties || {}, [
-          'Owner',
-          'Власник',
-          'Менеджер',
-          'Person',
-          'Відповідальний',
-        ]),
-      ),
-    ),
-  ])
-
-  response.json({ entries, ownerOptions, focusDatabaseId: databaseId })
+  response.json(await getMergedMonthlyFocusPayload(month))
 }))
 
-app.post('/api/notion/monthly-focus', asyncHandler(async (request, response) => {
+app.post('/api/notion/monthly-focus', requireAuth, asyncHandler(async (request, response) => {
+  if (isDatabaseConfigured()) {
+    const entry = await saveStoredMonthlyFocusEntry(request.body, request.user?.id)
+    response.json({ entry, focusDatabaseId: 'app-db' })
+    return
+  }
+
   const notion = getNotion()
   const databaseId = await getFocusDatabaseId()
   const body = request.body
@@ -2495,11 +2613,11 @@ app.get('/api/event-awareness', asyncHandler(async (request, response) => {
   })
 }))
 
-app.get('/api/looqme/coverage', (request, response) => {
+app.get('/api/looqme/coverage', asyncHandler(async (request, response) => {
   const month = request.query.month
 
   if (month && month !== MOCK_COVERAGE_MONTH) {
-    response.json({
+    const payload = {
       month,
       source: process.env.LOOQME_TOKEN ? 'looqme-mock-token-present' : 'mock',
       mentionsMetric: {
@@ -2520,11 +2638,13 @@ app.get('/api/looqme/coverage', (request, response) => {
         social: 0,
       },
       sentiment: [],
-    })
+    }
+
+    response.json(await applyManualCompetitors(payload, month))
     return
   }
 
-  response.json({
+  const payload = {
     month,
     source: process.env.LOOQME_TOKEN ? 'looqme-mock-token-present' : 'mock',
     mentionsMetric: {
@@ -2566,8 +2686,47 @@ app.get('/api/looqme/coverage', (request, response) => {
       { name: 'Нейтрал', value: 20, color: '#64748b' },
       { name: 'Негатив', value: 2, color: '#ef4444' },
     ],
-  })
-})
+  }
+
+  response.json(await applyManualCompetitors(payload, month))
+}))
+
+app.get('/api/coverage/competitors', asyncHandler(async (request, response) => {
+  response.json({ competitors: await getManualCompetitorMentions(request.query.month) })
+}))
+
+app.post('/api/coverage/competitors', requireAuth, asyncHandler(async (request, response) => {
+  if (!isDatabaseConfigured()) {
+    throw createHttpError(503, 'Для ручних конкурентів потрібен DATABASE_URL.')
+  }
+
+  const competitor = await createCompetitorCoverage(request.body, request.user?.id)
+  response.status(201).json({ competitor })
+}))
+
+app.delete('/api/coverage/competitors/:id', requireAuth, asyncHandler(async (request, response) => {
+  const deleted = await deleteCompetitorCoverage(request.params.id)
+  response.json({ ok: deleted })
+}))
+
+app.get('/api/event-reports', asyncHandler(async (_request, response) => {
+  response.json(await listEventReports())
+}))
+
+app.post('/api/event-reports', requireAuth, asyncHandler(async (request, response) => {
+  const report = await createEventReport(request.body, request.user?.id)
+  response.status(201).json(report)
+}))
+
+app.post('/api/event-reports/generate', requireAuth, asyncHandler(async (request, response) => {
+  const facts = request.body?.facts
+
+  if (!facts || typeof facts !== 'object' || Array.isArray(facts)) {
+    throw createHttpError(400, 'Передайте facts із уже порахованими метриками.')
+  }
+
+  response.json(await generateEventReportAi(facts))
+}))
 
 app.post('/api/generate-report', asyncHandler(async (request, response) => {
   const { month, goals = [], focus = [], events = [], coverage = {} } = request.body
@@ -2618,19 +2777,28 @@ app.post('/api/generate-report', asyncHandler(async (request, response) => {
   response.json({ report, source: 'anthropic' })
 }))
 
-app.post('/api/notion/board-report', asyncHandler(async (request, response) => {
-  const notion = getNotion()
+app.post('/api/notion/board-report', requireAuth, asyncHandler(async (request, response) => {
+  const { month, report } = request.body
+  const storedReport = await createBoardReport(
+    { month, report, source: 'app' },
+    request.user?.id,
+  )
   const parentPageId =
     process.env.NOTION_REPORTS_PARENT_PAGE_ID || process.env.NOTION_PARENT_PAGE_ID
 
   if (!parentPageId) {
+    if (storedReport) {
+      response.status(201).json({ reportId: storedReport.id, pageId: null })
+      return
+    }
+
     throw createHttpError(
       503,
       'Для збереження Board Report додайте NOTION_REPORTS_PARENT_PAGE_ID або NOTION_PARENT_PAGE_ID.',
     )
   }
 
-  const { month, report } = request.body
+  const notion = getNotion()
   const page = await notion.pages.create({
     parent: { type: 'page_id', page_id: parentPageId },
     properties: {
@@ -2639,7 +2807,11 @@ app.post('/api/notion/board-report', asyncHandler(async (request, response) => {
     children: reportToBlocks(report),
   })
 
-  response.status(201).json({ pageId: page.id })
+  if (storedReport) {
+    await updateBoardReportNotionPage(storedReport.id, page.id)
+  }
+
+  response.status(201).json({ reportId: storedReport?.id || null, pageId: page.id })
 }))
 
 function buildBoardReportData({ month, goals, focus, events, coverage }) {
@@ -2789,9 +2961,8 @@ function buildBoardDoneSections(reportData) {
 }
 
 function buildGoalCompletionSummary(goals, month) {
-  const measurableGoals = goals.filter((goal) => goal.progressMode !== 'none')
-  const total = measurableGoals.length
-  const completed = measurableGoals.filter((goal) => goalProgressForReport(goal, month) >= 100)
+  const total = goals.length
+  const completed = goals.filter((goal) => goalProgressForReport(goal, month) >= 100)
     .length
 
   return {
@@ -3161,9 +3332,6 @@ function focusSectionKey(entry) {
 }
 
 function goalProgressForReport(goal, month) {
-  if (goal.progressMode === 'none') return 0
-  if (typeof goal.progress === 'number') return clampPercent(Math.round(goal.progress))
-
   if (goal.metricType === 'Якісна') {
     return isDoneValue(latestGoalValueForReport(goal, month)) ? 100 : 0
   }
@@ -3176,8 +3344,6 @@ function goalProgressForReport(goal, month) {
 }
 
 function goalValueForReport(goal, month) {
-  if (goal.progressMode === 'none') return parseMetricNumber(goal.currentValue)
-
   if (goal.metricType === 'Накопичувальна') {
     return sumGoalValuesUntilReportMonth(goal, month)
   }
