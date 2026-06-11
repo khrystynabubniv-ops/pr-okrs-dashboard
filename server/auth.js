@@ -9,6 +9,7 @@ import {
 
 const SESSION_COOKIE = 'ct_session'
 const OAUTH_STATE_COOKIE = 'ct_oauth_state'
+const LOGIN_RETURN_COOKIE = 'ct_login_return'
 const SESSION_DAYS = 30
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -69,12 +70,18 @@ export function requirePageAuth(request, response, next) {
     return
   }
 
+  if (isPublicPageRequest(request.path)) {
+    next()
+    return
+  }
+
   if (!authStatus().sessionStoreReady) {
     next(createHttpError(503, 'Auth requires DATABASE_URL and migrated auth tables.'))
     return
   }
 
-  response.redirect('/api/auth/google/start')
+  const nextPath = safeReturnPath(request.originalUrl || request.url) || '/dashboard'
+  response.redirect(`/login?next=${encodeURIComponent(nextPath)}`)
 }
 
 export function registerAuthRoutes(app) {
@@ -96,6 +103,7 @@ export function registerAuthRoutes(app) {
 
       const state = randomToken()
       const redirectUri = oauthRedirectUri(request)
+      const returnPath = safeReturnPath(request.query.next) || '/dashboard'
       const params = new URLSearchParams({
         client_id: process.env.GOOGLE_OAUTH_CLIENT_ID,
         redirect_uri: redirectUri,
@@ -105,14 +113,18 @@ export function registerAuthRoutes(app) {
         state,
       })
 
-      response.setHeader(
-        'Set-Cookie',
+      response.setHeader('Set-Cookie', [
         serializeCookie(OAUTH_STATE_COOKIE, state, {
           httpOnly: true,
           maxAge: 10 * 60,
           sameSite: 'Lax',
         }),
-      )
+        serializeCookie(LOGIN_RETURN_COOKIE, returnPath, {
+          httpOnly: true,
+          maxAge: 10 * 60,
+          sameSite: 'Lax',
+        }),
+      ])
       response.redirect(`${GOOGLE_AUTH_URL}?${params.toString()}`)
     } catch (error) {
       next(error)
@@ -152,8 +164,11 @@ export function registerAuthRoutes(app) {
           sameSite: 'Lax',
         }),
         serializeCookie(OAUTH_STATE_COOKIE, '', { maxAge: 0 }),
+        serializeCookie(LOGIN_RETURN_COOKIE, '', { maxAge: 0 }),
       ])
-      response.redirect(appBaseUrl(request))
+      response.redirect(
+        `${appBaseUrl(request)}${safeReturnPath(cookies[LOGIN_RETURN_COOKIE]) || '/dashboard'}`,
+      )
     } catch (error) {
       next(error)
     }
@@ -237,6 +252,31 @@ function appBaseUrl(request) {
 
 function oauthRedirectUri(request) {
   return `${appBaseUrl(request)}/api/auth/google/callback`
+}
+
+function isPublicPageRequest(pathname = '') {
+  return (
+    pathname === '/login' ||
+    pathname.startsWith('/assets/') ||
+    pathname === '/favicon.ico' ||
+    pathname === '/robots.txt' ||
+    pathname === '/manifest.webmanifest' ||
+    /\.[a-zA-Z0-9]{2,8}$/.test(pathname)
+  )
+}
+
+function safeReturnPath(value) {
+  const path = String(value || '').trim()
+  if (!path.startsWith('/') || path.startsWith('//')) return ''
+
+  try {
+    const url = new URL(path, 'https://comms-tool.local')
+    if (url.origin !== 'https://comms-tool.local') return ''
+    if (url.pathname.startsWith('/api/')) return ''
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return ''
+  }
 }
 
 function parseCookies(cookieHeader = '') {
