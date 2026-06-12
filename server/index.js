@@ -91,6 +91,7 @@ const LOOQME_SENTIMENT_COLORS = {
   neutral: '#64748b',
   negative: '#ef4444',
 }
+const LOOQME_COVERAGE_CACHE_TTL_MS = 10 * 60 * 1000
 
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
@@ -98,6 +99,7 @@ let focusDatabaseId = process.env.NOTION_FOCUS_DB || ''
 let focusDatabasePromise = null
 const dataSourceCache = new Map()
 const dataSourceSchemaCache = new Map()
+const looqmeCoverageCache = new Map()
 let googleTokenCache = null
 
 app.use(cors())
@@ -2147,6 +2149,10 @@ async function fetchLooqmeCoverage(month) {
   }
 
   const { range, url } = buildLooqmeRequestUrl(config, month)
+  const cacheKey = looqmeCoverageCacheKey(config, month, url)
+  const cachedCoverage = readLooqmeCoverageCache(cacheKey)
+  if (cachedCoverage) return cachedCoverage
+
   const response = await fetch(url, {
     method: config.method,
     headers: buildLooqmeHeaders(config),
@@ -2164,7 +2170,42 @@ async function fetchLooqmeCoverage(month) {
 
   const payload = parseLooqmeResponseBody(body, response.headers.get('content-type'))
   const fullPayload = await fetchRemainingLooqmePages(payload, config)
-  return normalizeLooqmeCoveragePayload(fullPayload, month, range)
+  const coverage = normalizeLooqmeCoveragePayload(fullPayload, month, range)
+  writeLooqmeCoverageCache(cacheKey, coverage)
+  return coverage
+}
+
+function looqmeCoverageCacheKey(config, month, url) {
+  const cacheUrl = new URL(url.toString())
+  if (config.tokenQueryParam) cacheUrl.searchParams.delete(config.tokenQueryParam)
+
+  return [
+    month || '',
+    config.method,
+    cacheUrl.toString(),
+    config.authHeader,
+    config.authScheme,
+    config.maxPages,
+  ].join('|')
+}
+
+function readLooqmeCoverageCache(cacheKey) {
+  const cached = looqmeCoverageCache.get(cacheKey)
+  if (!cached) return null
+
+  if (Date.now() - cached.cachedAt > LOOQME_COVERAGE_CACHE_TTL_MS) {
+    looqmeCoverageCache.delete(cacheKey)
+    return null
+  }
+
+  return cached.payload
+}
+
+function writeLooqmeCoverageCache(cacheKey, payload) {
+  looqmeCoverageCache.set(cacheKey, {
+    cachedAt: Date.now(),
+    payload,
+  })
 }
 
 async function fetchRemainingLooqmePages(firstPayload, config) {

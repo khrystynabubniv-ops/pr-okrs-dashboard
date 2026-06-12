@@ -53,6 +53,11 @@ import {
 
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const COVERAGE_CACHE_TTL_MS = 10 * 60 * 1000
+const COVERAGE_FALLBACK_SOURCES = new Set([
+  'looqme-timeout',
+  'looqme-missing-token',
+  'looqme-missing-url',
+])
 const dashboardPayloadCache = new Map()
 const coveragePayloadCache = new Map()
 
@@ -88,8 +93,11 @@ export function DashboardPage({ selectedMonth }) {
   )
   const activeDashboardData =
     dashboardQuery.data?.month === selectedMonth ? dashboardQuery.data : null
-  const activeCoverageData =
+  const rawCoverageData =
     coverageQuery.data?.month === selectedMonth ? coverageQuery.data : null
+  const coverageFallback = isCoverageFallbackPayload(rawCoverageData)
+  const activeCoverageData =
+    rawCoverageData && !coverageFallback ? rawCoverageData : null
 
   const goals = useMemo(
     () => activeDashboardData?.goals || [],
@@ -108,6 +116,7 @@ export function DashboardPage({ selectedMonth }) {
     [activeCoverageData],
   )
   const coverageLoading = coverageQuery.loading && !activeCoverageData
+  const coverageUnavailable = !coverageLoading && coverageFallback
   const eventAwareness = useMemo(
     () => activeDashboardData?.eventAwareness || { audiences: [], overall: null },
     [activeDashboardData],
@@ -574,6 +583,23 @@ export function DashboardPage({ selectedMonth }) {
                 <div className="mt-4 flex min-h-48 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm font-medium text-slate-500">
                   <RefreshCw className="mr-2 h-4 w-4 animate-spin text-indigo-500" />
                   Завантажуємо Looqme coverage...
+                </div>
+              ) : coverageUnavailable ? (
+                <div className="mt-4 flex min-h-48 flex-col items-center justify-center rounded-md border border-amber-200 bg-amber-50 px-4 text-center">
+                  <p className="text-sm font-semibold text-amber-900">
+                    Looqme не встиг повернути дані.
+                  </p>
+                  <p className="mt-1 max-w-md text-sm text-amber-800">
+                    Це не означає, що згадок немає. Запит можна повторити, а успішний результат закешується.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => coverageQuery.retry()}
+                    className="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Повторити
+                  </button>
                 </div>
               ) : (
                 <>
@@ -1464,7 +1490,13 @@ async function loadCoveragePayload(selectedMonth) {
 
   const payload = await optionalRequest(
     `/api/looqme/coverage?month=${encodeURIComponent(selectedMonth)}`,
-    { month: selectedMonth, mentions: [], sentiment: [], source: 'looqme-timeout' },
+    {
+      month: selectedMonth,
+      mentions: [],
+      sentiment: [],
+      source: 'looqme-timeout',
+      isFallback: true,
+    },
     35000,
   )
   const coverage = {
@@ -1472,8 +1504,17 @@ async function loadCoveragePayload(selectedMonth) {
     month: payload.month || selectedMonth,
   }
 
-  writeCachedPayload(coveragePayloadCache, selectedMonth, coverage)
+  if (!isCoverageFallbackPayload(coverage)) {
+    writeCachedPayload(coveragePayloadCache, selectedMonth, coverage)
+  }
+
   return coverage
+}
+
+function isCoverageFallbackPayload(payload) {
+  if (!payload) return false
+  if (payload.isFallback) return true
+  return COVERAGE_FALLBACK_SOURCES.has(payload.source)
 }
 
 function readCachedPayload(cache, key, ttlMs) {
