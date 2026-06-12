@@ -51,6 +51,11 @@ import {
   sortEventsByDate,
 } from '../lib/events'
 
+const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
+const COVERAGE_CACHE_TTL_MS = 10 * 60 * 1000
+const dashboardPayloadCache = new Map()
+const coveragePayloadCache = new Map()
+
 export function DashboardPage({ selectedMonth }) {
   const navigate = useNavigate()
   const [report, setReport] = useState(null)
@@ -64,61 +69,48 @@ export function DashboardPage({ selectedMonth }) {
   )
 
   const dashboardQuery = useAsyncData(
-    async () => {
-      const [goalsPayload, events, focus, eventAwareness] = await Promise.all([
-        optionalRequest('/api/kpi-goals', { goals: [] }, 10000),
-        optionalRequest(
-          `/api/notion/events?month=${encodeURIComponent(selectedMonth)}`,
-          { events: [] },
-          4000,
-        ),
-        optionalRequest(
-          `/api/notion/monthly-focus?month=${encodeURIComponent(selectedMonth)}`,
-          { entries: [] },
-          4000,
-        ),
-        optionalRequest('/api/event-awareness', { audiences: [], overall: null }, 6000),
-      ])
-
-      return {
-        goals: goalsPayload.goals || [],
-        events: events.events || [],
-        focus: focus.entries || [],
-        eventAwareness,
-      }
-    },
+    () => loadDashboardPayload(selectedMonth),
     [selectedMonth],
+    {
+      initialData: () =>
+        readCachedPayload(dashboardPayloadCache, selectedMonth, DASHBOARD_CACHE_TTL_MS),
+      keepPreviousData: true,
+    },
   )
   const coverageQuery = useAsyncData(
-    () =>
-      optionalRequest(
-        `/api/looqme/coverage?month=${encodeURIComponent(selectedMonth)}`,
-        { mentions: [], sentiment: [], source: 'looqme-timeout' },
-        35000,
-      ),
+    () => loadCoveragePayload(selectedMonth),
     [selectedMonth],
+    {
+      initialData: () =>
+        readCachedPayload(coveragePayloadCache, selectedMonth, COVERAGE_CACHE_TTL_MS),
+      keepPreviousData: true,
+    },
   )
+  const activeDashboardData =
+    dashboardQuery.data?.month === selectedMonth ? dashboardQuery.data : null
+  const activeCoverageData =
+    coverageQuery.data?.month === selectedMonth ? coverageQuery.data : null
 
   const goals = useMemo(
-    () => dashboardQuery.data?.goals || [],
-    [dashboardQuery.data],
+    () => activeDashboardData?.goals || [],
+    [activeDashboardData],
   )
   const events = useMemo(
-    () => sortEventsByDate(dashboardQuery.data?.events || []),
-    [dashboardQuery.data],
+    () => sortEventsByDate(activeDashboardData?.events || []),
+    [activeDashboardData],
   )
   const focus = useMemo(
-    () => dashboardQuery.data?.focus || [],
-    [dashboardQuery.data],
+    () => activeDashboardData?.focus || [],
+    [activeDashboardData],
   )
   const coverage = useMemo(
-    () => coverageQuery.data || {},
-    [coverageQuery.data],
+    () => activeCoverageData || {},
+    [activeCoverageData],
   )
-  const coverageLoading = coverageQuery.loading
+  const coverageLoading = coverageQuery.loading && !activeCoverageData
   const eventAwareness = useMemo(
-    () => dashboardQuery.data?.eventAwareness || { audiences: [], overall: null },
-    [dashboardQuery.data],
+    () => activeDashboardData?.eventAwareness || { audiences: [], overall: null },
+    [activeDashboardData],
   )
   const candidateAwareness = useMemo(
     () => candidateAwarenessKpi(goals, selectedMonth),
@@ -283,7 +275,8 @@ export function DashboardPage({ selectedMonth }) {
         body: JSON.stringify(competitorForm),
       })
       setCompetitorModalOpen(false)
-      await dashboardQuery.retry()
+      invalidateCachedPayload(coveragePayloadCache, selectedMonth)
+      await coverageQuery.retry()
     } catch (error) {
       setReportError(error)
     } finally {
@@ -298,7 +291,8 @@ export function DashboardPage({ selectedMonth }) {
       await apiRequest(`/api/coverage/competitors/${id}`, {
         method: 'DELETE',
       })
-      await dashboardQuery.retry()
+      invalidateCachedPayload(coveragePayloadCache, selectedMonth)
+      await coverageQuery.retry()
     } catch (error) {
       setReportError(error)
     }
@@ -310,20 +304,23 @@ export function DashboardPage({ selectedMonth }) {
 
   return (
     <div className="space-y-6">
-      {dashboardQuery.loading ? <LoadingState /> : null}
-      {dashboardQuery.error ? (
+      {dashboardQuery.loading && !activeDashboardData ? <LoadingState /> : null}
+      {dashboardQuery.error && !activeDashboardData ? (
         <ErrorState error={dashboardQuery.error} onRetry={dashboardQuery.retry} />
       ) : null}
       {reportError ? <ErrorState error={reportError} /> : null}
 
-      {!dashboardQuery.loading && !dashboardQuery.error && !hasMonthData ? (
+      {!dashboardQuery.loading &&
+      !dashboardQuery.error &&
+      activeDashboardData &&
+      !hasMonthData ? (
         <EmptyState
           title="Інформації по цьому місяцю немає"
           text="Оберіть інший місяць або додайте дані в KPI, Events чи Looqme."
         />
       ) : null}
 
-      {!dashboardQuery.loading && !dashboardQuery.error && hasMonthData ? (
+      {!dashboardQuery.error && activeDashboardData && hasMonthData ? (
         <>
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <MetricCard
@@ -1421,6 +1418,85 @@ function ChartPanel({ title, children, tooltip }) {
       <div className="mt-4">{children}</div>
     </div>
   )
+}
+
+async function loadDashboardPayload(selectedMonth) {
+  const cached = readCachedPayload(
+    dashboardPayloadCache,
+    selectedMonth,
+    DASHBOARD_CACHE_TTL_MS,
+  )
+  if (cached) return cached
+
+  const [goalsPayload, events, focus, eventAwareness] = await Promise.all([
+    optionalRequest('/api/kpi-goals', { goals: [] }, 10000),
+    optionalRequest(
+      `/api/notion/events?month=${encodeURIComponent(selectedMonth)}`,
+      { events: [] },
+      4000,
+    ),
+    optionalRequest(
+      `/api/notion/monthly-focus?month=${encodeURIComponent(selectedMonth)}`,
+      { entries: [] },
+      4000,
+    ),
+    optionalRequest('/api/event-awareness', { audiences: [], overall: null }, 6000),
+  ])
+  const payload = {
+    month: selectedMonth,
+    goals: goalsPayload.goals || [],
+    events: events.events || [],
+    focus: focus.entries || [],
+    eventAwareness,
+  }
+
+  writeCachedPayload(dashboardPayloadCache, selectedMonth, payload)
+  return payload
+}
+
+async function loadCoveragePayload(selectedMonth) {
+  const cached = readCachedPayload(
+    coveragePayloadCache,
+    selectedMonth,
+    COVERAGE_CACHE_TTL_MS,
+  )
+  if (cached) return cached
+
+  const payload = await optionalRequest(
+    `/api/looqme/coverage?month=${encodeURIComponent(selectedMonth)}`,
+    { month: selectedMonth, mentions: [], sentiment: [], source: 'looqme-timeout' },
+    35000,
+  )
+  const coverage = {
+    ...payload,
+    month: payload.month || selectedMonth,
+  }
+
+  writeCachedPayload(coveragePayloadCache, selectedMonth, coverage)
+  return coverage
+}
+
+function readCachedPayload(cache, key, ttlMs) {
+  const cached = cache.get(key)
+  if (!cached) return null
+
+  if (Date.now() - cached.cachedAt > ttlMs) {
+    cache.delete(key)
+    return null
+  }
+
+  return cached.payload
+}
+
+function writeCachedPayload(cache, key, payload) {
+  cache.set(key, {
+    cachedAt: Date.now(),
+    payload,
+  })
+}
+
+function invalidateCachedPayload(cache, key) {
+  cache.delete(key)
 }
 
 async function optionalRequest(path, fallback, timeoutMs = 10000) {
