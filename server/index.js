@@ -2230,7 +2230,7 @@ function getLooqmeConfig() {
       process.env.LOOQME_EXTRA_QUERY ||
         'by_created=false&ordering=desc&response_lang=uk&short_article=false&duplicates=true&limit=100',
     ),
-    timeoutMs: Number(process.env.LOOQME_TIMEOUT_MS || 15000),
+    timeoutMs: Number(process.env.LOOQME_TIMEOUT_MS || 30000),
     maxPages: Number(process.env.LOOQME_MAX_PAGES || 1),
   }
 }

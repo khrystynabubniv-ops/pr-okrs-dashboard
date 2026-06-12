@@ -21,6 +21,7 @@ import {
   ClipboardCopy,
   FileText,
   Plus,
+  RefreshCw,
   Save,
   Trash2,
 } from 'lucide-react'
@@ -93,7 +94,7 @@ export function DashboardPage({ selectedMonth }) {
       optionalRequest(
         `/api/looqme/coverage?month=${encodeURIComponent(selectedMonth)}`,
         { mentions: [], sentiment: [], source: 'looqme-timeout' },
-        20000,
+        35000,
       ),
     [selectedMonth],
   )
@@ -114,6 +115,7 @@ export function DashboardPage({ selectedMonth }) {
     () => coverageQuery.data || {},
     [coverageQuery.data],
   )
+  const coverageLoading = coverageQuery.loading
   const eventAwareness = useMemo(
     () => dashboardQuery.data?.eventAwareness || { audiences: [], overall: null },
     [dashboardQuery.data],
@@ -571,6 +573,13 @@ export function DashboardPage({ selectedMonth }) {
                   <InfoTooltip text="Блок показує згадки, охоплення брендів і потенційне охоплення конкретних медіа з Looqme-структури." />
                 </div>
               </div>
+              {coverageLoading ? (
+                <div className="mt-4 flex min-h-48 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm font-medium text-slate-500">
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin text-indigo-500" />
+                  Завантажуємо Looqme coverage...
+                </div>
+              ) : (
+                <>
               <div className="mt-4 space-y-4">
                 <div className="grid gap-3 2xl:grid-cols-2">
                   <LooqmeMetricPanel
@@ -693,6 +702,8 @@ export function DashboardPage({ selectedMonth }) {
                   </PieChart>
                 </ResponsiveContainer>
               </div>
+                </>
+              )}
             </div>
           </section>
 
