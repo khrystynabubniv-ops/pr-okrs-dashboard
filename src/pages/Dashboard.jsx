@@ -65,20 +65,23 @@ export function DashboardPage({ selectedMonth }) {
   const dashboardQuery = useAsyncData(
     async () => {
       const [goalsPayload, events, focus, coverage, eventAwareness] = await Promise.all([
-        optionalRequest('/api/kpi-goals', { goals: [] }),
+        optionalRequest('/api/kpi-goals', { goals: [] }, 12000),
         optionalRequest(
           `/api/notion/events?month=${encodeURIComponent(selectedMonth)}`,
           { events: [] },
+          8000,
         ),
         optionalRequest(
           `/api/notion/monthly-focus?month=${encodeURIComponent(selectedMonth)}`,
           { entries: [] },
+          8000,
         ),
         optionalRequest(
           `/api/looqme/coverage?month=${encodeURIComponent(selectedMonth)}`,
-          { mentions: [], sentiment: [] },
+          { mentions: [], sentiment: [], source: 'looqme-timeout' },
+          12000,
         ),
-        optionalRequest('/api/event-awareness', { audiences: [], overall: null }),
+        optionalRequest('/api/event-awareness', { audiences: [], overall: null }, 8000),
       ])
 
       return {
@@ -1406,10 +1409,15 @@ function ChartPanel({ title, children, tooltip }) {
   )
 }
 
-async function optionalRequest(path, fallback) {
+async function optionalRequest(path, fallback, timeoutMs = 10000) {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
+
   try {
-    return await apiRequest(path)
+    return await apiRequest(path, { signal: controller.signal })
   } catch {
     return fallback
+  } finally {
+    window.clearTimeout(timeout)
   }
 }
