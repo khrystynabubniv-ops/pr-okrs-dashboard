@@ -9,7 +9,7 @@
 - Recharts
 - Node.js + Express API proxy
 - PostgreSQL app-owned storage for gradual migration
-- Notion API, Claude API, Looqme mock
+- Notion API, Claude API, Looqme coverage API
 - Railway deploy via `railway.json`
 
 ## Local setup
@@ -47,6 +47,23 @@ OPENROUTER_API_KEY=
 OPENROUTER_MODEL=anthropic/claude-sonnet-4.6
 EVENT_REPORTS_AI_PROVIDER=
 LOOQME_TOKEN=
+LOOQME_COVERAGE_URL=https://hub.looqme.io/api/v1/articles-external
+LOOQME_BASE_URL=
+LOOQME_COVERAGE_PATH=
+LOOQME_AUTH_HEADER=Authorization
+LOOQME_AUTH_SCHEME=Token
+LOOQME_TOKEN_QUERY_PARAM=
+LOOQME_DATE_FROM_PARAM=start
+LOOQME_DATE_TO_PARAM=end
+LOOQME_MONTH_PARAM=
+LOOQME_EXTRA_QUERY=by_created=false&ordering=desc&response_lang=uk&short_article=false&duplicates=true&limit=100
+LOOQME_RESPONSE_FORMAT=json
+LOOQME_OWN_BRANDS=Universe Group,Universe
+LOOQME_COMPETITOR_BRANDS=Skelar,Headway
+LOOQME_DEFAULT_BRAND=Universe Group
+LOOQME_TIMEOUT_MS=15000
+LOOQME_MAX_PAGES=20
+LOOQME_USE_MOCK=false
 EVENTS_AWARENESS_SPREADSHEET_ID=1StHTeMTN0m3WFaOmxucsR2njnmKv04_R7CqG-_ZjDhE
 KPI_SOURCE=google-sheet
 KPI_SPREADSHEET_ID=1-wWo9W9gL4jYqpsZNrtZnb85XL5sLkAI4GKEqiMkEnI
@@ -67,6 +84,8 @@ GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=
 Для OAuth через Google додайте `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `APP_BASE_URL`. Коли треба вимагати логін для запису даних, поставте `AUTH_REQUIRED=true`. `AUTH_ALLOWED_EMAIL_DOMAINS` можна заповнити списком доменів через кому.
 
 `SMM_EMPLOYEE_COUNT` використовується для EGC KPI: поточний EGC count ділиться на кількість співробітників і порівнюється з цільовими 10%.
+
+`LOOQME_TOKEN` і `LOOQME_COVERAGE_URL` вмикають live coverage у Dashboard. За документацією Looqme Articles API endpoint — `https://hub.looqme.io/api/v1/articles-external`, токен іде як `Authorization: Token <token>`, а місячний фільтр додається як `start=YYYY-MM-DDT00:00:00&end=YYYY-MM-DDT23:59:59&by_created=false`. Якщо Looqme дає base URL + path окремо, використайте `LOOQME_BASE_URL` і `LOOQME_COVERAGE_PATH`; назви header/query параметрів можна змінити через `LOOQME_AUTH_*`, `LOOQME_TOKEN_QUERY_PARAM`, `LOOQME_DATE_*_PARAM` та `LOOQME_EXTRA_QUERY`. `LOOQME_MAX_PAGES` обмежує pagination через `next`, а `LOOQME_USE_MOCK=true` залишений тільки для локальної демки.
 
 Для збереження Board Report у Notion потрібен `NOTION_REPORTS_PARENT_PAGE_ID` або `NOTION_PARENT_PAGE_ID`.
 

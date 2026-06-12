@@ -339,7 +339,7 @@ export function DashboardPage({ selectedMonth }) {
               value={executive.ownMentionsTotal}
               unit="згадок"
               detail={`Конкуренти: ${executive.competitorMentionsTotal}; тональність наших згадок нижче.`}
-              tooltip="Поки це mock Looqme-дані. Universe Group рахуємо як наш бренд; Skelar і Headway показані окремо як конкурентний бенчмарк."
+              tooltip="Бере coverage з Looqme. Universe Group рахуємо як наш бренд; конкуренти показані окремо як бенчмарк."
               tone="violet"
             />
             <EventAwarenessMetricCard
@@ -404,7 +404,7 @@ export function DashboardPage({ selectedMonth }) {
 
             <ChartPanel
               title="Медіа згадки: помісячна динаміка"
-              tooltip="Цей графік бере значення з KPI-спредшиту, якщо є ціль/рядок про медіа згадки. Окремий блок нижче показує mock Looqme coverage."
+              tooltip="Цей графік бере значення з KPI-спредшиту, якщо є ціль/рядок про медіа згадки. Окремий блок нижче показує Looqme coverage."
             >
               {hasSeriesData(mediaSeries) ? (
                 <ResponsiveContainer width="100%" height={280}>
@@ -424,7 +424,7 @@ export function DashboardPage({ selectedMonth }) {
               ) : (
                 <EmptyState
                   title="Немає даних для графіка"
-                  text="Зараз графік бере значення тільки з KPI-спредшиту. Looqme-блок нижче поки mock."
+                  text="Зараз графік бере значення тільки з KPI-спредшиту. Looqme-блок нижче показує coverage за вибраний місяць."
                 />
               )}
             </ChartPanel>

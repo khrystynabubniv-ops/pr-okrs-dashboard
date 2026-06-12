@@ -84,6 +84,13 @@ const KPI_SHEET_NAME = process.env.KPI_SHEET_NAME || ''
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GOOGLE_SHEETS_SCOPE =
   'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly'
+const LOOQME_MEDIA_COLOR = '#6678ff'
+const LOOQME_SOCIAL_COLOR = '#2dd68f'
+const LOOQME_SENTIMENT_COLORS = {
+  positive: '#10b981',
+  neutral: '#64748b',
+  negative: '#ef4444',
+}
 
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
@@ -2088,7 +2095,16 @@ function mergeStoredMonthlyFocusEntries(externalEntries = [], storedEntries = []
 
 async function getManualCompetitorMentions(month) {
   if (!isDatabaseConfigured()) return []
-  return listCompetitorCoverage(month)
+
+  try {
+    return await listCompetitorCoverage(month)
+  } catch (error) {
+    console.warn(
+      'Failed to read manual competitor coverage',
+      error.message || error.code || error.name,
+    )
+    return []
+  }
 }
 
 async function applyManualCompetitors(coverage, month) {
@@ -2111,6 +2127,959 @@ async function applyManualCompetitors(coverage, month) {
         }
     : coverage.audienceMetric,
   }
+}
+
+function shouldUseLooqmeMock() {
+  return ['1', 'true', 'yes'].includes(
+    String(process.env.LOOQME_USE_MOCK || '').trim().toLowerCase(),
+  )
+}
+
+async function fetchLooqmeCoverage(month) {
+  const config = getLooqmeConfig()
+
+  if (!config.token) {
+    return emptyLooqmeCoveragePayload(month, 'looqme-missing-token')
+  }
+
+  if (!config.url) {
+    return emptyLooqmeCoveragePayload(month, 'looqme-missing-url')
+  }
+
+  const { range, url } = buildLooqmeRequestUrl(config, month)
+  const response = await fetch(url, {
+    method: config.method,
+    headers: buildLooqmeHeaders(config),
+    signal: AbortSignal.timeout(config.timeoutMs),
+  })
+  const body = await response.text()
+
+  if (!response.ok) {
+    throw createHttpError(
+      502,
+      'Looqme API не повернув дані coverage.',
+      sanitizeExternalError(body),
+    )
+  }
+
+  const payload = parseLooqmeResponseBody(body, response.headers.get('content-type'))
+  const fullPayload = await fetchRemainingLooqmePages(payload, config)
+  return normalizeLooqmeCoveragePayload(fullPayload, month, range)
+}
+
+async function fetchRemainingLooqmePages(firstPayload, config) {
+  if (!firstPayload?.next || !Array.isArray(firstPayload.results)) return firstPayload
+
+  const results = [...firstPayload.results]
+  let nextUrl = firstPayload.next
+  let page = 1
+
+  while (nextUrl && page < config.maxPages) {
+    const response = await fetch(nextUrl, {
+      method: config.method,
+      headers: buildLooqmeHeaders(config),
+      signal: AbortSignal.timeout(config.timeoutMs),
+    })
+    const body = await response.text()
+
+    if (!response.ok) {
+      throw createHttpError(
+        502,
+        'Looqme API не повернув наступну сторінку coverage.',
+        sanitizeExternalError(body),
+      )
+    }
+
+    const payload = parseLooqmeResponseBody(body, response.headers.get('content-type'))
+    results.push(...(payload.results || []))
+    nextUrl = payload.next
+    page += 1
+  }
+
+  return {
+    ...firstPayload,
+    next: nextUrl,
+    results,
+  }
+}
+
+function getLooqmeConfig() {
+  const baseUrl = textValue(process.env.LOOQME_BASE_URL)
+  const pathValue = textValue(process.env.LOOQME_COVERAGE_PATH)
+  const explicitUrl = textValue(
+    process.env.LOOQME_COVERAGE_URL || process.env.LOOQME_API_URL,
+  )
+  const url =
+    baseUrl && pathValue
+      ? new URL(pathValue, normalizeExternalUrl(baseUrl)).toString()
+      : explicitUrl
+        ? normalizeExternalUrl(explicitUrl)
+        : ''
+
+  return {
+    url,
+    token: textValue(process.env.LOOQME_TOKEN),
+    method: textValue(process.env.LOOQME_METHOD || 'GET').toUpperCase(),
+    authHeader: textValue(process.env.LOOQME_AUTH_HEADER || 'Authorization'),
+    authScheme: textValue(process.env.LOOQME_AUTH_SCHEME || 'Token'),
+    tokenQueryParam: textValue(process.env.LOOQME_TOKEN_QUERY_PARAM),
+    dateFromParam: textValue(process.env.LOOQME_DATE_FROM_PARAM || 'start'),
+    dateToParam: textValue(process.env.LOOQME_DATE_TO_PARAM || 'end'),
+    monthParam: textValue(process.env.LOOQME_MONTH_PARAM),
+    extraQuery: textValue(
+      process.env.LOOQME_EXTRA_QUERY ||
+        'by_created=false&ordering=desc&response_lang=uk&short_article=false&duplicates=true&limit=100',
+    ),
+    timeoutMs: Number(process.env.LOOQME_TIMEOUT_MS || 15000),
+    maxPages: Number(process.env.LOOQME_MAX_PAGES || 20),
+  }
+}
+
+function buildLooqmeRequestUrl(config, month) {
+  const url = new URL(config.url)
+  const range = coverageMonthDateRange(month)
+
+  applyLooqmeExtraQuery(url, config.extraQuery)
+
+  if (config.monthParam && month) {
+    url.searchParams.set(config.monthParam, month)
+  }
+
+  if (range) {
+    if (config.dateFromParam) url.searchParams.set(config.dateFromParam, range.from)
+    if (config.dateToParam) url.searchParams.set(config.dateToParam, range.to)
+  }
+
+  if (config.tokenQueryParam) {
+    url.searchParams.set(config.tokenQueryParam, config.token)
+  }
+
+  return { range, url }
+}
+
+function buildLooqmeHeaders(config) {
+  const headers = {
+    Accept: 'application/json, text/csv;q=0.9, */*;q=0.8',
+  }
+
+  if (config.authHeader && config.token) {
+    headers[config.authHeader] = looqmeAuthHeaderValue(config.token, config.authScheme)
+  }
+
+  return headers
+}
+
+function looqmeAuthHeaderValue(token, scheme) {
+  if (!scheme || /^\S+\s+\S+/.test(token)) return token
+  return `${scheme} ${token}`
+}
+
+function applyLooqmeExtraQuery(url, extraQuery) {
+  if (!extraQuery) return
+
+  try {
+    const parsed = JSON.parse(extraQuery)
+    Object.entries(parsed || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        url.searchParams.set(key, String(value))
+      }
+    })
+    return
+  } catch {
+    // Support simple query strings in env, for example "project_id=123&lang=uk".
+  }
+
+  new URLSearchParams(extraQuery.replace(/^\?/, '')).forEach((value, key) => {
+    if (key) url.searchParams.set(key, value)
+  })
+}
+
+function parseLooqmeResponseBody(body, contentType = '') {
+  const text = String(body || '').trim()
+  if (!text) return {}
+
+  const format = String(process.env.LOOQME_RESPONSE_FORMAT || '').toLowerCase()
+  const isCsv = format === 'csv' || String(contentType || '').includes('csv')
+
+  if (!isCsv) {
+    try {
+      return JSON.parse(text)
+    } catch {
+      if (text.startsWith('<')) {
+        throw createHttpError(502, 'Looqme API повернув HTML замість JSON/CSV.')
+      }
+    }
+  }
+
+  const rows = parseCsvRows(text)
+  return { data: csvRowsToObjects(rows) }
+}
+
+function csvRowsToObjects(rows) {
+  const header = rows[0] || []
+  return rows.slice(1).map((row) =>
+    header.reduce((record, label, index) => {
+      const key = textValue(label) || `column_${index + 1}`
+      record[key] = row[index]
+      return record
+    }, {}),
+  )
+}
+
+function normalizeLooqmeCoveragePayload(rawPayload, month, range) {
+  const source = unwrapLooqmePayload(rawPayload)
+  const rows = extractLooqmeRows(source)
+  const entries = rows
+    .map(normalizeLooqmeEntry)
+    .filter(isMeaningfulLooqmeEntry)
+    .filter((entry) => looqmeEntryMatchesRange(entry, range))
+
+  if (entries.length) {
+    return aggregateLooqmeEntries(entries, source, month)
+  }
+
+  return normalizeDirectLooqmeCoverage(source, month)
+}
+
+function unwrapLooqmePayload(payload) {
+  let source = payload
+
+  for (const key of ['payload', 'response', 'result', 'data']) {
+    if (
+      source &&
+      typeof source === 'object' &&
+      !Array.isArray(source) &&
+      source[key] &&
+      typeof source[key] === 'object' &&
+      !Array.isArray(source[key])
+    ) {
+      source = source[key]
+    }
+  }
+
+  return source || {}
+}
+
+function extractLooqmeRows(source) {
+  if (Array.isArray(source)) return source
+  if (!source || typeof source !== 'object') return []
+
+  for (const key of [
+    'items',
+    'mentions',
+    'publications',
+    'articles',
+    'posts',
+    'records',
+    'results',
+    'rows',
+    'data',
+  ]) {
+    if (Array.isArray(source[key])) return source[key]
+  }
+
+  return []
+}
+
+function normalizeDirectLooqmeCoverage(source, month) {
+  const payload = emptyLooqmeCoveragePayload(month, 'looqme')
+  const mentions = normalizeLooqmeBrandMentions(
+    source.mentionsByBrand || source.brands || source.brandMentions || [],
+  )
+  const mediaOutlets = normalizeLooqmeOutlets(
+    source.mediaOutlets || source.outlets || source.sources || source.publications || [],
+  )
+  const sentiment = normalizeLooqmeSentimentList(
+    source.sentiment || source.sentiments || source.tones || [],
+  )
+  const mentionsMetric = normalizeLooqmeMetric(source.mentionsMetric, {
+    value: mentions.reduce((sum, item) => sum + Number(item.count || 0), 0),
+    segments: normalizeLooqmeMetricSegments(source.mentionsByChannel),
+  })
+  const audienceMetric = normalizeLooqmeMetric(source.audienceMetric, {
+    value:
+      source.totalReach ??
+      source.totalAudience ??
+      source.reach ??
+      source.audience?.total ??
+      source.audience?.all ??
+      mentions.reduce((sum, item) => sum + parseReachNumber(item.audience), 0),
+    segments: normalizeLooqmeMetricSegments(source.audience?.segments),
+  })
+  const mediaAudience = parseReachNumber(source.audience?.media)
+  const socialAudience = parseReachNumber(source.audience?.social)
+
+  return {
+    ...payload,
+    mentionsMetric,
+    mentions,
+    mediaOutlets,
+    audienceMetric,
+    audience: {
+      total: audienceMetric.value,
+      media: mediaAudience,
+      social: socialAudience,
+    },
+    sentiment,
+  }
+}
+
+function normalizeLooqmeEntry(item, index) {
+  const brand = normalizeLooqmeBrand(
+    pickLooqmeValue(item, [
+      'brand',
+      'brands',
+      'company',
+      'project',
+      'object',
+      'topic',
+      'query',
+      'keyword',
+      'tag',
+      'tags',
+      'entity',
+      'бренд',
+      'компанія',
+      'проєкт',
+      'обʼєкт',
+      'объект',
+      'тема',
+    ]),
+    item,
+  )
+  const title = textValue(
+    pickLooqmeValue(item, ['title', 'headline', 'name', 'text', 'message', 'заголовок']),
+  )
+  const url = textValue(pickLooqmeValue(item, ['url', 'link', 'href', 'посилання']))
+  const outlet =
+    textValue(
+      pickLooqmeValue(item, [
+        'media',
+        'outlet',
+        'source',
+        'sourceName',
+        'publication',
+        'site',
+        'domain',
+        'mediaName',
+        'джерело',
+        'медіа',
+        'змі',
+      ]),
+    ) || outletFromUrl(url)
+  const explicitCount = parseReachNumber(
+    pickLooqmeValue(item, [
+      'mentions',
+      'count',
+      'mentionCount',
+      'mentionsCount',
+      'articles',
+      'posts',
+      'total',
+      'згадки',
+      'згадок',
+      'кількість',
+    ]),
+  )
+  const count = explicitCount || (isLooqmePublicationLike(item) ? 1 : 0)
+  const reach = parseReachNumber(
+    pickLooqmeValue(item, [
+      'reach',
+      'audience',
+      'potentialAudience',
+      'potentialReach',
+      'totalReach',
+      'totalAudience',
+      'views',
+      'views_count',
+      'impressions',
+      'visits',
+      'circulation',
+      'average_attendance',
+      'audience_edition',
+      'publication_place_subscribers_count',
+      'creators_subscribers_count',
+      'охоплення',
+      'аудиторія',
+      'перегляди',
+    ]),
+  )
+  const channel = normalizeLooqmeChannel(
+    pickLooqmeValue(item, [
+      'channel',
+      'type',
+      'mediaType',
+      'sourceType',
+      'network',
+      'platform',
+      'категорія',
+      'тип',
+      'канал',
+    ]),
+    item,
+  )
+  const sentiment = normalizeLooqmeSentimentValue(
+    pickLooqmeValue(item, [
+      'sentiment',
+      'tone',
+      'tonality',
+      'sentimentType',
+      'тональність',
+      'тон',
+    ]),
+  )
+  const date = textValue(
+    pickLooqmeValue(item, [
+      'date',
+      'publishedAt',
+      'published_at',
+      'release_date',
+      'publicationDate',
+      'publication_date',
+      'createdAt',
+      'created_at',
+      'datetime',
+      'дата',
+    ]),
+  )
+
+  return {
+    brand,
+    title,
+    url,
+    outlet,
+    count,
+    reach,
+    channel,
+    sentiment,
+    date,
+    index,
+  }
+}
+
+function aggregateLooqmeEntries(entries, source, month) {
+  const mentionSegments = aggregateLooqmeChannelSegments(entries, 'count')
+  const audienceSegments = aggregateLooqmeChannelSegments(entries, 'reach')
+  const mentions = aggregateLooqmeBrands(entries)
+  const mediaOutlets = aggregateLooqmeOutlets(entries)
+  const sentiment = aggregateLooqmeSentiment(entries)
+  const audienceTotal = entries.reduce((sum, item) => sum + Number(item.reach || 0), 0)
+  const mentionsTotal = entries.reduce((sum, item) => sum + Number(item.count || 0), 0)
+  const fallback = emptyLooqmeCoveragePayload(month, 'looqme')
+
+  return {
+    ...fallback,
+    mentionsMetric: normalizeLooqmeMetric(source.mentionsMetric, {
+      value: mentionsTotal,
+      delta: null,
+      segments: mentionSegments,
+    }),
+    mentions,
+    mediaOutlets,
+    audienceMetric: normalizeLooqmeMetric(source.audienceMetric, {
+      value: audienceTotal,
+      delta: null,
+      segments: audienceSegments,
+    }),
+    audience: {
+      total: audienceTotal,
+      media: audienceSegments.find((item) => item.key === 'media')?.value || 0,
+      social: audienceSegments.find((item) => item.key === 'social')?.value || 0,
+    },
+    sentiment,
+  }
+}
+
+function aggregateLooqmeBrands(entries) {
+  const brands = new Map()
+
+  entries.forEach((entry) => {
+    const brand = entry.brand || defaultLooqmeBrand()
+    const current = brands.get(brand) || { brand, count: 0, audience: 0 }
+    current.count += Number(entry.count || 0)
+    current.audience += Number(entry.reach || 0)
+    brands.set(brand, current)
+  })
+
+  return [...brands.values()].sort((left, right) => right.count - left.count)
+}
+
+function aggregateLooqmeOutlets(entries) {
+  const outlets = new Map()
+
+  entries.forEach((entry) => {
+    if (!entry.outlet) return
+
+    const current = outlets.get(entry.outlet) || {
+      name: entry.outlet,
+      mentions: 0,
+      reach: 0,
+    }
+    current.mentions += Number(entry.count || 0)
+    current.reach += Number(entry.reach || 0)
+    outlets.set(entry.outlet, current)
+  })
+
+  return [...outlets.values()]
+    .sort((left, right) => right.reach - left.reach || right.mentions - left.mentions)
+    .slice(0, 12)
+}
+
+function aggregateLooqmeChannelSegments(entries, field) {
+  const totals = new Map([
+    ['media', { key: 'media', label: 'ЗМІ(Медіа)', value: 0, delta: null, color: LOOQME_MEDIA_COLOR }],
+    ['social', { key: 'social', label: 'Соціальні мережі', value: 0, delta: null, color: LOOQME_SOCIAL_COLOR }],
+  ])
+
+  entries.forEach((entry) => {
+    const key = entry.channel === 'social' ? 'social' : 'media'
+    const current = totals.get(key)
+    current.value += Number(entry[field] || 0)
+  })
+
+  return [...totals.values()].filter((item) => item.value)
+}
+
+function aggregateLooqmeSentiment(entries) {
+  const ownEntries = entries.filter((entry) => isOwnBrand(entry.brand))
+  const scopedEntries = ownEntries.length ? ownEntries : entries
+  const totals = new Map()
+
+  scopedEntries.forEach((entry) => {
+    if (!entry.sentiment) return
+
+    const current = totals.get(entry.sentiment.key) || {
+      key: entry.sentiment.key,
+      name: entry.sentiment.name,
+      value: 0,
+      color: LOOQME_SENTIMENT_COLORS[entry.sentiment.key],
+    }
+    current.value += Number(entry.count || 0)
+    totals.set(entry.sentiment.key, current)
+  })
+
+  return [...totals.values()].sort(
+    (left, right) => sentimentOrder(left.key) - sentimentOrder(right.key),
+  )
+}
+
+function normalizeLooqmeBrandMentions(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      brand: normalizeLooqmeBrand(
+        item.brand || item.name || item.company || item.project,
+        item,
+      ),
+      count: Number(item.count ?? item.mentions ?? item.value ?? 0),
+      audience: parseReachNumber(
+        item.audience ?? item.reach ?? item.totalReach ?? item.totalAudience,
+      ),
+    }))
+    .filter((item) => item.brand || item.count || item.audience)
+}
+
+function normalizeLooqmeOutlets(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((item, index) => ({
+      name:
+        item.name ||
+        item.media ||
+        item.outlet ||
+        item.source ||
+        item.title ||
+        `Медіа ${index + 1}`,
+      mentions: Number(item.mentions ?? item.count ?? item.articles ?? 0),
+      reach: parseReachNumber(
+        item.reach ??
+          item.audience ??
+          item.potentialAudience ??
+          item.totalReach ??
+          item.totalAudience ??
+          item.views,
+      ),
+    }))
+    .filter((item) => item.name || item.mentions || item.reach)
+}
+
+function normalizeLooqmeMetric(metric, fallback = {}) {
+  const normalized = normalizeCoverageMetric(metric, fallback)
+
+  return {
+    ...normalized,
+    segments: normalized.segments.map((segment) => ({
+      ...segment,
+      color: looqmeChannelColor(segment.label || segment.channel),
+    })),
+  }
+}
+
+function normalizeLooqmeMetricSegments(segments) {
+  if (!segments) return []
+
+  if (Array.isArray(segments)) {
+    return segments.map((segment) => ({
+      ...segment,
+      color: segment.color || looqmeChannelColor(segment.label || segment.channel),
+    }))
+  }
+
+  if (typeof segments === 'object') {
+    return Object.entries(segments).map(([label, value]) => ({
+      label,
+      value,
+      color: looqmeChannelColor(label),
+    }))
+  }
+
+  return []
+}
+
+function normalizeLooqmeSentimentList(sentiment) {
+  if (!sentiment) return []
+
+  if (!Array.isArray(sentiment) && typeof sentiment === 'object') {
+    return Object.entries(sentiment)
+      .map(([name, value]) => {
+        const normalized = normalizeLooqmeSentimentValue(name)
+        return normalized
+          ? {
+              name: normalized.name,
+              value: Number(value || 0),
+              color: LOOQME_SENTIMENT_COLORS[normalized.key],
+            }
+          : null
+      })
+      .filter(Boolean)
+      .filter((item) => item.value)
+  }
+
+  return (Array.isArray(sentiment) ? sentiment : [])
+    .map((item) => {
+      const normalized = normalizeLooqmeSentimentValue(
+        item.name || item.label || item.sentiment || item.tone,
+      )
+
+      return normalized
+        ? {
+            name: normalized.name,
+            value: Number(item.value ?? item.count ?? item.mentions ?? 0),
+            color: item.color || LOOQME_SENTIMENT_COLORS[normalized.key],
+          }
+        : null
+    })
+    .filter(Boolean)
+    .filter((item) => item.value)
+}
+
+function normalizeLooqmeBrand(value, item = {}) {
+  const ownBrand = matchingConfiguredBrand(value, looqmeOwnBrands())
+  if (ownBrand) return defaultLooqmeBrand()
+
+  const competitor = matchingConfiguredBrand(value, looqmeCompetitorBrands())
+  if (competitor) return competitor
+
+  const inferred = inferLooqmeBrand(item)
+  if (inferred) return inferred
+
+  return cleanReportText(arrayText(value), 80) || defaultLooqmeBrand()
+}
+
+function inferLooqmeBrand(item) {
+  const haystack = arrayText([
+    item.title,
+    item.headline,
+    item.name,
+    item.text,
+    item.message,
+    item.body,
+    item.description,
+    item.url,
+    item.link,
+  ])
+  const ownBrand = matchingConfiguredBrand(haystack, looqmeOwnBrands())
+  if (ownBrand) return defaultLooqmeBrand()
+
+  return matchingConfiguredBrand(haystack, looqmeCompetitorBrands())
+}
+
+function matchingConfiguredBrand(value, brands) {
+  const haystack = normalizeCell(arrayText(value))
+  if (!haystack) return ''
+
+  return brands.find((brand) => haystack.includes(normalizeCell(brand))) || ''
+}
+
+function looqmeOwnBrands() {
+  return splitEnvList(process.env.LOOQME_OWN_BRANDS || 'Universe Group,Universe')
+}
+
+function looqmeCompetitorBrands() {
+  return splitEnvList(process.env.LOOQME_COMPETITOR_BRANDS || 'Skelar,Headway')
+}
+
+function defaultLooqmeBrand() {
+  return textValue(process.env.LOOQME_DEFAULT_BRAND) || looqmeOwnBrands()[0] || 'Universe Group'
+}
+
+function normalizeLooqmeChannel(value, item = {}) {
+  const text = normalizeCell(
+    arrayText([
+      value,
+      item.source,
+      item.sourceType,
+      item.mediaType,
+      item.platform,
+      item.network,
+      item.url,
+      item.link,
+    ]),
+  )
+
+  if (
+    /social|facebook|instagram|linkedin|twitter|\bx\b|tiktok|telegram|youtube|соц|соці/.test(
+      text,
+    )
+  ) {
+    return 'social'
+  }
+
+  return 'media'
+}
+
+function normalizeLooqmeSentimentValue(value) {
+  const text = normalizeCell(value)
+  if (!text) return null
+
+  if (/positive|positiv|good|plus|позитив|полож|добр/.test(text)) {
+    return { key: 'positive', name: 'Позитив' }
+  }
+
+  if (/negative|negativ|bad|minus|негатив|відʼєм|отриц|поган/.test(text)) {
+    return { key: 'negative', name: 'Негатив' }
+  }
+
+  if (/neutral|нейтр|neutr/.test(text)) {
+    return { key: 'neutral', name: 'Нейтрал' }
+  }
+
+  return null
+}
+
+function pickLooqmeValue(item, aliases) {
+  if (!item || typeof item !== 'object') return ''
+
+  for (const alias of aliases) {
+    if (item[alias] !== undefined && item[alias] !== null && item[alias] !== '') {
+      return item[alias]
+    }
+  }
+
+  const normalizedAliases = aliases.map(normalizeCell)
+  const match = Object.entries(item).find(([key, value]) => {
+    if (value === undefined || value === null || value === '') return false
+    return normalizedAliases.includes(normalizeCell(key))
+  })
+
+  return match ? match[1] : ''
+}
+
+function isLooqmePublicationLike(item) {
+  return Boolean(
+    pickLooqmeValue(item, [
+      'url',
+      'link',
+      'href',
+      'title',
+      'headline',
+      'publishedAt',
+      'publicationDate',
+      'date',
+      'посилання',
+      'заголовок',
+      'дата',
+    ]),
+  )
+}
+
+function isMeaningfulLooqmeEntry(entry) {
+  return Boolean(
+    entry.brand ||
+      entry.title ||
+      entry.url ||
+      entry.outlet ||
+      entry.count ||
+      entry.reach ||
+      entry.sentiment,
+  )
+}
+
+function looqmeEntryMatchesRange(entry, range) {
+  if (!range || !entry.date) return true
+
+  const timestamp = Date.parse(entry.date)
+  if (Number.isNaN(timestamp)) return true
+
+  return timestamp >= Date.parse(range.from) && timestamp <= Date.parse(`${range.to}T23:59:59Z`)
+}
+
+function coverageMonthDateRange(month) {
+  const text = textValue(month)
+  if (!text) return null
+
+  const year = Number(text.match(/\b(20\d{2})\b/)?.[1] || new Date().getFullYear())
+  const monthIndex = MONTHS.indexOf(text)
+
+  if (monthIndex >= 0) {
+    return dateRangeForMonthIndex(year, monthIndex)
+  }
+
+  const normalized = normalizeCell(text)
+  const index = [
+    ['січень', 'january'],
+    ['лютий', 'february'],
+    ['березень', 'march'],
+    ['квітень', 'april'],
+    ['травень', 'may'],
+    ['червень', 'june'],
+    ['липень', 'july'],
+    ['серпень', 'august'],
+    ['вересень', 'september'],
+    ['жовтень', 'october'],
+    ['листопад', 'november'],
+    ['грудень', 'december'],
+  ].findIndex((names) => names.some((name) => normalized.includes(normalizeCell(name))))
+
+  return index >= 0 ? dateRangeForMonthIndex(year, index) : null
+}
+
+function dateRangeForMonthIndex(year, monthIndex) {
+  const from = new Date(Date.UTC(year, monthIndex, 1))
+  const to = new Date(Date.UTC(year, monthIndex + 1, 0))
+
+  return {
+    from: `${formatIsoDate(from)}T00:00:00`,
+    to: `${formatIsoDate(to)}T23:59:59`,
+  }
+}
+
+function formatIsoDate(date) {
+  return date.toISOString().slice(0, 10)
+}
+
+function emptyLooqmeCoveragePayload(month, source) {
+  return {
+    month,
+    source,
+    mentionsMetric: {
+      value: 0,
+      delta: null,
+      segments: [],
+    },
+    mentions: [],
+    mediaOutlets: [],
+    audienceMetric: {
+      value: 0,
+      delta: null,
+      segments: [],
+    },
+    audience: {
+      total: 0,
+      media: 0,
+      social: 0,
+    },
+    sentiment: [],
+  }
+}
+
+function mockLooqmeCoveragePayload(month) {
+  if (month && month !== MOCK_COVERAGE_MONTH) {
+    return emptyLooqmeCoveragePayload(month, 'mock')
+  }
+
+  return {
+    month,
+    source: 'mock',
+    mentionsMetric: {
+      value: 142,
+      delta: -24,
+      segments: [
+        { label: 'ЗМІ(Медіа)', value: 42, delta: -24, color: LOOQME_MEDIA_COLOR },
+        { label: 'Соціальні мережі', value: 100, delta: -24, color: LOOQME_SOCIAL_COLOR },
+      ],
+    },
+    mentions: [
+      { brand: 'Universe Group', count: 54, audience: 74200000 },
+      { brand: 'Skelar', count: 8, audience: 9600000 },
+      { brand: 'Headway', count: 2, audience: 4300000 },
+    ],
+    mediaOutlets: [
+      { name: 'AIN.UA', mentions: 18, reach: 23600000 },
+      { name: 'DOU', mentions: 14, reach: 18400000 },
+      { name: 'Forbes Ukraine', mentions: 9, reach: 15200000 },
+      { name: 'Vector', mentions: 11, reach: 12800000 },
+      { name: 'Speka', mentions: 7, reach: 8600000 },
+      { name: 'dev.ua', mentions: 5, reach: 7500000 },
+    ],
+    audienceMetric: {
+      value: 88100000,
+      delta: -37,
+      segments: [
+        { label: 'ЗМІ(Медіа)', value: 86800000, delta: -38, color: LOOQME_MEDIA_COLOR },
+        { label: 'Соціальні мережі', value: 1400000, delta: 19, color: LOOQME_SOCIAL_COLOR },
+      ],
+    },
+    audience: {
+      total: 88100000,
+      media: 86800000,
+      social: 1400000,
+    },
+    sentiment: [
+      { name: 'Позитив', value: 42, color: LOOQME_SENTIMENT_COLORS.positive },
+      { name: 'Нейтрал', value: 20, color: LOOQME_SENTIMENT_COLORS.neutral },
+      { name: 'Негатив', value: 2, color: LOOQME_SENTIMENT_COLORS.negative },
+    ],
+  }
+}
+
+function splitEnvList(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function arrayText(value) {
+  if (Array.isArray(value)) return value.map(arrayText).filter(Boolean).join(' ')
+  if (value && typeof value === 'object') {
+    return Object.values(value).map(arrayText).filter(Boolean).join(' ')
+  }
+  return textValue(value)
+}
+
+function outletFromUrl(value) {
+  try {
+    return new URL(value).hostname.replace(/^www\./, '')
+  } catch {
+    return ''
+  }
+}
+
+function looqmeChannelColor(value) {
+  return normalizeLooqmeChannel(value) === 'social' ? LOOQME_SOCIAL_COLOR : LOOQME_MEDIA_COLOR
+}
+
+function sentimentOrder(value) {
+  return { negative: 0, neutral: 1, positive: 2 }[value] ?? 3
+}
+
+function normalizeExternalUrl(value) {
+  const text = textValue(value)
+  if (!text || /^https?:\/\//i.test(text)) return text
+  return `https://${text}`
+}
+
+function sanitizeExternalError(value) {
+  return cleanReportText(value, 500)
 }
 
 async function listEventReports() {
@@ -2623,80 +3592,11 @@ app.get('/api/event-awareness', asyncHandler(async (request, response) => {
 
 app.get('/api/looqme/coverage', asyncHandler(async (request, response) => {
   const month = request.query.month
+  const coverage = shouldUseLooqmeMock()
+    ? mockLooqmeCoveragePayload(month)
+    : await fetchLooqmeCoverage(month)
 
-  if (month && month !== MOCK_COVERAGE_MONTH) {
-    const payload = {
-      month,
-      source: process.env.LOOQME_TOKEN ? 'looqme-mock-token-present' : 'mock',
-      mentionsMetric: {
-        value: 0,
-        delta: 0,
-        segments: [],
-      },
-      mentions: [],
-      mediaOutlets: [],
-      audienceMetric: {
-        value: 0,
-        delta: 0,
-        segments: [],
-      },
-      audience: {
-        total: 0,
-        media: 0,
-        social: 0,
-      },
-      sentiment: [],
-    }
-
-    response.json(await applyManualCompetitors(payload, month))
-    return
-  }
-
-  const payload = {
-    month,
-    source: process.env.LOOQME_TOKEN ? 'looqme-mock-token-present' : 'mock',
-    mentionsMetric: {
-      value: 142,
-      delta: -24,
-      segments: [
-        { label: 'ЗМІ(Медіа)', value: 42, delta: -24, color: '#6678ff' },
-        { label: 'Соціальні мережі', value: 100, delta: -24, color: '#2dd68f' },
-      ],
-    },
-    mentions: [
-      { brand: 'Universe Group', count: 54, audience: 74200000 },
-      { brand: 'Skelar', count: 8, audience: 9600000 },
-      { brand: 'Headway', count: 2, audience: 4300000 },
-    ],
-    mediaOutlets: [
-      { name: 'AIN.UA', mentions: 18, reach: 23600000 },
-      { name: 'DOU', mentions: 14, reach: 18400000 },
-      { name: 'Forbes Ukraine', mentions: 9, reach: 15200000 },
-      { name: 'Vector', mentions: 11, reach: 12800000 },
-      { name: 'Speka', mentions: 7, reach: 8600000 },
-      { name: 'dev.ua', mentions: 5, reach: 7500000 },
-    ],
-    audienceMetric: {
-      value: 88100000,
-      delta: -37,
-      segments: [
-        { label: 'ЗМІ(Медіа)', value: 86800000, delta: -38, color: '#6678ff' },
-        { label: 'Соціальні мережі', value: 1400000, delta: 19, color: '#2dd68f' },
-      ],
-    },
-    audience: {
-      total: 88100000,
-      media: 86800000,
-      social: 1400000,
-    },
-    sentiment: [
-      { name: 'Позитив', value: 42, color: '#10b981' },
-      { name: 'Нейтрал', value: 20, color: '#64748b' },
-      { name: 'Негатив', value: 2, color: '#ef4444' },
-    ],
-  }
-
-  response.json(await applyManualCompetitors(payload, month))
+  response.json(await applyManualCompetitors(coverage, month))
 }))
 
 app.get('/api/coverage/competitors', asyncHandler(async (request, response) => {
