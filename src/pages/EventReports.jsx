@@ -1,28 +1,35 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Code2,
+  ExternalLink,
   FileText,
   Plus,
   RefreshCw,
+  RotateCcw,
   Sparkles,
   Trash2,
   X,
 } from 'lucide-react'
 import { apiRequest } from '../lib/api'
 import {
-  SENTIMENTS,
   buildReportFacts,
   compute,
+  defaultDateMode,
   formatCompact,
   formatEur,
   formatPercent,
-  formatPlanDelta,
-  formatReportDate,
+  formatReportDateRange,
   formatUsd,
   formatWhole,
   normalizeReportInput,
 } from '../lib/eventReports'
 import './EventReports.css'
+
+const TYPE_LABELS = {
+  event: 'Івент',
+  partnership: 'Партнерство',
+  launch: 'Лонч',
+}
 
 const emptyCampaign = () => ({
   name: '',
@@ -34,33 +41,64 @@ const emptyCampaign = () => ({
   reach: '',
 })
 
-const initialForm = () => ({
-  type: 'event',
+const emptyResource = () => ({
   name: '',
-  date: new Date().toISOString().slice(0, 10),
-  description: '',
-  goalText: '',
-  planAttendees: '',
-  leadsGoogle: '',
-  leadsMeta: '',
-  confirmed: '',
-  attended: '',
-  teamCount: '',
-  partnershipCost: '',
-  partnershipClicks: '',
-  partnershipLeads: '',
-  partnershipViews: '',
-  campaigns: [emptyCampaign()],
-  promoSpendUsd: '',
-  orgSpendUsd: '',
-  publications: '',
-  mediaMentions: '',
-  totalReach: '',
-  sentiment: 'Нейтральна',
-  engagement: '',
-  feedback: '',
-  notes: '',
+  url: '',
 })
+
+const initialForm = (type = 'event') => {
+  const today = new Date().toISOString().slice(0, 10)
+
+  return {
+    type,
+    dateMode: defaultDateMode(type),
+    name: '',
+    date: today,
+    dateStart: today,
+    dateEnd: today,
+    description: '',
+    goalText: '',
+
+    leadsGoogle: '',
+    leadsMeta: '',
+    confirmed: '',
+    attended: '',
+    teamCount: '',
+    promoSpendUsd: '',
+    orgSpendUsd: '',
+    mediaMentions: '',
+    channels: '',
+    engagement: '',
+    feedback: '',
+    notes: '',
+
+    partnershipCost: '',
+    episodes: '',
+    views: '',
+    clicks: '',
+    hireEnabled: false,
+    hireCount: '',
+
+    promoEnabled: false,
+    campaigns: [emptyCampaign()],
+    reachTotal: '',
+    reachUniverse: '',
+    reachClevel: '',
+    linkClicks: '',
+    productResultType: '',
+    productResultValue: '',
+    productResultNote: '',
+    tgEnabled: false,
+    tgChannels: '',
+    tgCost: '',
+    tgReach: '',
+    tgPosts: '',
+    tgChannelList: '',
+    otherSpendUsd: '',
+    budgetOverride: '',
+    resources: [emptyResource()],
+  }
+}
 
 export function EventReportsPage() {
   const [reports, setReports] = useState([])
@@ -121,8 +159,8 @@ export function EventReportsPage() {
             <p className="er-eyebrow">Comms Tool</p>
             <h1>Звіти по івентах</h1>
             <p className="er-subtitle">
-              Форма для івентів і партнерств: метрики рахуються кодом, а AI
-              допомагає сформулювати executive summary та інсайти.
+              Форма для івентів, партнерств і лончів: метрики рахуються кодом,
+              а AI допомагає сформулювати executive summary та інсайти.
             </p>
           </div>
           <button
@@ -168,23 +206,20 @@ function ReportsTable({ reports, onSelect }) {
       <table className="er-table">
         <thead>
           <tr>
-            <th>Подія</th>
+            <th>Назва</th>
             <th>Тип</th>
-            <th>Дата</th>
-            <th className="er-align-right">Бюджет</th>
-            <th className="er-align-right">CPA / CPC</th>
-            <th className="er-align-right">CPL</th>
-            <th className="er-align-right">Учасники / Ліди</th>
+            <th>Дата / період</th>
+            <th className="er-align-right">Витрати</th>
+            <th className="er-align-right">CPA / CPV / CPC</th>
+            <th className="er-align-right">CPL / Наймів</th>
+            <th className="er-align-right">Учасники / Випуски / Охоплення</th>
           </tr>
         </thead>
         <tbody>
           {reports.map((report) => {
-            const metrics = compute(report)
-            const isPartnership = report.type === 'partnership'
-            const firstMetric = isPartnership ? metrics.cpc : metrics.cpa
-            const participants = isPartnership
-              ? `${formatWhole(metrics.partnershipLeads)} лід.`
-              : formatWhole(metrics.attended)
+            const normalized = normalizeReportInput(report)
+            const metrics = compute(normalized)
+            const cells = tableMetricCells(normalized, metrics)
 
             return (
               <tr
@@ -196,22 +231,17 @@ function ReportsTable({ reports, onSelect }) {
                 }}
               >
                 <td>
-                  <span className="er-table-title">{report.name || 'Без назви'}</span>
+                  <span className="er-table-title">{normalized.name || 'Без назви'}</span>
                 </td>
                 <td>
-                  <ReportTypeTag type={report.type} />
+                  <ReportTypeTag type={normalized.type} />
                 </td>
-                <td className="er-muted">{formatReportDate(report.date)}</td>
-                <td className="er-align-right er-metric-cell">
-                  {formatUsd(metrics.totalBudget)}
-                </td>
-                <td className="er-align-right er-metric-cell">
-                  {formatUsd(firstMetric)}
-                </td>
-                <td className="er-align-right er-metric-cell">
-                  {formatUsd(metrics.cpl)}
-                </td>
-                <td className="er-align-right er-metric-cell">{participants}</td>
+                <td className="er-muted">{formatReportDateRange(normalized)}</td>
+                {cells.map((cell, index) => (
+                  <td className="er-align-right er-metric-cell" key={`${cell}-${index}`}>
+                    {cell}
+                  </td>
+                ))}
               </tr>
             )
           })}
@@ -219,6 +249,33 @@ function ReportsTable({ reports, onSelect }) {
       </table>
     </div>
   )
+}
+
+function tableMetricCells(report, metrics) {
+  if (report.type === 'partnership') {
+    return [
+      formatUsd(metrics.totalBudget),
+      formatUsd(metrics.cpv),
+      report.hireEnabled ? formatWhole(metrics.hireCount) : '—',
+      formatWhole(metrics.episodes),
+    ]
+  }
+
+  if (report.type === 'launch') {
+    return [
+      formatUsd(metrics.totalBudget),
+      formatUsd(metrics.cpc),
+      formatUsd(metrics.cpv),
+      formatCompact(metrics.reachTotal),
+    ]
+  }
+
+  return [
+    formatUsd(metrics.totalBudget),
+    formatUsd(metrics.cpa),
+    formatUsd(metrics.cpl),
+    formatWhole(metrics.attended),
+  ]
 }
 
 function ReportsEmpty({ onCreate }) {
@@ -270,6 +327,15 @@ function ReportForm({ onClose, onCreated }) {
     setForm((current) => ({ ...current, [name]: value }))
   }
 
+  function selectType(type) {
+    setForm((current) => ({
+      ...current,
+      type,
+      dateMode: defaultDateMode(type),
+      budgetOverride: type === 'launch' ? current.budgetOverride : '',
+    }))
+  }
+
   function updateCampaign(index, name, value) {
     setForm((current) => ({
       ...current,
@@ -290,6 +356,29 @@ function ReportForm({ onClose, onCreated }) {
     setForm((current) => ({
       ...current,
       campaigns: current.campaigns.filter((_, campaignIndex) => campaignIndex !== index),
+    }))
+  }
+
+  function updateResource(index, name, value) {
+    setForm((current) => ({
+      ...current,
+      resources: current.resources.map((resource, resourceIndex) =>
+        resourceIndex === index ? { ...resource, [name]: value } : resource,
+      ),
+    }))
+  }
+
+  function addResource() {
+    setForm((current) => ({
+      ...current,
+      resources: [...current.resources, emptyResource()],
+    }))
+  }
+
+  function removeResource(index) {
+    setForm((current) => ({
+      ...current,
+      resources: current.resources.filter((_, resourceIndex) => resourceIndex !== index),
     }))
   }
 
@@ -353,22 +442,7 @@ function ReportForm({ onClose, onCreated }) {
         </div>
 
         <div className="er-modal-body">
-          <div className="er-segmented" aria-label="Тип звіту">
-            <button
-              type="button"
-              className={form.type === 'event' ? 'is-active' : ''}
-              onClick={() => updateField('type', 'event')}
-            >
-              Івент
-            </button>
-            <button
-              type="button"
-              className={form.type === 'partnership' ? 'is-active' : ''}
-              onClick={() => updateField('type', 'partnership')}
-            >
-              Партнерство
-            </button>
-          </div>
+          <TypeSegmented value={form.type} onChange={selectType} />
 
           <FormSection title="Основне">
             <div className="er-form-grid er-form-grid-2">
@@ -377,19 +451,14 @@ function ReportForm({ onClose, onCreated }) {
                   className="er-input"
                   value={form.name}
                   onChange={(event) => updateField('name', event.target.value)}
-                  placeholder="Universe Hiring Day"
+                  placeholder={
+                    form.type === 'launch' ? 'Лонч продукту' : 'Universe Hiring Day'
+                  }
                   required
                 />
               </Field>
-              <Field label="Дата">
-                <input
-                  className="er-input"
-                  type="date"
-                  value={form.date}
-                  onChange={(event) => updateField('date', event.target.value)}
-                />
-              </Field>
-              <Field label="Опис/тема/гості" full>
+              <DateFields form={form} updateField={updateField} />
+              <Field label="Опис" full>
                 <textarea
                   className="er-input"
                   value={form.description}
@@ -403,241 +472,41 @@ function ReportForm({ onClose, onCreated }) {
                   onChange={(event) => updateField('goalText', event.target.value)}
                 />
               </Field>
-              {form.type === 'event' ? (
-                <Field label="План учасників">
-                  <NumberInput
-                    value={form.planAttendees}
-                    onChange={(value) => updateField('planAttendees', value)}
-                  />
-                </Field>
-              ) : null}
             </div>
           </FormSection>
-
-          <section className="er-form-section">
-            <div className="er-section-heading-row">
-              <h3>Промо-кампанії (Meta)</h3>
-              <span className="er-mini-badge">CPC · CTR авто</span>
-            </div>
-            {form.campaigns.map((campaign, index) => {
-              const campaignMetrics = metrics.campaigns[index] || compute({ campaigns: [campaign] }).campaigns[0]
-
-              return (
-                <div className="er-campaign-card" key={`campaign-${index}`}>
-                  <div className="er-campaign-grid">
-                    <Field label="Назва">
-                      <input
-                        className="er-input"
-                        value={campaign.name}
-                        onChange={(event) => updateCampaign(index, 'name', event.target.value)}
-                      />
-                    </Field>
-                    <Field label="Тип">
-                      <select
-                        className="er-input"
-                        value={campaign.ctype}
-                        onChange={(event) => updateCampaign(index, 'ctype', event.target.value)}
-                      >
-                        <option value="Clicks">Clicks</option>
-                        <option value="Leads">Leads</option>
-                      </select>
-                    </Field>
-                    <Field label="Spend €">
-                      <NumberInput
-                        value={campaign.spendEur}
-                        onChange={(value) => updateCampaign(index, 'spendEur', value)}
-                      />
-                    </Field>
-                    <Field label="Result">
-                      <NumberInput
-                        value={campaign.result}
-                        onChange={(value) => updateCampaign(index, 'result', value)}
-                      />
-                    </Field>
-                    <Field label="Clicks">
-                      <NumberInput
-                        value={campaign.clicks}
-                        onChange={(value) => updateCampaign(index, 'clicks', value)}
-                      />
-                    </Field>
-                    <Field label="Impressions">
-                      <NumberInput
-                        value={campaign.impressions}
-                        onChange={(value) => updateCampaign(index, 'impressions', value)}
-                      />
-                    </Field>
-                  </div>
-                  <div className="er-campaign-meta">
-                    <span>CPC {formatEur(campaignMetrics.cpc)}</span>
-                    <span>CTR {formatPercent(campaignMetrics.ctr)}</span>
-                    <span>CPA {formatEur(campaignMetrics.cpa)}</span>
-                    {form.campaigns.length > 1 ? (
-                      <button
-                        type="button"
-                        className="er-remove-campaign"
-                        onClick={() => removeCampaign(index)}
-                      >
-                        <Trash2 className="er-trash-icon" />
-                        Видалити
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              )
-            })}
-            <button type="button" className="er-link-button" onClick={addCampaign}>
-              <Plus className="er-link-icon" />
-              Додати кампанію
-            </button>
-          </section>
 
           {form.type === 'event' ? (
-            <FormSection title="Заявки та воронка">
-              <div className="er-form-grid er-form-grid-3">
-                <Field label="Ліди Google">
-                  <NumberInput
-                    value={form.leadsGoogle}
-                    onChange={(value) => updateField('leadsGoogle', value)}
-                  />
-                </Field>
-                <Field label="Ліди Meta">
-                  <NumberInput
-                    value={form.leadsMeta}
-                    onChange={(value) => updateField('leadsMeta', value)}
-                  />
-                </Field>
-                <Field label="Підтверджень">
-                  <NumberInput
-                    value={form.confirmed}
-                    onChange={(value) => updateField('confirmed', value)}
-                  />
-                </Field>
-                <Field label="Прийшло на івент">
-                  <NumberInput
-                    value={form.attended}
-                    onChange={(value) => updateField('attended', value)}
-                  />
-                </Field>
-                <Field label="З них команда">
-                  <NumberInput
-                    value={form.teamCount}
-                    onChange={(value) => updateField('teamCount', value)}
-                  />
-                </Field>
-              </div>
-            </FormSection>
-          ) : (
-            <FormSection title="Результати партнерства">
-              <div className="er-form-grid er-form-grid-2">
-                <Field label="Вартість ($)">
-                  <NumberInput
-                    value={form.partnershipCost}
-                    onChange={(value) => updateField('partnershipCost', value)}
-                  />
-                </Field>
-                <Field label="Перегляди">
-                  <NumberInput
-                    value={form.partnershipViews}
-                    onChange={(value) => updateField('partnershipViews', value)}
-                  />
-                </Field>
-                <Field label="Кліки">
-                  <NumberInput
-                    value={form.partnershipClicks}
-                    onChange={(value) => updateField('partnershipClicks', value)}
-                  />
-                </Field>
-                <Field label="Залучені ліди">
-                  <NumberInput
-                    value={form.partnershipLeads}
-                    onChange={(value) => updateField('partnershipLeads', value)}
-                  />
-                </Field>
-              </div>
-            </FormSection>
-          )}
+            <>
+              <CampaignSection
+                campaigns={form.campaigns}
+                metrics={metrics}
+                onAdd={addCampaign}
+                onRemove={removeCampaign}
+                onUpdate={updateCampaign}
+              />
+              <EventFields form={form} updateField={updateField} />
+            </>
+          ) : null}
 
-          <FormSection title="Бюджет (USD)">
-            <div className="er-form-grid er-form-grid-2">
-              <Field label="Витрати на промо ($)">
-                <NumberInput
-                  value={form.promoSpendUsd}
-                  onChange={(value) => updateField('promoSpendUsd', value)}
-                />
-              </Field>
-              <Field label="Організаційні витрати ($)">
-                <NumberInput
-                  value={form.orgSpendUsd}
-                  onChange={(value) => updateField('orgSpendUsd', value)}
-                />
-              </Field>
-            </div>
-          </FormSection>
+          {form.type === 'partnership' ? (
+            <PartnershipFields form={form} updateField={updateField} />
+          ) : null}
 
-          <FormSection title="Медіа та охоплення">
-            <div className="er-form-grid er-form-grid-3">
-              <Field label="Публікації">
-                <NumberInput
-                  value={form.publications}
-                  onChange={(value) => updateField('publications', value)}
-                />
-              </Field>
-              <Field label="Медіа прояви">
-                <NumberInput
-                  value={form.mediaMentions}
-                  onChange={(value) => updateField('mediaMentions', value)}
-                />
-              </Field>
-              <Field label="Загальне охоплення">
-                <NumberInput
-                  value={form.totalReach}
-                  onChange={(value) => updateField('totalReach', value)}
-                />
-              </Field>
-              <Field label="Тональність">
-                <select
-                  className="er-input"
-                  value={form.sentiment}
-                  onChange={(event) => updateField('sentiment', event.target.value)}
-                >
-                  {SENTIMENTS.map((sentiment) => (
-                    <option key={sentiment} value={sentiment}>
-                      {sentiment}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Залученість" full>
-                <input
-                  className="er-input"
-                  value={form.engagement}
-                  onChange={(event) => updateField('engagement', event.target.value)}
-                  placeholder="Коментарі, реакції, обговорення"
-                />
-              </Field>
-            </div>
-          </FormSection>
+          {form.type === 'launch' ? (
+            <LaunchFields
+              form={form}
+              metrics={metrics}
+              updateField={updateField}
+              updateCampaign={updateCampaign}
+              addCampaign={addCampaign}
+              removeCampaign={removeCampaign}
+              updateResource={updateResource}
+              addResource={addResource}
+              removeResource={removeResource}
+            />
+          ) : null}
 
-          <FormSection title="Якісні результати">
-            <div className="er-form-grid er-form-grid-2">
-              <Field label="Фідбек аудиторії">
-                <textarea
-                  className="er-input"
-                  value={form.feedback}
-                  onChange={(event) => updateField('feedback', event.target.value)}
-                />
-              </Field>
-              <Field label="Нотатки/ретро">
-                <textarea
-                  className="er-input"
-                  value={form.notes}
-                  onChange={(event) => updateField('notes', event.target.value)}
-                />
-              </Field>
-            </div>
-          </FormSection>
-
-          <MetricsPreview type={form.type} metrics={metrics} />
+          <MetricsPreview report={normalized} metrics={metrics} />
 
           {error ? <p className="er-form-error">{error.message}</p> : null}
         </div>
@@ -665,9 +534,553 @@ function ReportForm({ onClose, onCreated }) {
   )
 }
 
+function TypeSegmented({ value, onChange }) {
+  return (
+    <div className="er-segmented" aria-label="Тип звіту">
+      {Object.entries(TYPE_LABELS).map(([type, label]) => (
+        <button
+          type="button"
+          className={value === type ? 'is-active' : ''}
+          onClick={() => onChange(type)}
+          key={type}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function DateFields({ form, updateField }) {
+  return (
+    <>
+      <div className="er-date-mode">
+        <span>Дата або період</span>
+        <div className="er-segmented er-segmented-compact" aria-label="Дата або період">
+          <button
+            type="button"
+            className={form.dateMode === 'single' ? 'is-active' : ''}
+            onClick={() => updateField('dateMode', 'single')}
+          >
+            Дата
+          </button>
+          <button
+            type="button"
+            className={form.dateMode === 'period' ? 'is-active' : ''}
+            onClick={() => updateField('dateMode', 'period')}
+          >
+            Період
+          </button>
+        </div>
+      </div>
+      {form.dateMode === 'period' ? (
+        <>
+          <Field label="Початок">
+            <input
+              className="er-input"
+              type="date"
+              value={form.dateStart}
+              onChange={(event) => updateField('dateStart', event.target.value)}
+            />
+          </Field>
+          <Field label="Кінець">
+            <input
+              className="er-input"
+              type="date"
+              value={form.dateEnd}
+              onChange={(event) => updateField('dateEnd', event.target.value)}
+            />
+          </Field>
+        </>
+      ) : (
+        <Field label="Дата">
+          <input
+            className="er-input"
+            type="date"
+            value={form.date}
+            onChange={(event) => updateField('date', event.target.value)}
+          />
+        </Field>
+      )}
+    </>
+  )
+}
+
+function EventFields({ form, updateField }) {
+  return (
+    <>
+      <FormSection title="Заявки та воронка">
+        <div className="er-form-grid er-form-grid-3">
+          <Field label="Ліди Google">
+            <NumberInput
+              value={form.leadsGoogle}
+              onChange={(value) => updateField('leadsGoogle', value)}
+            />
+          </Field>
+          <Field label="Ліди Meta">
+            <NumberInput
+              value={form.leadsMeta}
+              onChange={(value) => updateField('leadsMeta', value)}
+            />
+          </Field>
+          <Field label="Підтверджень">
+            <NumberInput
+              value={form.confirmed}
+              onChange={(value) => updateField('confirmed', value)}
+            />
+          </Field>
+          <Field label="Прийшло на івент">
+            <NumberInput
+              value={form.attended}
+              onChange={(value) => updateField('attended', value)}
+            />
+          </Field>
+          <Field label="З них команда">
+            <NumberInput
+              value={form.teamCount}
+              onChange={(value) => updateField('teamCount', value)}
+            />
+          </Field>
+        </div>
+      </FormSection>
+
+      <FormSection title="Бюджет (USD)">
+        <div className="er-form-grid er-form-grid-2">
+          <Field label="Витрати на промо ($)">
+            <NumberInput
+              value={form.promoSpendUsd}
+              onChange={(value) => updateField('promoSpendUsd', value)}
+            />
+          </Field>
+          <Field label="Організаційні витрати ($)">
+            <NumberInput
+              value={form.orgSpendUsd}
+              onChange={(value) => updateField('orgSpendUsd', value)}
+            />
+          </Field>
+        </div>
+      </FormSection>
+
+      <FormSection title="Медіа та появи">
+        <div className="er-form-grid er-form-grid-3">
+          <Field label="Згадки в медіа">
+            <NumberInput
+              value={form.mediaMentions}
+              onChange={(value) => updateField('mediaMentions', value)}
+            />
+          </Field>
+          <Field label="Канали залучення" full>
+            <input
+              className="er-input"
+              value={form.channels}
+              onChange={(event) => updateField('channels', event.target.value)}
+              placeholder="Де були появи"
+            />
+          </Field>
+          <Field label="Залученість" full>
+            <input
+              className="er-input"
+              value={form.engagement}
+              onChange={(event) => updateField('engagement', event.target.value)}
+              placeholder="Коментарі, реакції, обговорення"
+            />
+          </Field>
+        </div>
+      </FormSection>
+
+      <FormSection title="Якісні результати">
+        <div className="er-form-grid er-form-grid-2">
+          <Field label="Фідбек аудиторії">
+            <textarea
+              className="er-input"
+              value={form.feedback}
+              onChange={(event) => updateField('feedback', event.target.value)}
+            />
+          </Field>
+          <Field label="Нотатки/ретро">
+            <textarea
+              className="er-input"
+              value={form.notes}
+              onChange={(event) => updateField('notes', event.target.value)}
+            />
+          </Field>
+        </div>
+      </FormSection>
+    </>
+  )
+}
+
+function PartnershipFields({ form, updateField }) {
+  return (
+    <FormSection title="Результати партнерства">
+      <div className="er-form-grid er-form-grid-2">
+        <Field label="Вартість партнерства ($)">
+          <NumberInput
+            value={form.partnershipCost}
+            onChange={(value) => updateField('partnershipCost', value)}
+          />
+        </Field>
+        <Field label="Кількість випусків із партнерством">
+          <NumberInput
+            value={form.episodes}
+            onChange={(value) => updateField('episodes', value)}
+          />
+        </Field>
+        <Field label="Перегляди">
+          <NumberInput
+            value={form.views}
+            onChange={(value) => updateField('views', value)}
+          />
+        </Field>
+        <Field label="Кліки на лінк">
+          <NumberInput
+            value={form.clicks}
+            onChange={(value) => updateField('clicks', value)}
+          />
+        </Field>
+        <Field label="Згадки в медіа">
+          <NumberInput
+            value={form.mediaMentions}
+            onChange={(value) => updateField('mediaMentions', value)}
+          />
+        </Field>
+      </div>
+      <DisclosureToggle
+        checked={form.hireEnabled}
+        label="Чи є найм?"
+        onChange={(checked) => updateField('hireEnabled', checked)}
+      />
+      {form.hireEnabled ? (
+        <div className="er-form-grid er-form-grid-2 er-disclosure-body">
+          <Field label="Кількість наймів">
+            <NumberInput
+              value={form.hireCount}
+              onChange={(value) => updateField('hireCount', value)}
+            />
+          </Field>
+        </div>
+      ) : null}
+    </FormSection>
+  )
+}
+
+function LaunchFields({
+  form,
+  metrics,
+  updateField,
+  updateCampaign,
+  addCampaign,
+  removeCampaign,
+  updateResource,
+  addResource,
+  removeResource,
+}) {
+  const hasBudgetOverride =
+    form.budgetOverride !== '' &&
+    form.budgetOverride !== null &&
+    form.budgetOverride !== undefined
+
+  return (
+    <>
+      <FormSection title="Промо">
+        <DisclosureToggle
+          checked={form.promoEnabled}
+          label="Чи були промо-кампанії?"
+          onChange={(checked) => updateField('promoEnabled', checked)}
+        />
+        {form.promoEnabled ? (
+          <div className="er-disclosure-body">
+            <CampaignSection
+              campaigns={form.campaigns}
+              metrics={metrics}
+              onAdd={addCampaign}
+              onRemove={removeCampaign}
+              onUpdate={updateCampaign}
+            />
+          </div>
+        ) : null}
+      </FormSection>
+
+      <FormSection title="Результати">
+        <div className="er-form-grid er-form-grid-3">
+          <Field label="Загальне охоплення">
+            <NumberInput
+              value={form.reachTotal}
+              onChange={(value) => updateField('reachTotal', value)}
+            />
+          </Field>
+          <Field label="Згадки в медіа">
+            <NumberInput
+              value={form.mediaMentions}
+              onChange={(value) => updateField('mediaMentions', value)}
+            />
+          </Field>
+          <Field label="Охоплення соцмереж Universe">
+            <NumberInput
+              value={form.reachUniverse}
+              onChange={(value) => updateField('reachUniverse', value)}
+            />
+          </Field>
+          <Field label="Охоплення соцмереж C-level">
+            <NumberInput
+              value={form.reachClevel}
+              onChange={(value) => updateField('reachClevel', value)}
+            />
+          </Field>
+          <Field label="Кліки на посилання">
+            <NumberInput
+              value={form.linkClicks}
+              onChange={(value) => updateField('linkClicks', value)}
+            />
+          </Field>
+        </div>
+      </FormSection>
+
+      <FormSection title="Результат для продукту">
+        <div className="er-form-grid er-form-grid-3">
+          <Field label="Тип">
+            <input
+              className="er-input"
+              value={form.productResultType}
+              onChange={(event) => updateField('productResultType', event.target.value)}
+              placeholder="реєстрації / завантаження / тріали"
+            />
+          </Field>
+          <Field label="Значення">
+            <NumberInput
+              value={form.productResultValue}
+              onChange={(value) => updateField('productResultValue', value)}
+            />
+          </Field>
+          <Field label="Коментар">
+            <input
+              className="er-input"
+              value={form.productResultNote}
+              onChange={(event) => updateField('productResultNote', event.target.value)}
+              placeholder="який саме"
+            />
+          </Field>
+        </div>
+      </FormSection>
+
+      <FormSection title="Платні ТГ-блогери">
+        <DisclosureToggle
+          checked={form.tgEnabled}
+          label="Платні блогери в ТГ-каналах"
+          onChange={(checked) => updateField('tgEnabled', checked)}
+        />
+        {form.tgEnabled ? (
+          <div className="er-form-grid er-form-grid-2 er-disclosure-body">
+            <Field label="Кількість каналів">
+              <NumberInput
+                value={form.tgChannels}
+                onChange={(value) => updateField('tgChannels', value)}
+              />
+            </Field>
+            <Field label="Сумарна вартість ($)">
+              <NumberInput
+                value={form.tgCost}
+                onChange={(value) => updateField('tgCost', value)}
+              />
+            </Field>
+            <Field label="Сумарне охоплення / перегляди">
+              <NumberInput
+                value={form.tgReach}
+                onChange={(value) => updateField('tgReach', value)}
+              />
+            </Field>
+            <Field label="Кількість публікацій">
+              <NumberInput
+                value={form.tgPosts}
+                onChange={(value) => updateField('tgPosts', value)}
+              />
+            </Field>
+            <Field label="Список каналів" full>
+              <textarea
+                className="er-input"
+                value={form.tgChannelList}
+                onChange={(event) => updateField('tgChannelList', event.target.value)}
+              />
+            </Field>
+          </div>
+        ) : null}
+      </FormSection>
+
+      <FormSection title="Загальний бюджет витрат">
+        <div className="er-form-grid er-form-grid-2">
+          <Field label="Інші витрати ($)">
+            <NumberInput
+              value={form.otherSpendUsd}
+              onChange={(value) => updateField('otherSpendUsd', value)}
+            />
+          </Field>
+          <Field label="Бюджет ($)">
+            <input
+              className="er-input er-number-input"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={hasBudgetOverride ? form.budgetOverride : numberInputValue(metrics.budgetAuto)}
+              onChange={(event) => updateField('budgetOverride', event.target.value)}
+            />
+          </Field>
+        </div>
+        {hasBudgetOverride ? (
+          <div className="er-budget-hint">
+            <span>авто-сума: {formatUsd(metrics.budgetAuto)}</span>
+            <button
+              type="button"
+              className="er-link-button"
+              onClick={() => updateField('budgetOverride', '')}
+            >
+              <RotateCcw className="er-link-icon" />
+              авто
+            </button>
+          </div>
+        ) : null}
+      </FormSection>
+
+      <FormSection title="Ресурси, що вийшли з новиною">
+        <ResourcesEditor
+          resources={form.resources}
+          onAdd={addResource}
+          onRemove={removeResource}
+          onUpdate={updateResource}
+        />
+      </FormSection>
+    </>
+  )
+}
+
+function CampaignSection({ campaigns, metrics, onAdd, onRemove, onUpdate }) {
+  return (
+    <section className="er-form-section">
+      <div className="er-section-heading-row">
+        <h3>Промо-кампанії (Meta)</h3>
+        <span className="er-mini-badge">CPC · CTR авто</span>
+      </div>
+      {campaigns.map((campaign, index) => {
+        const campaignMetrics = metrics.campaigns[index] || {
+          cpc: 0,
+          cpa: 0,
+          ctr: 0,
+        }
+
+        return (
+          <div className="er-campaign-card" key={`campaign-${index}`}>
+            <div className="er-campaign-grid">
+              <Field label="Назва">
+                <input
+                  className="er-input"
+                  value={campaign.name}
+                  onChange={(event) => onUpdate(index, 'name', event.target.value)}
+                />
+              </Field>
+              <Field label="Тип">
+                <select
+                  className="er-input"
+                  value={campaign.ctype}
+                  onChange={(event) => onUpdate(index, 'ctype', event.target.value)}
+                >
+                  <option value="Clicks">Clicks</option>
+                  <option value="Leads">Leads</option>
+                </select>
+              </Field>
+              <Field label="Spend €">
+                <NumberInput
+                  value={campaign.spendEur}
+                  onChange={(value) => onUpdate(index, 'spendEur', value)}
+                />
+              </Field>
+              <Field label="Result">
+                <NumberInput
+                  value={campaign.result}
+                  onChange={(value) => onUpdate(index, 'result', value)}
+                />
+              </Field>
+              <Field label="Clicks">
+                <NumberInput
+                  value={campaign.clicks}
+                  onChange={(value) => onUpdate(index, 'clicks', value)}
+                />
+              </Field>
+              <Field label="Impressions">
+                <NumberInput
+                  value={campaign.impressions}
+                  onChange={(value) => onUpdate(index, 'impressions', value)}
+                />
+              </Field>
+            </div>
+            <div className="er-campaign-meta">
+              <span>CPC {formatEur(campaignMetrics.cpc)}</span>
+              <span>CTR {formatPercent(campaignMetrics.ctr)}</span>
+              <span>CPA {formatEur(campaignMetrics.cpa)}</span>
+              {campaigns.length > 1 ? (
+                <button
+                  type="button"
+                  className="er-remove-campaign"
+                  onClick={() => onRemove(index)}
+                >
+                  <Trash2 className="er-trash-icon" />
+                  Видалити
+                </button>
+              ) : null}
+            </div>
+          </div>
+        )
+      })}
+      <button type="button" className="er-link-button" onClick={onAdd}>
+        <Plus className="er-link-icon" />
+        Додати кампанію
+      </button>
+    </section>
+  )
+}
+
+function ResourcesEditor({ resources, onAdd, onRemove, onUpdate }) {
+  return (
+    <div className="er-resource-editor">
+      {resources.map((resource, index) => (
+        <div className="er-resource-row" key={`resource-${index}`}>
+          <Field label="Назва">
+            <input
+              className="er-input"
+              value={resource.name}
+              onChange={(event) => onUpdate(index, 'name', event.target.value)}
+            />
+          </Field>
+          <Field label="Посилання">
+            <input
+              className="er-input"
+              value={resource.url}
+              onChange={(event) => onUpdate(index, 'url', event.target.value)}
+              placeholder="https://"
+            />
+          </Field>
+          {resources.length > 1 ? (
+            <button
+              type="button"
+              className="er-icon-button er-resource-remove"
+              onClick={() => onRemove(index)}
+              aria-label="Видалити ресурс"
+            >
+              <Trash2 className="er-trash-icon" />
+            </button>
+          ) : null}
+        </div>
+      ))}
+      <button type="button" className="er-link-button" onClick={onAdd}>
+        <Plus className="er-link-icon" />
+        Додати ресурс
+      </button>
+    </div>
+  )
+}
+
 function ReportDetail({ report, onClose }) {
-  const metrics = useMemo(() => compute(report), [report])
-  const isPartnership = report.type === 'partnership'
+  const normalized = useMemo(() => normalizeReportInput(report), [report])
+  const metrics = useMemo(() => compute(normalized), [normalized])
   const insights = Array.isArray(report.aiInsights) ? report.aiInsights : []
 
   function handleOverlayClick(event) {
@@ -680,10 +1093,10 @@ function ReportDetail({ report, onClose }) {
         <div className="er-modal-head">
           <div className="er-detail-title-group">
             <div className="er-detail-meta">
-              <ReportTypeTag type={report.type} />
-              <span>{formatReportDate(report.date)}</span>
+              <ReportTypeTag type={normalized.type} />
+              <span>{formatReportDateRange(normalized)}</span>
             </div>
-            <h2>{report.name || 'Без назви'}</h2>
+            <h2>{normalized.name || 'Без назви'}</h2>
           </div>
           <button
             type="button"
@@ -702,44 +1115,14 @@ function ReportDetail({ report, onClose }) {
               <CodeBadge />
             </div>
             <div className="er-detail-metric-grid">
-              {isPartnership ? (
-                <>
-                  <DetailMetric label="Бюджет" value={formatUsd(metrics.totalBudget)} />
-                  <DetailMetric label="CPC" value={formatUsd(metrics.cpc)} />
-                  <DetailMetric label="CPL" value={formatUsd(metrics.cpl)} />
-                  <DetailMetric label="CPV" value={formatUsd(metrics.cpv)} />
-                  <DetailMetric
-                    label="Перегляди"
-                    value={formatCompact(metrics.partnershipViews)}
-                  />
-                  <DetailMetric
-                    label="Кліки"
-                    value={formatWhole(metrics.partnershipClicks)}
-                  />
-                  <DetailMetric
-                    label="Ліди"
-                    value={formatWhole(metrics.partnershipLeads)}
-                  />
-                </>
-              ) : (
-                <>
-                  <DetailMetric label="Бюджет" value={formatUsd(metrics.totalBudget)} />
-                  <DetailMetric label="Funnel" value={formatWhole(metrics.funnel)} />
-                  <DetailMetric label="Прийшло" value={formatWhole(metrics.attended)} />
-                  <DetailMetric
-                    label="Без команди"
-                    value={formatWhole(metrics.attendedNoTeam)}
-                  />
-                  <DetailMetric label="CPA" value={formatUsd(metrics.cpa)} />
-                  <DetailMetric label="CPL" value={formatUsd(metrics.cpl)} />
-                  <DetailMetric label="CPL без команди" value={formatUsd(metrics.cplNoTeam)} />
-                  <DetailMetric
-                    label="План/факт"
-                    value={formatPlanDelta(metrics.planDelta, metrics.planPct)}
-                    tone={metrics.planDelta >= 0 ? 'good' : 'warn'}
-                  />
-                </>
-              )}
+              {detailMetricItems(normalized, metrics).map((item) => (
+                <DetailMetric
+                  label={item.label}
+                  value={item.value}
+                  tone={item.tone}
+                  key={item.label}
+                />
+              ))}
             </div>
           </section>
 
@@ -770,36 +1153,34 @@ function ReportDetail({ report, onClose }) {
                 )}
               </div>
               <div>
-                <h4>План/факт</h4>
+                <h4>{normalized.type === 'launch' ? 'Результат vs ціль' : 'Розбір'}</h4>
                 <p className={report.aiPlanFact ? '' : 'er-ai-placeholder'}>
-                  {report.aiPlanFact || 'Короткий розбір план/факт поки порожній.'}
+                  {report.aiPlanFact || 'Короткий розбір поки порожній.'}
                 </p>
               </div>
             </div>
           </section>
 
-          <section className="er-detail-section">
-            <div className="er-detail-section-head">
-              <h3>Промо-кампанії</h3>
-              <span className="er-mini-badge">€ · auto</span>
-            </div>
-            <CampaignsTable campaigns={metrics.campaigns} />
-          </section>
+          {normalized.campaigns.length ? (
+            <section className="er-detail-section">
+              <div className="er-detail-section-head">
+                <h3>Промо-кампанії</h3>
+                <span className="er-mini-badge">€ · auto</span>
+              </div>
+              <CampaignsTable campaigns={metrics.campaigns} />
+            </section>
+          ) : null}
+
+          {normalized.type === 'launch' ? (
+            <LaunchDetailBlocks report={normalized} metrics={metrics} />
+          ) : null}
 
           <section className="er-detail-info-grid">
-            <InfoCard title="Опис" text={report.description} />
-            <InfoCard title="Ціль" text={report.goalText} />
-            <InfoCard
-              title="Медіа"
-              text={`${formatWhole(report.publications)} публікацій · ${formatWhole(
-                report.mediaMentions,
-              )} проявів · ${formatCompact(report.totalReach)} охоплення · ${
-                report.sentiment || 'Нейтральна'
-              }`}
-            />
-            <InfoCard title="Залученість" text={report.engagement} />
-            <InfoCard title="Фідбек" text={report.feedback} />
-            <InfoCard title="Нотатки/ретро" text={report.notes} />
+            <InfoCard title="Опис" text={normalized.description} />
+            <InfoCard title="Ціль" text={normalized.goalText} />
+            {infoCardsForType(normalized, metrics).map((item) => (
+              <InfoCard title={item.title} text={item.text} key={item.title} />
+            ))}
           </section>
         </div>
       </div>
@@ -807,21 +1188,135 @@ function ReportDetail({ report, onClose }) {
   )
 }
 
-function MetricsPreview({ type, metrics }) {
-  const items =
-    type === 'partnership'
-      ? [
-          ['Бюджет', formatUsd(metrics.totalBudget)],
-          ['CPC', formatUsd(metrics.cpc)],
-          ['CPL', formatUsd(metrics.cpl)],
-          ['Кліки', formatWhole(metrics.partnershipClicks)],
-        ]
-      : [
-          ['Бюджет', formatUsd(metrics.totalBudget)],
-          ['CPA', formatUsd(metrics.cpa)],
-          ['CPL', formatUsd(metrics.cpl)],
-          ['CPL без команди', formatUsd(metrics.cplNoTeam)],
-        ]
+function detailMetricItems(report, metrics) {
+  if (report.type === 'partnership') {
+    return [
+      { label: 'Вартість', value: formatUsd(metrics.totalBudget) },
+      { label: 'CPV', value: formatUsd(metrics.cpv) },
+      { label: 'CPC', value: formatUsd(metrics.cpc) },
+      { label: 'Наймів', value: report.hireEnabled ? formatWhole(metrics.hireCount) : '—' },
+      { label: 'Випусків', value: formatWhole(metrics.episodes) },
+      { label: 'Перегляди', value: formatCompact(metrics.views) },
+      { label: 'Кліки', value: formatWhole(metrics.clicks) },
+      {
+        label: 'Вартість за найм',
+        value: metrics.hireCount ? formatUsd(metrics.costPerHire) : '—',
+      },
+    ]
+  }
+
+  if (report.type === 'launch') {
+    return [
+      { label: 'Бюджет', value: formatUsd(metrics.totalBudget) },
+      { label: 'CPC', value: formatUsd(metrics.cpc) },
+      { label: 'CPV', value: formatUsd(metrics.cpv) },
+      { label: 'Охоплення', value: formatCompact(metrics.reachTotal) },
+      { label: 'Universe соц.', value: formatCompact(metrics.reachUniverse) },
+      { label: 'C-level соц.', value: formatCompact(metrics.reachClevel) },
+      { label: 'Кліки', value: formatWhole(metrics.linkClicks) },
+      { label: 'Згадки', value: formatWhole(metrics.mediaMentions) },
+    ]
+  }
+
+  return [
+    { label: 'Бюджет', value: formatUsd(metrics.totalBudget) },
+    { label: 'Funnel', value: formatWhole(metrics.funnel) },
+    { label: 'Прийшло', value: formatWhole(metrics.attended) },
+    { label: 'Без команди', value: formatWhole(metrics.attendedNoTeam) },
+    { label: 'CPA', value: formatUsd(metrics.cpa) },
+    { label: 'CPL', value: formatUsd(metrics.cpl) },
+    { label: 'CPL без команди', value: formatUsd(metrics.cplNoTeam) },
+    { label: 'Згадки', value: formatWhole(metrics.mediaMentions) },
+  ]
+}
+
+function infoCardsForType(report) {
+  if (report.type === 'partnership') {
+    return [
+      { title: 'Медіа', text: `${formatWhole(report.mediaMentions)} згадок` },
+    ]
+  }
+
+  if (report.type === 'launch') {
+    return [
+      {
+        title: 'Результат для продукту',
+        text: [
+          report.productResultType,
+          report.productResultValue ? formatWhole(report.productResultValue) : '',
+          report.productResultNote,
+        ].filter(Boolean).join(' · '),
+      },
+    ]
+  }
+
+  return [
+    { title: 'Медіа', text: `${formatWhole(report.mediaMentions)} згадок` },
+    { title: 'Канали залучення', text: report.channels },
+    { title: 'Залученість', text: report.engagement },
+    { title: 'Фідбек', text: report.feedback },
+    { title: 'Нотатки/ретро', text: report.notes },
+  ]
+}
+
+function LaunchDetailBlocks({ report, metrics }) {
+  return (
+    <>
+      <section className="er-detail-section">
+        <div className="er-detail-section-head">
+          <h3>Бюджет лончу</h3>
+          <CodeBadge />
+        </div>
+        <div className="er-detail-info-grid">
+          <InfoCard title="Авто-сума" text={formatUsd(metrics.budgetAuto)} />
+          <InfoCard title="Ефективний бюджет" text={formatUsd(metrics.effectiveBudget)} />
+          <InfoCard title="Промо у $" text={formatUsd(metrics.campaignSpendUsd)} />
+          <InfoCard title="Інші витрати" text={formatUsd(metrics.otherSpendUsd)} />
+        </div>
+      </section>
+
+      {report.tgEnabled ? (
+        <section className="er-detail-section">
+          <div className="er-detail-section-head">
+            <h3>Платні ТГ-блогери</h3>
+          </div>
+          <div className="er-detail-info-grid">
+            <InfoCard title="Каналів" text={formatWhole(report.tgChannels)} />
+            <InfoCard title="Вартість" text={formatUsd(report.tgCost)} />
+            <InfoCard title="Охоплення / перегляди" text={formatCompact(report.tgReach)} />
+            <InfoCard title="Публікацій" text={formatWhole(report.tgPosts)} />
+            <InfoCard title="Список каналів" text={report.tgChannelList} />
+          </div>
+        </section>
+      ) : null}
+
+      {report.resources.length ? (
+        <section className="er-detail-section">
+          <div className="er-detail-section-head">
+            <h3>Ресурси з новиною</h3>
+          </div>
+          <ul className="er-resource-list">
+            {report.resources.map((resource) => (
+              <li key={`${resource.name}-${resource.url}`}>
+                {resource.url ? (
+                  <a href={resource.url} target="_blank" rel="noreferrer">
+                    <span>{resource.name || resource.url}</span>
+                    <ExternalLink className="er-link-icon" />
+                  </a>
+                ) : (
+                  <span>{resource.name}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </>
+  )
+}
+
+function MetricsPreview({ report, metrics }) {
+  const items = previewMetricItems(report, metrics)
 
   return (
     <section className="er-preview">
@@ -839,6 +1334,33 @@ function MetricsPreview({ type, metrics }) {
       </div>
     </section>
   )
+}
+
+function previewMetricItems(report, metrics) {
+  if (report.type === 'partnership') {
+    return [
+      ['Вартість', formatUsd(metrics.totalBudget)],
+      ['CPV', formatUsd(metrics.cpv)],
+      ['CPC', formatUsd(metrics.cpc)],
+      ['Наймів', report.hireEnabled ? formatWhole(metrics.hireCount) : '—'],
+    ]
+  }
+
+  if (report.type === 'launch') {
+    return [
+      ['Бюджет', formatUsd(metrics.totalBudget)],
+      ['CPC', formatUsd(metrics.cpc)],
+      ['CPV', formatUsd(metrics.cpv)],
+      ['Охоплення', formatCompact(metrics.reachTotal)],
+    ]
+  }
+
+  return [
+    ['Бюджет', formatUsd(metrics.totalBudget)],
+    ['CPA', formatUsd(metrics.cpa)],
+    ['CPL', formatUsd(metrics.cpl)],
+    ['CPL без команди', formatUsd(metrics.cplNoTeam)],
+  ]
 }
 
 function CampaignsTable({ campaigns }) {
@@ -889,6 +1411,19 @@ function CampaignsTable({ campaigns }) {
         </tbody>
       </table>
     </div>
+  )
+}
+
+function DisclosureToggle({ checked, label, onChange }) {
+  return (
+    <label className="er-checkbox-row">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span>{label}</span>
+    </label>
   )
 }
 
@@ -943,10 +1478,9 @@ function InfoCard({ title, text }) {
 }
 
 function ReportTypeTag({ type }) {
-  const isPartnership = type === 'partnership'
   return (
-    <span className={`er-type-tag ${isPartnership ? 'er-type-partnership' : ''}`}>
-      {isPartnership ? 'Партнерство' : 'Івент'}
+    <span className={`er-type-tag er-type-${type}`}>
+      {TYPE_LABELS[type] || TYPE_LABELS.event}
     </span>
   )
 }
@@ -967,4 +1501,12 @@ function AiBadge() {
       Згенеровано AI
     </span>
   )
+}
+
+function numberInputValue(value) {
+  const number = Number(value || 0)
+  if (!Number.isFinite(number)) return ''
+  return Number.isInteger(number)
+    ? String(number)
+    : String(Math.round(number * 100) / 100)
 }

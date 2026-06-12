@@ -1,7 +1,6 @@
 export const FX_EUR_USD = 1.08
 
-export const REPORT_TYPES = ['event', 'partnership']
-export const SENTIMENTS = ['Позитивна', 'Нейтральна', 'Змішана', 'Негативна']
+export const REPORT_TYPES = ['event', 'partnership', 'launch']
 
 const integerFormatter = new Intl.NumberFormat('uk-UA', {
   maximumFractionDigits: 0,
@@ -20,6 +19,12 @@ export function toReportNumber(value) {
   return Number.isFinite(number) ? number : 0
 }
 
+export function toNullableReportNumber(value) {
+  if (value === '' || value === null || value === undefined) return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
 export function normalizeCampaign(campaign = {}) {
   return {
     name: String(campaign.name || '').trim(),
@@ -32,40 +37,86 @@ export function normalizeCampaign(campaign = {}) {
   }
 }
 
+export function normalizeResource(resource = {}) {
+  return {
+    name: String(resource.name || '').trim(),
+    url: String(resource.url || '').trim(),
+  }
+}
+
+export function defaultDateMode(type) {
+  return type === 'event' ? 'single' : 'period'
+}
+
 export function normalizeReportInput(report = {}) {
-  const type = report.type === 'partnership' ? 'partnership' : 'event'
-  const sentiment = SENTIMENTS.includes(report.sentiment)
-    ? report.sentiment
-    : 'Нейтральна'
+  const type = REPORT_TYPES.includes(report.type) ? report.type : 'event'
+  const isEvent = type === 'event'
+  const isPartnership = type === 'partnership'
+  const isLaunch = type === 'launch'
+  const dateMode = report.dateMode === 'single' || report.dateMode === 'period'
+    ? report.dateMode
+    : defaultDateMode(type)
+  const promoEnabled =
+    isLaunch ? Boolean(report.promoEnabled) : isEvent
+  const tgEnabled = isLaunch ? Boolean(report.tgEnabled) : false
+  const hireEnabled = isPartnership ? Boolean(report.hireEnabled) : false
+  const partnershipViews = report.views ?? report.partnershipViews
+  const partnershipClicks = report.clicks ?? report.partnershipClicks
+  const campaigns = Array.isArray(report.campaigns)
+    ? report.campaigns.map(normalizeCampaign)
+    : []
 
   return {
     type,
+    dateMode,
     name: String(report.name || '').trim(),
     date: String(report.date || ''),
+    dateStart: String(report.dateStart || ''),
+    dateEnd: String(report.dateEnd || ''),
     description: String(report.description || '').trim(),
     goalText: String(report.goalText || '').trim(),
-    planAttendees: toReportNumber(report.planAttendees),
-    leadsGoogle: toReportNumber(report.leadsGoogle),
-    leadsMeta: toReportNumber(report.leadsMeta),
-    confirmed: toReportNumber(report.confirmed),
-    attended: toReportNumber(report.attended),
-    teamCount: toReportNumber(report.teamCount),
-    partnershipCost: toReportNumber(report.partnershipCost),
-    partnershipClicks: toReportNumber(report.partnershipClicks),
-    partnershipLeads: toReportNumber(report.partnershipLeads),
-    partnershipViews: toReportNumber(report.partnershipViews),
-    campaigns: Array.isArray(report.campaigns)
-      ? report.campaigns.map(normalizeCampaign)
-      : [],
-    promoSpendUsd: toReportNumber(report.promoSpendUsd),
-    orgSpendUsd: toReportNumber(report.orgSpendUsd),
-    publications: toReportNumber(report.publications),
+
+    leadsGoogle: isEvent ? toReportNumber(report.leadsGoogle) : 0,
+    leadsMeta: isEvent ? toReportNumber(report.leadsMeta) : 0,
+    confirmed: isEvent ? toReportNumber(report.confirmed) : 0,
+    attended: isEvent ? toReportNumber(report.attended) : 0,
+    teamCount: isEvent ? toReportNumber(report.teamCount) : 0,
+    promoSpendUsd: isEvent ? toReportNumber(report.promoSpendUsd) : 0,
+    orgSpendUsd: isEvent ? toReportNumber(report.orgSpendUsd) : 0,
+    channels: isEvent ? String(report.channels || '').trim() : '',
+    engagement: isEvent ? String(report.engagement || '').trim() : '',
+    feedback: isEvent ? String(report.feedback || '').trim() : '',
+    notes: isEvent ? String(report.notes || '').trim() : '',
+
+    partnershipCost: isPartnership ? toReportNumber(report.partnershipCost) : 0,
+    episodes: isPartnership ? toReportNumber(report.episodes) : 0,
+    views: isPartnership ? toReportNumber(partnershipViews) : 0,
+    clicks: isPartnership ? toReportNumber(partnershipClicks) : 0,
+    hireEnabled,
+    hireCount: hireEnabled ? toReportNumber(report.hireCount) : 0,
+
+    promoEnabled,
+    campaigns: promoEnabled ? campaigns : [],
+    reachTotal: isLaunch ? toReportNumber(report.reachTotal ?? report.totalReach) : 0,
     mediaMentions: toReportNumber(report.mediaMentions),
-    totalReach: toReportNumber(report.totalReach),
-    sentiment,
-    engagement: String(report.engagement || '').trim(),
-    feedback: String(report.feedback || '').trim(),
-    notes: String(report.notes || '').trim(),
+    reachUniverse: isLaunch ? toReportNumber(report.reachUniverse) : 0,
+    reachClevel: isLaunch ? toReportNumber(report.reachClevel) : 0,
+    linkClicks: isLaunch ? toReportNumber(report.linkClicks) : 0,
+    productResultType: isLaunch ? String(report.productResultType || '').trim() : '',
+    productResultValue: isLaunch ? toReportNumber(report.productResultValue) : 0,
+    productResultNote: isLaunch ? String(report.productResultNote || '').trim() : '',
+    tgEnabled,
+    tgChannels: tgEnabled ? toReportNumber(report.tgChannels) : 0,
+    tgCost: tgEnabled ? toReportNumber(report.tgCost) : 0,
+    tgReach: tgEnabled ? toReportNumber(report.tgReach) : 0,
+    tgPosts: tgEnabled ? toReportNumber(report.tgPosts) : 0,
+    tgChannelList: tgEnabled ? String(report.tgChannelList || '').trim() : '',
+    otherSpendUsd: isLaunch ? toReportNumber(report.otherSpendUsd) : 0,
+    budgetOverride: isLaunch ? toNullableReportNumber(report.budgetOverride) : null,
+    resources: isLaunch && Array.isArray(report.resources)
+      ? report.resources.map(normalizeResource).filter((item) => item.name || item.url)
+      : [],
+
     aiSummary: String(report.aiSummary || ''),
     aiInsights: Array.isArray(report.aiInsights)
       ? report.aiInsights.map((item) => String(item || '').trim()).filter(Boolean)
@@ -85,29 +136,58 @@ export function compute(report = {}) {
   const campaignTotals = campaigns.reduce(
     (totals, campaign) => ({
       spendEur: totals.spendEur + campaign.spendEur,
+      spendUsd: totals.spendUsd + campaign.spendEur * FX_EUR_USD,
       result: totals.result + campaign.result,
       clicks: totals.clicks + campaign.clicks,
       impressions: totals.impressions + campaign.impressions,
       reach: totals.reach + campaign.reach,
     }),
-    { spendEur: 0, result: 0, clicks: 0, impressions: 0, reach: 0 },
+    { spendEur: 0, spendUsd: 0, result: 0, clicks: 0, impressions: 0, reach: 0 },
   )
 
   if (normalized.type === 'partnership') {
-    const totalBudget =
-      normalized.partnershipCost ||
-      normalized.promoSpendUsd + normalized.orgSpendUsd
+    const totalBudget = normalized.partnershipCost
 
     return {
       type: normalized.type,
       totalBudget,
       partnershipCost: normalized.partnershipCost,
-      partnershipClicks: normalized.partnershipClicks,
-      partnershipLeads: normalized.partnershipLeads,
-      partnershipViews: normalized.partnershipViews,
-      cpc: safeDiv(normalized.partnershipCost, normalized.partnershipClicks),
-      cpl: safeDiv(normalized.partnershipCost, normalized.partnershipLeads),
-      cpv: safeDiv(normalized.partnershipCost, normalized.partnershipViews),
+      episodes: normalized.episodes,
+      views: normalized.views,
+      clicks: normalized.clicks,
+      hireEnabled: normalized.hireEnabled,
+      hireCount: normalized.hireCount,
+      mediaMentions: normalized.mediaMentions,
+      cpv: safeDiv(totalBudget, normalized.views),
+      cpc: safeDiv(totalBudget, normalized.clicks),
+      costPerHire: normalized.hireCount ? safeDiv(totalBudget, normalized.hireCount) : 0,
+      campaigns: [],
+      campaignTotals,
+    }
+  }
+
+  if (normalized.type === 'launch') {
+    const budgetAuto =
+      campaignTotals.spendUsd + normalized.tgCost + normalized.otherSpendUsd
+    const effectiveBudget = normalized.budgetOverride ?? budgetAuto
+
+    return {
+      type: normalized.type,
+      totalBudget: effectiveBudget,
+      budgetAuto,
+      budgetOverride: normalized.budgetOverride,
+      effectiveBudget,
+      campaignSpendUsd: campaignTotals.spendUsd,
+      tgCost: normalized.tgCost,
+      otherSpendUsd: normalized.otherSpendUsd,
+      reachTotal: normalized.reachTotal,
+      reachUniverse: normalized.reachUniverse,
+      reachClevel: normalized.reachClevel,
+      mediaMentions: normalized.mediaMentions,
+      linkClicks: normalized.linkClicks,
+      productResultValue: normalized.productResultValue,
+      cpc: safeDiv(effectiveBudget, normalized.linkClicks),
+      cpv: safeDiv(effectiveBudget, normalized.reachTotal),
       campaigns,
       campaignTotals,
     }
@@ -116,10 +196,6 @@ export function compute(report = {}) {
   const totalBudget = normalized.promoSpendUsd + normalized.orgSpendUsd
   const funnel = normalized.leadsGoogle + normalized.leadsMeta
   const attendedNoTeam = Math.max(normalized.attended - normalized.teamCount, 0)
-  const planDelta = normalized.attended - normalized.planAttendees
-  const planPct = normalized.planAttendees
-    ? (planDelta / normalized.planAttendees) * 100
-    : null
 
   return {
     type: normalized.type,
@@ -129,14 +205,12 @@ export function compute(report = {}) {
     cpa: safeDiv(totalBudget, funnel),
     cpl: safeDiv(totalBudget, normalized.attended),
     cplNoTeam: safeDiv(totalBudget, attendedNoTeam),
-    planDelta,
-    planPct,
-    planAttendees: normalized.planAttendees,
     leadsGoogle: normalized.leadsGoogle,
     leadsMeta: normalized.leadsMeta,
     confirmed: normalized.confirmed,
     attended: normalized.attended,
     teamCount: normalized.teamCount,
+    mediaMentions: normalized.mediaMentions,
     campaigns,
     campaignTotals,
   }
@@ -144,62 +218,73 @@ export function compute(report = {}) {
 
 export function buildReportFacts(report, metrics = compute(report)) {
   const normalized = normalizeReportInput(report)
-  const facts = {
+  const common = {
     type: normalized.type,
     name: normalized.name,
+    dateMode: normalized.dateMode,
     date: normalized.date,
+    dateStart: normalized.dateStart,
+    dateEnd: normalized.dateEnd,
+    displayDate: formatReportDateRange(normalized),
     description: normalized.description,
     goalText: normalized.goalText,
-    budget: {
-      totalBudgetUsd: metrics.totalBudget,
-      promoSpendUsd: normalized.promoSpendUsd,
-      orgSpendUsd: normalized.orgSpendUsd,
-      fxEurUsd: FX_EUR_USD,
-    },
-    campaigns: metrics.campaigns.map((campaign) => ({
-      name: campaign.name,
-      ctype: campaign.ctype,
-      spendEur: campaign.spendEur,
-      result: campaign.result,
-      clicks: campaign.clicks,
-      impressions: campaign.impressions,
-      reach: campaign.reach,
-      cpaEur: campaign.cpa,
-      cpcEur: campaign.cpc,
-      ctrPct: campaign.ctr,
-    })),
-    media: {
-      publications: normalized.publications,
-      mediaMentions: normalized.mediaMentions,
-      totalReach: normalized.totalReach,
-      sentiment: normalized.sentiment,
-      engagement: normalized.engagement,
-    },
-    qualitative: {
-      feedback: normalized.feedback,
-      notes: normalized.notes,
-    },
+    mediaMentions: normalized.mediaMentions,
   }
 
   if (normalized.type === 'partnership') {
     return {
-      ...facts,
+      ...common,
       partnership: {
-        partnershipCostUsd: normalized.partnershipCost,
-        views: normalized.partnershipViews,
-        clicks: normalized.partnershipClicks,
-        leads: normalized.partnershipLeads,
-        cpcUsd: metrics.cpc,
-        cplUsd: metrics.cpl,
+        costUsd: normalized.partnershipCost,
+        views: normalized.views,
+        clicks: normalized.clicks,
+        episodes: normalized.episodes,
+        hireEnabled: normalized.hireEnabled,
+        hireCount: normalized.hireCount,
         cpvUsd: metrics.cpv,
+        cpcUsd: metrics.cpc,
+        costPerHireUsd: metrics.costPerHire,
+      },
+    }
+  }
+
+  if (normalized.type === 'launch') {
+    return {
+      ...common,
+      launch: {
+        budgetAutoUsd: metrics.budgetAuto,
+        budgetOverrideUsd: normalized.budgetOverride,
+        effectiveBudgetUsd: metrics.effectiveBudget,
+        cpcUsd: metrics.cpc,
+        cpvUsd: metrics.cpv,
+        reachTotal: normalized.reachTotal,
+        reachUniverse: normalized.reachUniverse,
+        reachClevel: normalized.reachClevel,
+        linkClicks: normalized.linkClicks,
+        productResultType: normalized.productResultType,
+        productResultValue: normalized.productResultValue,
+        productResultNote: normalized.productResultNote,
+        campaigns: metrics.campaigns.map(campaignFact),
+        telegram: normalized.tgEnabled
+          ? {
+              channels: normalized.tgChannels,
+              costUsd: normalized.tgCost,
+              reach: normalized.tgReach,
+              posts: normalized.tgPosts,
+              channelList: normalized.tgChannelList,
+            }
+          : null,
+        resources: normalized.resources,
       },
     }
   }
 
   return {
-    ...facts,
+    ...common,
     event: {
-      planAttendees: normalized.planAttendees,
+      totalBudgetUsd: metrics.totalBudget,
+      promoSpendUsd: normalized.promoSpendUsd,
+      orgSpendUsd: normalized.orgSpendUsd,
       leadsGoogle: normalized.leadsGoogle,
       leadsMeta: normalized.leadsMeta,
       funnel: metrics.funnel,
@@ -210,9 +295,30 @@ export function buildReportFacts(report, metrics = compute(report)) {
       cpaUsd: metrics.cpa,
       cplUsd: metrics.cpl,
       cplNoTeamUsd: metrics.cplNoTeam,
-      planDelta: metrics.planDelta,
-      planPct: metrics.planPct,
+      channels: normalized.channels,
+      engagement: normalized.engagement,
+      campaigns: metrics.campaigns.map(campaignFact),
     },
+    qualitative: {
+      feedback: normalized.feedback,
+      notes: normalized.notes,
+    },
+  }
+}
+
+function campaignFact(campaign) {
+  return {
+    name: campaign.name,
+    ctype: campaign.ctype,
+    spendEur: campaign.spendEur,
+    spendUsd: campaign.spendEur * FX_EUR_USD,
+    result: campaign.result,
+    clicks: campaign.clicks,
+    impressions: campaign.impressions,
+    reach: campaign.reach,
+    cpaEur: campaign.cpa,
+    cpcEur: campaign.cpc,
+    ctrPct: campaign.ctr,
   }
 }
 
@@ -262,10 +368,23 @@ export function formatReportDate(value) {
   }).format(date)
 }
 
-export function formatPlanDelta(delta, pct) {
-  const sign = delta > 0 ? '+' : ''
-  const percent = pct === null || pct === undefined ? '' : ` (${formatPercent(pct, 0)})`
-  return `${sign}${formatWhole(delta)}${percent}`
+export function formatReportDateRange(report = {}) {
+  const normalized = normalizeReportInput(report)
+  if (normalized.dateMode !== 'period') return formatReportDate(normalized.date)
+
+  const start = formatCompactDate(normalized.dateStart)
+  const end = formatCompactDate(normalized.dateEnd)
+  if (start && end) return `${start}–${end}`
+  return start || end || '—'
+}
+
+function formatCompactDate(value) {
+  if (!value) return ''
+  const date = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return value
+  const day = String(date.getDate()).padStart(2, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  return `${day}.${month}`
 }
 
 function formatShort(value) {

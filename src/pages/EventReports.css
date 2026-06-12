@@ -126,7 +126,7 @@
 }
 
 .er-table {
-  min-width: 880px;
+  min-width: 980px;
   width: 100%;
   border-collapse: collapse;
   text-align: left;
@@ -204,9 +204,19 @@
   line-height: 1.3;
 }
 
+.er-type-event {
+  background: var(--er-accent-soft);
+  color: var(--er-accent-d);
+}
+
 .er-type-partnership {
   background: #f0eefb;
   color: #6d5bd0;
+}
+
+.er-type-launch {
+  background: var(--er-good-soft);
+  color: var(--er-good);
 }
 
 .er-empty-state,
@@ -399,6 +409,16 @@
   box-shadow: 0 1px 4px rgba(20, 21, 25, 0.08);
 }
 
+.er-segmented-compact {
+  width: max-content;
+  margin-bottom: 0;
+}
+
+.er-segmented-compact button {
+  padding: 7px 12px;
+  font-size: 12px;
+}
+
 .er-form-section {
   margin-bottom: 24px;
 }
@@ -455,6 +475,19 @@
   font-weight: 500;
 }
 
+.er-date-mode {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.er-date-mode > span {
+  margin-bottom: 5px;
+  color: var(--er-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
 .er-input {
   width: 100%;
   border: 1px solid var(--er-line);
@@ -482,6 +515,37 @@ textarea.er-input {
 
 .er-number-input {
   font-variant-numeric: tabular-nums;
+}
+
+.er-checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  color: var(--er-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.er-checkbox-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--er-accent);
+}
+
+.er-disclosure-body {
+  margin-top: 12px;
+}
+
+.er-budget-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  color: var(--er-muted);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .er-campaign-card {
@@ -531,6 +595,46 @@ textarea.er-input {
   color: var(--er-accent);
   font-size: 13px;
   font-weight: 600;
+}
+
+.er-icon-button {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: #f4f4f6;
+  color: var(--er-muted);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.er-icon-button:not(:disabled):hover {
+  background: #ececf0;
+  color: var(--er-warn);
+}
+
+.er-resource-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.er-resource-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.9fr) minmax(180px, 1.2fr) 36px;
+  align-items: end;
+  gap: 8px;
+  border: 1px solid var(--er-line);
+  border-radius: 11px;
+  background: var(--er-card-soft);
+  padding: 12px;
+}
+
+.er-resource-remove {
+  margin-bottom: 1px;
 }
 
 .er-mini-badge,
@@ -790,6 +894,25 @@ textarea.er-input {
   padding: 14px;
 }
 
+.er-resource-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.er-resource-list a,
+.er-resource-list span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--er-accent);
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 @keyframes erModalIn {
   from {
     opacity: 0;
@@ -830,6 +953,10 @@ textarea.er-input {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .er-resource-row {
+    grid-template-columns: 1fr;
+  }
+
   .er-ai-grid,
   .er-detail-info-grid {
     grid-template-columns: 1fr;
@@ -842,10 +969,11 @@ textarea.er-input {
   }
 
   .er-form-grid-2,
-  .er-form-grid-3,
-  .er-preview-grid,
-  .er-detail-metric-grid,
-  .er-campaign-grid {
+    .er-form-grid-3,
+    .er-preview-grid,
+    .er-detail-metric-grid,
+    .er-campaign-grid,
+    .er-resource-row {
     grid-template-columns: 1fr;
   }
 

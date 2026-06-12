@@ -3138,47 +3138,79 @@ function normalizeStoredEventReport(report) {
 }
 
 function normalizeEventReportPayload(report = {}) {
-  const type = report.type === 'partnership' ? 'partnership' : 'event'
-  const sentiment = ['Позитивна', 'Нейтральна', 'Змішана', 'Негативна'].includes(
-    report.sentiment,
-  )
-    ? report.sentiment
-    : 'Нейтральна'
+  const type = ['event', 'partnership', 'launch'].includes(report.type) ? report.type : 'event'
+  const isEvent = type === 'event'
+  const isPartnership = type === 'partnership'
+  const isLaunch = type === 'launch'
+  const dateMode =
+    report.dateMode === 'single' || report.dateMode === 'period'
+      ? report.dateMode
+      : eventReportDefaultDateMode(type)
+  const promoEnabled = isLaunch ? booleanValue(report.promoEnabled) : isEvent
+  const tgEnabled = isLaunch ? booleanValue(report.tgEnabled) : false
+  const hireEnabled = isPartnership ? booleanValue(report.hireEnabled) : false
+  const rawViews = report.views ?? report.partnershipViews
+  const rawClicks = report.clicks ?? report.partnershipClicks
 
   return {
     type,
+    dateMode,
     name: textValue(report.name),
     date: textValue(report.date),
+    dateStart: textValue(report.dateStart),
+    dateEnd: textValue(report.dateEnd),
     description: textValue(report.description),
     goalText: textValue(report.goalText),
-    planAttendees: numberValue(report.planAttendees),
-    leadsGoogle: numberValue(report.leadsGoogle),
-    leadsMeta: numberValue(report.leadsMeta),
-    confirmed: numberValue(report.confirmed),
-    attended: numberValue(report.attended),
-    teamCount: numberValue(report.teamCount),
-    partnershipCost: numberValue(report.partnershipCost),
-    partnershipClicks: numberValue(report.partnershipClicks),
-    partnershipLeads: numberValue(report.partnershipLeads),
-    partnershipViews: numberValue(report.partnershipViews),
-    campaigns: Array.isArray(report.campaigns)
+    leadsGoogle: isEvent ? numberValue(report.leadsGoogle) : 0,
+    leadsMeta: isEvent ? numberValue(report.leadsMeta) : 0,
+    confirmed: isEvent ? numberValue(report.confirmed) : 0,
+    attended: isEvent ? numberValue(report.attended) : 0,
+    teamCount: isEvent ? numberValue(report.teamCount) : 0,
+    partnershipCost: isPartnership ? numberValue(report.partnershipCost) : 0,
+    episodes: isPartnership ? numberValue(report.episodes) : 0,
+    views: isPartnership ? numberValue(rawViews) : 0,
+    clicks: isPartnership ? numberValue(rawClicks) : 0,
+    hireEnabled,
+    hireCount: hireEnabled ? numberValue(report.hireCount) : 0,
+    promoEnabled,
+    campaigns: promoEnabled && Array.isArray(report.campaigns)
       ? report.campaigns.map(normalizeEventCampaign)
       : [],
-    promoSpendUsd: numberValue(report.promoSpendUsd),
-    orgSpendUsd: numberValue(report.orgSpendUsd),
-    publications: numberValue(report.publications),
+    promoSpendUsd: isEvent ? numberValue(report.promoSpendUsd) : 0,
+    orgSpendUsd: isEvent ? numberValue(report.orgSpendUsd) : 0,
     mediaMentions: numberValue(report.mediaMentions),
-    totalReach: numberValue(report.totalReach),
-    sentiment,
-    engagement: textValue(report.engagement),
-    feedback: textValue(report.feedback),
-    notes: textValue(report.notes),
+    channels: isEvent ? textValue(report.channels) : '',
+    engagement: isEvent ? textValue(report.engagement) : '',
+    reachTotal: isLaunch ? numberValue(report.reachTotal ?? report.totalReach) : 0,
+    reachUniverse: isLaunch ? numberValue(report.reachUniverse) : 0,
+    reachClevel: isLaunch ? numberValue(report.reachClevel) : 0,
+    linkClicks: isLaunch ? numberValue(report.linkClicks) : 0,
+    productResultType: isLaunch ? textValue(report.productResultType) : '',
+    productResultValue: isLaunch ? numberValue(report.productResultValue) : 0,
+    productResultNote: isLaunch ? textValue(report.productResultNote) : '',
+    tgEnabled,
+    tgChannels: tgEnabled ? numberValue(report.tgChannels) : 0,
+    tgCost: tgEnabled ? numberValue(report.tgCost) : 0,
+    tgReach: tgEnabled ? numberValue(report.tgReach) : 0,
+    tgPosts: tgEnabled ? numberValue(report.tgPosts) : 0,
+    tgChannelList: tgEnabled ? textValue(report.tgChannelList) : '',
+    otherSpendUsd: isLaunch ? numberValue(report.otherSpendUsd) : 0,
+    budgetOverride: isLaunch ? nullableNumberValue(report.budgetOverride) : null,
+    resources: isLaunch && Array.isArray(report.resources)
+      ? report.resources.map(normalizeEventResource).filter((resource) => resource.name || resource.url)
+      : [],
+    feedback: isEvent ? textValue(report.feedback) : '',
+    notes: isEvent ? textValue(report.notes) : '',
     aiSummary: textValue(report.aiSummary),
     aiInsights: Array.isArray(report.aiInsights)
       ? report.aiInsights.map(textValue).filter(Boolean)
       : [],
     aiPlanFact: textValue(report.aiPlanFact),
   }
+}
+
+function eventReportDefaultDateMode(type) {
+  return type === 'event' ? 'single' : 'period'
 }
 
 function normalizeEventCampaign(campaign = {}) {
@@ -3193,6 +3225,13 @@ function normalizeEventCampaign(campaign = {}) {
   }
 }
 
+function normalizeEventResource(resource = {}) {
+  return {
+    name: textValue(resource.name),
+    url: normalizeExternalUrl(resource.url),
+  }
+}
+
 function textValue(value) {
   return String(value || '').trim()
 }
@@ -3201,6 +3240,16 @@ function numberValue(value) {
   if (value === '' || value === null || value === undefined) return 0
   const number = Number(value)
   return Number.isFinite(number) ? number : 0
+}
+
+function nullableNumberValue(value) {
+  if (value === '' || value === null || value === undefined) return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+function booleanValue(value) {
+  return value === true || value === 'true' || value === 1 || value === '1'
 }
 
 async function generateEventReportAi(facts) {
@@ -3287,7 +3336,7 @@ function eventReportAiSystemPrompt() {
     'Ти senior Communications/PR аналітик. Пиши українською, стисло і business-facing.',
     'Критичне правило: не рахуй, не перераховуй і не вигадуй жодних чисел. Усі числові метрики вже пораховані кодом у facts. Використовуй числа тільки з facts або пропускай їх.',
     'Поверни тільки валідний JSON без markdown, пояснень чи code fence.',
-    'Схема відповіді: {"summary":"2-3 речення executive summary","insights":["4-6 коротких інсайтів"],"planFact":"1 короткий абзац про план/факт"}',
+    'Схема відповіді: {"summary":"2-3 речення executive summary","insights":["4-6 коротких інсайтів"],"planFact":"1 короткий абзац про результат відносно цілі/контексту"}',
     'Якщо даних мало, чесно напиши про обмеження даних без вигаданих висновків.',
   ].join('\n')
 }
