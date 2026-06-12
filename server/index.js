@@ -2523,28 +2523,7 @@ function normalizeLooqmeEntry(item, index) {
     ]),
   )
   const count = explicitCount || (isLooqmePublicationLike(item) ? 1 : 0)
-  const reach = parseReachNumber(
-    pickLooqmeValue(item, [
-      'reach',
-      'audience',
-      'potentialAudience',
-      'potentialReach',
-      'totalReach',
-      'totalAudience',
-      'views',
-      'views_count',
-      'impressions',
-      'visits',
-      'circulation',
-      'average_attendance',
-      'audience_edition',
-      'publication_place_subscribers_count',
-      'creators_subscribers_count',
-      'охоплення',
-      'аудиторія',
-      'перегляди',
-    ]),
-  )
+  const reach = pickLooqmeReach(item)
   const channel = normalizeLooqmeChannel(
     pickLooqmeValue(item, [
       'channel',
@@ -2835,7 +2814,7 @@ function normalizeLooqmeBrand(value, item = {}) {
   const inferred = inferLooqmeBrand(item)
   if (inferred) return inferred
 
-  return cleanReportText(arrayText(value), 80) || defaultLooqmeBrand()
+  return defaultLooqmeBrand()
 }
 
 function inferLooqmeBrand(item) {
@@ -2912,7 +2891,7 @@ function normalizeLooqmeSentimentValue(value) {
     return { key: 'negative', name: 'Негатив' }
   }
 
-  if (/neutral|нейтр|neutr/.test(text)) {
+  if (/neutral|neutr|нейтр|неитр/.test(text)) {
     return { key: 'neutral', name: 'Нейтрал' }
   }
 
@@ -2973,7 +2952,50 @@ function looqmeEntryMatchesRange(entry, range) {
   const timestamp = Date.parse(entry.date)
   if (Number.isNaN(timestamp)) return true
 
-  return timestamp >= Date.parse(range.from) && timestamp <= Date.parse(`${range.to}T23:59:59Z`)
+  const fromTimestamp = Date.parse(isoDateBoundary(range.from))
+  const toTimestamp = Date.parse(isoDateBoundary(range.to))
+  if (Number.isNaN(fromTimestamp) || Number.isNaN(toTimestamp)) return true
+
+  return timestamp >= fromTimestamp && timestamp <= toTimestamp
+}
+
+function pickLooqmeReach(item) {
+  const candidates = [
+    'average_attendance',
+    'duplicates_avg_attendance',
+    'views_count',
+    'publication_place_subscribers_count',
+    'creators_subscribers_count',
+    'audience_edition',
+    'reach',
+    'audience',
+    'potentialAudience',
+    'potentialReach',
+    'totalReach',
+    'totalAudience',
+    'views',
+    'impressions',
+    'visits',
+    'circulation',
+    'охоплення',
+    'аудиторія',
+    'перегляди',
+  ]
+
+  for (const key of candidates) {
+    const value = pickLooqmeValue(item, [key])
+    const reach = parseReachNumber(value)
+    if (reach > 0) return reach
+  }
+
+  return 0
+}
+
+function isoDateBoundary(value) {
+  const text = textValue(value)
+  if (!text) return ''
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(text)) return text
+  return `${text}Z`
 }
 
 function coverageMonthDateRange(month) {
