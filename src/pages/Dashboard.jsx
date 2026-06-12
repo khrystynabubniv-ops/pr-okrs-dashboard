@@ -64,34 +64,37 @@ export function DashboardPage({ selectedMonth }) {
 
   const dashboardQuery = useAsyncData(
     async () => {
-      const [goalsPayload, events, focus, coverage, eventAwareness] = await Promise.all([
-        optionalRequest('/api/kpi-goals', { goals: [] }, 12000),
+      const [goalsPayload, events, focus, eventAwareness] = await Promise.all([
+        optionalRequest('/api/kpi-goals', { goals: [] }, 10000),
         optionalRequest(
           `/api/notion/events?month=${encodeURIComponent(selectedMonth)}`,
           { events: [] },
-          8000,
+          4000,
         ),
         optionalRequest(
           `/api/notion/monthly-focus?month=${encodeURIComponent(selectedMonth)}`,
           { entries: [] },
-          8000,
+          4000,
         ),
-        optionalRequest(
-          `/api/looqme/coverage?month=${encodeURIComponent(selectedMonth)}`,
-          { mentions: [], sentiment: [], source: 'looqme-timeout' },
-          12000,
-        ),
-        optionalRequest('/api/event-awareness', { audiences: [], overall: null }, 8000),
+        optionalRequest('/api/event-awareness', { audiences: [], overall: null }, 6000),
       ])
 
       return {
         goals: goalsPayload.goals || [],
         events: events.events || [],
         focus: focus.entries || [],
-        coverage,
         eventAwareness,
       }
     },
+    [selectedMonth],
+  )
+  const coverageQuery = useAsyncData(
+    () =>
+      optionalRequest(
+        `/api/looqme/coverage?month=${encodeURIComponent(selectedMonth)}`,
+        { mentions: [], sentiment: [], source: 'looqme-timeout' },
+        20000,
+      ),
     [selectedMonth],
   )
 
@@ -108,8 +111,8 @@ export function DashboardPage({ selectedMonth }) {
     [dashboardQuery.data],
   )
   const coverage = useMemo(
-    () => dashboardQuery.data?.coverage || {},
-    [dashboardQuery.data],
+    () => coverageQuery.data || {},
+    [coverageQuery.data],
   )
   const eventAwareness = useMemo(
     () => dashboardQuery.data?.eventAwareness || { audiences: [], overall: null },

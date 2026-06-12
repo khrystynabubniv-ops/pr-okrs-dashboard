@@ -2231,7 +2231,7 @@ function getLooqmeConfig() {
         'by_created=false&ordering=desc&response_lang=uk&short_article=false&duplicates=true&limit=100',
     ),
     timeoutMs: Number(process.env.LOOQME_TIMEOUT_MS || 15000),
-    maxPages: Number(process.env.LOOQME_MAX_PAGES || 20),
+    maxPages: Number(process.env.LOOQME_MAX_PAGES || 1),
   }
 }
 
@@ -2560,11 +2560,12 @@ function normalizeLooqmeEntry(item, index) {
 function aggregateLooqmeEntries(entries, source, month) {
   const mentionSegments = aggregateLooqmeChannelSegments(entries, 'count')
   const audienceSegments = aggregateLooqmeChannelSegments(entries, 'reach')
-  const mentions = aggregateLooqmeBrands(entries)
   const mediaOutlets = aggregateLooqmeOutlets(entries)
   const sentiment = aggregateLooqmeSentiment(entries)
   const audienceTotal = entries.reduce((sum, item) => sum + Number(item.reach || 0), 0)
-  const mentionsTotal = entries.reduce((sum, item) => sum + Number(item.count || 0), 0)
+  const entriesTotal = entries.reduce((sum, item) => sum + Number(item.count || 0), 0)
+  const mentionsTotal = Number(source.count || 0) || entriesTotal
+  const mentions = aggregateLooqmeBrands(entries, mentionsTotal)
   const fallback = emptyLooqmeCoveragePayload(month, 'looqme')
 
   return {
@@ -2590,7 +2591,7 @@ function aggregateLooqmeEntries(entries, source, month) {
   }
 }
 
-function aggregateLooqmeBrands(entries) {
+function aggregateLooqmeBrands(entries, totalCount = 0) {
   const brands = new Map()
 
   entries.forEach((entry) => {
@@ -2600,6 +2601,18 @@ function aggregateLooqmeBrands(entries) {
     current.audience += Number(entry.reach || 0)
     brands.set(brand, current)
   })
+
+  const defaultBrand = defaultLooqmeBrand()
+  const configuredBrands = [...looqmeOwnBrands(), ...looqmeCompetitorBrands()]
+  const hasConfiguredCompetitor = [...brands.keys()].some(
+    (brand) => !isOwnBrand(brand) && matchingConfiguredBrand(brand, configuredBrands),
+  )
+
+  if (totalCount && !hasConfiguredCompetitor) {
+    const current = brands.get(defaultBrand) || { brand: defaultBrand, count: 0, audience: 0 }
+    current.count = Math.max(current.count, totalCount)
+    brands.set(defaultBrand, current)
+  }
 
   return [...brands.values()].sort((left, right) => right.count - left.count)
 }

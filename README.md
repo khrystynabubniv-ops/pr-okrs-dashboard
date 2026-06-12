@@ -62,7 +62,7 @@ LOOQME_OWN_BRANDS=Universe Group,Universe
 LOOQME_COMPETITOR_BRANDS=Skelar,Headway
 LOOQME_DEFAULT_BRAND=Universe Group
 LOOQME_TIMEOUT_MS=15000
-LOOQME_MAX_PAGES=20
+LOOQME_MAX_PAGES=1
 LOOQME_USE_MOCK=false
 EVENTS_AWARENESS_SPREADSHEET_ID=1StHTeMTN0m3WFaOmxucsR2njnmKv04_R7CqG-_ZjDhE
 KPI_SOURCE=google-sheet
@@ -85,7 +85,7 @@ GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=
 
 `SMM_EMPLOYEE_COUNT` використовується для EGC KPI: поточний EGC count ділиться на кількість співробітників і порівнюється з цільовими 10%.
 
-`LOOQME_TOKEN` і `LOOQME_COVERAGE_URL` вмикають live coverage у Dashboard. За документацією Looqme Articles API endpoint — `https://hub.looqme.io/api/v1/articles-external`, токен іде як `Authorization: Token <token>`, а місячний фільтр додається як `start=YYYY-MM-DDT00:00:00&end=YYYY-MM-DDT23:59:59&by_created=false`. Якщо Looqme дає base URL + path окремо, використайте `LOOQME_BASE_URL` і `LOOQME_COVERAGE_PATH`; назви header/query параметрів можна змінити через `LOOQME_AUTH_*`, `LOOQME_TOKEN_QUERY_PARAM`, `LOOQME_DATE_*_PARAM` та `LOOQME_EXTRA_QUERY`. `LOOQME_MAX_PAGES` обмежує pagination через `next`, а `LOOQME_USE_MOCK=true` залишений тільки для локальної демки.
+`LOOQME_TOKEN` і `LOOQME_COVERAGE_URL` вмикають live coverage у Dashboard. За документацією Looqme Articles API endpoint — `https://hub.looqme.io/api/v1/articles-external`, токен іде як `Authorization: Token <token>`, а місячний фільтр додається як `start=YYYY-MM-DDT00:00:00&end=YYYY-MM-DDT23:59:59&by_created=false`. Якщо Looqme дає base URL + path окремо, використайте `LOOQME_BASE_URL` і `LOOQME_COVERAGE_PATH`; назви header/query параметрів можна змінити через `LOOQME_AUTH_*`, `LOOQME_TOKEN_QUERY_PARAM`, `LOOQME_DATE_*_PARAM` та `LOOQME_EXTRA_QUERY`. `LOOQME_MAX_PAGES=1` тримає Dashboard швидким: загальна кількість згадок береться з `count`, а деталізація медіа/тональності — з першої сторінки результатів. `LOOQME_USE_MOCK=true` залишений тільки для локальної демки.
 
 Для збереження Board Report у Notion потрібен `NOTION_REPORTS_PARENT_PAGE_ID` або `NOTION_PARENT_PAGE_ID`.
 
