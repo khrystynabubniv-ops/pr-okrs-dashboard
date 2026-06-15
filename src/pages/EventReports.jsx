@@ -213,9 +213,9 @@ function ReportsTable({ reports, onSelect }) {
             <th>Тип</th>
             <th>Дата / період</th>
             <th className="er-align-right">Витрати</th>
-            <th className="er-align-right">CPA / CPV / CPC</th>
-            <th className="er-align-right">CPL / Наймів</th>
-            <th className="er-align-right">Учасники / Випуски / Охоплення</th>
+            <th className="er-align-right">Основна метрика</th>
+            <th className="er-align-right">Додаткова метрика</th>
+            <th className="er-align-right">Результат</th>
           </tr>
         </thead>
         <tbody>
@@ -258,26 +258,26 @@ function tableMetricCells(report, metrics) {
   if (report.type === 'partnership') {
     return [
       formatUsd(metrics.totalBudget),
-      formatUsdUnit(metrics.cpv),
-      report.hireEnabled ? formatWhole(metrics.hireCount) : '—',
-      formatWhole(metrics.episodes),
+      `CPV ${formatUsdUnit(metrics.cpv)}`,
+      report.hireEnabled ? `Наймів ${formatWhole(metrics.hireCount)}` : 'Наймів —',
+      `Випусків ${formatWhole(metrics.episodes)}`,
     ]
   }
 
   if (report.type === 'launch') {
     return [
       formatUsd(metrics.totalBudget),
-      formatUsdUnit(metrics.cpc),
-      formatUsdUnit(metrics.cpv),
-      formatCompact(metrics.reachTotal),
+      `CPC ${formatUsdUnit(metrics.cpc)}`,
+      `CPV ${formatUsdUnit(metrics.cpv)}`,
+      `Охоплення ${formatCompact(metrics.reachTotal)}`,
     ]
   }
 
   return [
     formatUsd(metrics.totalBudget),
-    formatUsdUnit(metrics.cpa),
-    formatUsdUnit(metrics.cpl),
-    formatWhole(metrics.attended),
+    `CPA ${formatUsdUnit(metrics.cpa)}`,
+    `CPL ${formatUsdUnit(metrics.cpl)}`,
+    `Прийшло ${formatWhole(metrics.attended)}`,
   ]
 }
 
