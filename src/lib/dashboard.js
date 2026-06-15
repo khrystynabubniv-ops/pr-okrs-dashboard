@@ -38,7 +38,7 @@ export function progressSummary(goals, selectedMonth) {
 }
 
 export function directionProgressSummary(goals, selectedMonth) {
-  return uniqueGoalDirections(goals).map((direction) => {
+  return DIRECTIONS.map((direction) => {
     const directionGoals = goals.filter((goal) => goal.direction === direction)
     return {
       direction,
@@ -431,9 +431,7 @@ function hasAnyValueUntilMonth(goal, selectedMonth) {
 
 function getGoalProgressForMonth(goal, selectedMonth) {
   if (goal.progressMode === 'none') return 0
-  if (typeof goal.progress === 'number') {
-    return Math.max(0, Math.min(100, Math.round(goal.progress)))
-  }
+  if (typeof goal.progress === 'number') return goal.progress
 
   if (goal.metricType === 'Якісна') {
     const value = latestGoalValueUntilMonth(goal, selectedMonth)
@@ -483,21 +481,6 @@ function expectedProgress(selectedMonth) {
 
 function hasValueForMonth(goal, selectedMonth) {
   return String(goal?.values?.[selectedMonth] ?? '').trim() !== ''
-}
-
-function uniqueGoalDirections(goals) {
-  const directions = [...DIRECTIONS]
-
-  goals.forEach((goal) => {
-    const direction = String(goal.direction || '').trim()
-    if (direction && !directions.includes(direction)) {
-      directions.push(direction)
-    }
-  })
-
-  return directions.filter((direction) =>
-    goals.length ? goals.some((goal) => goal.direction === direction) : true,
-  )
 }
 
 function formatDeltaNumber(value) {
@@ -593,18 +576,21 @@ function getCoverageOutlets(coverage) {
 function getCoverageMetric(metric, fallback) {
   const source = metric || fallback || {}
   const value = parseReachNumber(source.value ?? source.total ?? fallback?.value)
-  const segments = (source.segments || fallback?.segments || [])
-    .map((segment) => ({
-      label: segment.label || segment.name || segment.channel || 'Канал',
-      value: parseReachNumber(segment.value ?? segment.count ?? segment.reach),
-      delta:
-        segment.delta ??
-        segment.change ??
-        segment.changePercent ??
-        segment.percentChange,
-      color: segment.color,
-    }))
-    .filter((segment) => segment.label || segment.value)
+  const segments = normalizeCoverageMetricSegments(
+    (source.segments || fallback?.segments || [])
+      .map((segment) => ({
+        label: segment.label || segment.name || segment.channel || 'Канал',
+        value: parseReachNumber(segment.value ?? segment.count ?? segment.reach),
+        delta:
+          segment.delta ??
+          segment.change ??
+          segment.changePercent ??
+          segment.percentChange,
+        color: segment.color,
+      }))
+      .filter((segment) => segment.label || segment.value),
+    value,
+  )
 
   return {
     value,
@@ -616,6 +602,52 @@ function getCoverageMetric(metric, fallback) {
       fallback?.delta,
     segments,
   }
+}
+
+function normalizeCoverageMetricSegments(segments, totalValue) {
+  const segmentTotal = segments.reduce(
+    (sum, segment) => sum + Number(segment.value || 0),
+    0,
+  )
+
+  if (!looksLikePercentSplit(segmentTotal, totalValue)) return segments
+
+  const values = allocateTotalByWeights(
+    Math.round(totalValue),
+    segments.map((segment) => Number(segment.value || 0)),
+  )
+
+  return segments.map((segment, index) => ({
+    ...segment,
+    value: values[index],
+  }))
+}
+
+function looksLikePercentSplit(segmentTotal, totalValue) {
+  return (
+    totalValue > 0 &&
+    Math.abs(segmentTotal - 100) <= 0.5 &&
+    Math.abs(segmentTotal - totalValue) > 0.5
+  )
+}
+
+function allocateTotalByWeights(total, weights) {
+  const weightTotal = weights.reduce((sum, value) => sum + Number(value || 0), 0)
+  if (!total || !weightTotal) return weights.map(() => 0)
+
+  const exactValues = weights.map((weight) => (Number(weight || 0) / weightTotal) * total)
+  const floors = exactValues.map(Math.floor)
+  const remainder = total - floors.reduce((sum, value) => sum + value, 0)
+  const byRemainder = exactValues
+    .map((value, index) => ({ index, remainder: value - floors[index] }))
+    .sort((left, right) => right.remainder - left.remainder)
+
+  return floors.map((value, index) => {
+    const receivesExtra = byRemainder
+      .slice(0, remainder)
+      .some((item) => item.index === index)
+    return receivesExtra ? value + 1 : value
+  })
 }
 
 function parseReachNumber(value) {

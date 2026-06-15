@@ -19,7 +19,9 @@ import {
   ArrowDown,
   ArrowUp,
   ClipboardCopy,
+  ExternalLink,
   FileText,
+  Mail,
   Plus,
   RefreshCw,
   Save,
@@ -50,16 +52,34 @@ import {
   parseEventDate,
   sortEventsByDate,
 } from '../lib/events'
+import {
+  buildMailchimpPerformance,
+  hasMailchimpPerformanceData,
+} from '../lib/mailchimpPerformance'
 
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const COVERAGE_CACHE_TTL_MS = 10 * 60 * 1000
+const MAILCHIMP_CACHE_TTL_MS = 10 * 60 * 1000
 const COVERAGE_FALLBACK_SOURCES = new Set([
   'looqme-timeout',
   'looqme-missing-token',
   'looqme-missing-url',
 ])
+const MAILCHIMP_FALLBACK_SOURCES = new Set([
+  'mailchimp-timeout',
+  'mailchimp-missing-token',
+  'mailchimp-missing-server',
+])
+const LOOQME_DASHBOARD_URL = normalizeExternalDashboardUrl(
+  import.meta.env.VITE_LOOQME_DASHBOARD_URL ||
+    import.meta.env.VITE_LOOKER_DASHBOARD_URL,
+)
+const MAILCHIMP_DASHBOARD_URL = normalizeExternalDashboardUrl(
+  import.meta.env.VITE_MAILCHIMP_DASHBOARD_URL,
+)
 const dashboardPayloadCache = new Map()
 const coveragePayloadCache = new Map()
+const mailchimpPayloadCache = new Map()
 
 export function DashboardPage({ selectedMonth }) {
   const navigate = useNavigate()
@@ -91,6 +111,15 @@ export function DashboardPage({ selectedMonth }) {
       keepPreviousData: true,
     },
   )
+  const mailchimpQuery = useAsyncData(
+    () => loadMailchimpPayload(selectedMonth),
+    [selectedMonth],
+    {
+      initialData: () =>
+        readCachedPayload(mailchimpPayloadCache, selectedMonth, MAILCHIMP_CACHE_TTL_MS),
+      keepPreviousData: true,
+    },
+  )
   const activeDashboardData =
     dashboardQuery.data?.month === selectedMonth ? dashboardQuery.data : null
   const rawCoverageData =
@@ -98,6 +127,11 @@ export function DashboardPage({ selectedMonth }) {
   const coverageFallback = isCoverageFallbackPayload(rawCoverageData)
   const activeCoverageData =
     rawCoverageData && !coverageFallback ? rawCoverageData : null
+  const rawMailchimpData =
+    mailchimpQuery.data?.month === selectedMonth ? mailchimpQuery.data : null
+  const mailchimpFallback = isMailchimpFallbackPayload(rawMailchimpData)
+  const activeMailchimpData =
+    rawMailchimpData && !mailchimpFallback ? rawMailchimpData : null
 
   const goals = useMemo(
     () => activeDashboardData?.goals || [],
@@ -117,6 +151,16 @@ export function DashboardPage({ selectedMonth }) {
   )
   const coverageLoading = coverageQuery.loading && !activeCoverageData
   const coverageUnavailable = !coverageLoading && coverageFallback
+  const mailchimp = useMemo(
+    () => activeMailchimpData || {},
+    [activeMailchimpData],
+  )
+  const mailchimpPerformance = useMemo(
+    () => buildMailchimpPerformance(mailchimp, selectedMonth),
+    [mailchimp, selectedMonth],
+  )
+  const mailchimpLoading = mailchimpQuery.loading && !activeMailchimpData
+  const mailchimpUnavailable = !mailchimpLoading && mailchimpFallback
   const eventAwareness = useMemo(
     () => activeDashboardData?.eventAwareness || { audiences: [], overall: null },
     [activeDashboardData],
@@ -133,9 +177,10 @@ export function DashboardPage({ selectedMonth }) {
         focus,
         events,
         coverage,
+        mailchimp,
         selectedMonth,
       }),
-    [coverage, events, focus, goals, selectedMonth],
+    [coverage, events, focus, goals, mailchimp, selectedMonth],
   )
   const directionStats = useMemo(
     () => directionProgressSummary(goals, selectedMonth),
@@ -185,6 +230,7 @@ export function DashboardPage({ selectedMonth }) {
         events,
         focus,
         coverage,
+        mailchimpPerformance,
         personalBrands,
         eventAwareness,
         candidateAwareness,
@@ -197,6 +243,7 @@ export function DashboardPage({ selectedMonth }) {
       events,
       focus,
       goals,
+      mailchimpPerformance,
       personalBrands,
       selectedMonth,
     ],
@@ -233,6 +280,7 @@ export function DashboardPage({ selectedMonth }) {
           focus,
           events,
           coverage,
+          mailchimp,
         }),
       })
       setReport({ month: selectedMonth, text: result.report })
@@ -331,7 +379,7 @@ export function DashboardPage({ selectedMonth }) {
 
       {!dashboardQuery.error && activeDashboardData && hasMonthData ? (
         <>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
             <MetricCard
               label="KPI в темпі року"
               value={`${executive.kpi.onTrack}/${executive.kpi.measured}`}
@@ -363,6 +411,13 @@ export function DashboardPage({ selectedMonth }) {
             <CandidateAwarenessKpiCard
               kpi={candidateAwareness}
               tooltip="Показує KPI з рядка “Збільшити к-сть кандидатів, які знають про компанію”: відсоток awareness, ціль і прогрес до 70%."
+            />
+            <MailchimpMetricCard
+              performance={mailchimpPerformance}
+              loading={mailchimpLoading}
+              unavailable={mailchimpUnavailable}
+              onRetry={mailchimpQuery.retry}
+              tooltip="Бере Mailchimp reports за вибраний і попередній календарний місяць. Тестові/копії та кампанії з малою кількістю отримувачів не входять у executive-метрики."
             />
           </section>
 
@@ -471,6 +526,19 @@ export function DashboardPage({ selectedMonth }) {
             </ChartPanel>
 
             <ChartPanel
+              title="Email performance"
+              tooltip="Показує Mailchimp campaign reports для керівного огляду: engagement, health бази та реальні кампанії місяця. Дельти — різниця агрегатів поточного і попереднього календарного місяця."
+            >
+              <MailchimpPerformancePanel
+                performance={mailchimpPerformance}
+                loading={mailchimpLoading}
+                unavailable={mailchimpUnavailable}
+                href={MAILCHIMP_DASHBOARD_URL}
+                onRetry={mailchimpQuery.retry}
+              />
+            </ChartPanel>
+
+            <ChartPanel
               title="Personal Brands фоловери"
               tooltip="Дані беруться з KPI-спредшиту. Значення місяця показує фактичну кількість фоловерів; якщо річна ціль у спредшиті порожня, прогрес не рахується."
             >
@@ -561,7 +629,7 @@ export function DashboardPage({ selectedMonth }) {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-base font-semibold text-slate-950">
-                    Медіа кавередж
+                    Media coverage
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
                     Наші згадки окремо від конкурентного бенчмарку.
@@ -609,11 +677,13 @@ export function DashboardPage({ selectedMonth }) {
                     title="Всі згадки"
                     metric={mediaCoverage.mentionsMetric}
                     formatValue={formatChartNumber}
+                    href={LOOQME_DASHBOARD_URL}
                   />
                   <LooqmeMetricPanel
                     title="Аудиторія джерела"
                     metric={mediaCoverage.audienceMetric}
                     formatValue={formatReachValue}
+                    href={LOOQME_DASHBOARD_URL}
                   />
                 </div>
                 <div className="grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
@@ -893,6 +963,7 @@ function hasDashboardMonthData({
   events,
   focus,
   coverage,
+  mailchimpPerformance,
   personalBrands,
   eventAwareness,
   candidateAwareness,
@@ -918,6 +989,7 @@ function hasDashboardMonthData({
       events.length ||
       focus.length ||
       hasCoverage ||
+      hasMailchimpPerformanceData(mailchimpPerformance) ||
       hasEventAwareness ||
       hasCandidateAwareness,
   )
@@ -955,17 +1027,25 @@ function createEmptyCompetitorForm(selectedMonth) {
   }
 }
 
-function LooqmeMetricPanel({ title, metric, formatValue }) {
+function LooqmeMetricPanel({ title, metric, formatValue, href }) {
   const segments = metric?.segments || []
   const segmentTotal =
     segments.reduce((sum, item) => sum + Number(item.value || 0), 0) ||
     Number(metric?.value || 0)
+  const className = `block rounded-md border border-slate-200 bg-white px-4 py-4 shadow-sm ${
+    href
+      ? 'transition hover:border-indigo-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200'
+      : ''
+  }`
 
-  return (
-    <div className="rounded-md border border-slate-200 bg-white px-4 py-4 shadow-sm">
+  const panel = (
+    <>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="text-sm font-semibold text-slate-950">{title}</p>
-        <DeltaPill value={metric?.delta} />
+        <span className="flex items-center gap-2">
+          <DeltaPill value={metric?.delta} />
+          {href ? <ExternalLink className="h-4 w-4 text-slate-400" /> : null}
+        </span>
       </div>
       <p className="mt-4 text-4xl font-semibold leading-none text-slate-950">
         {formatValue(metric?.value || 0)}
@@ -1014,7 +1094,19 @@ function LooqmeMetricPanel({ title, metric, formatValue }) {
           <p className="text-xs text-slate-500">даних немає</p>
         )}
       </div>
-    </div>
+    </>
+  )
+
+  return href ? (
+    <a
+      href={href}
+      className={className}
+      aria-label={`${title}: відкрити Looqme dashboard`}
+    >
+      {panel}
+    </a>
+  ) : (
+    <div className={className}>{panel}</div>
   )
 }
 
@@ -1201,6 +1293,330 @@ function CandidateAwarenessKpiCard({ kpi, tooltip }) {
   )
 }
 
+function MailchimpMetricCard({ performance, loading, unavailable, onRetry, tooltip }) {
+  const hasData = performance?.hasCampaigns
+  const openRate = performance?.engagement?.openRate?.value
+  const detail = loading
+    ? 'Завантажуємо campaign reports...'
+    : unavailable
+      ? 'Потрібен Mailchimp API key'
+      : hasData
+        ? `${formatChartNumber(performance.campaigns.length)} реальних кампаній · ${formatChartNumber(
+            performance.engagement.reach.emailsSent,
+          )} sent · CR ${formatRateValue(performance.engagement.clickRate.value)}`
+        : performance?.totalCampaigns
+          ? `${formatChartNumber(performance.totalCampaigns)} кампаній відфільтровано як тестові/малі`
+          : 'Кампаній за місяць немає'
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-4">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Email open rate
+        </p>
+        <InfoTooltip text={tooltip} />
+      </div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <Mail className="h-6 w-6 text-amber-600" />
+        <p className="text-3xl font-semibold leading-none text-slate-950">
+          {loading ? '...' : hasData ? formatRateValue(openRate) : '—'}
+        </p>
+      </div>
+      <p className="mt-3 text-sm leading-5 text-slate-600">{detail}</p>
+      {unavailable ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-3 inline-flex h-8 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Повторити
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function MailchimpPerformancePanel({
+  performance,
+  loading,
+  unavailable,
+  href,
+  onRetry,
+}) {
+  if (loading) {
+    return (
+      <div className="flex min-h-72 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm font-medium text-slate-500">
+        <RefreshCw className="mr-2 h-4 w-4 animate-spin text-amber-500" />
+        Завантажуємо Mailchimp...
+      </div>
+    )
+  }
+
+  if (unavailable) {
+    return (
+      <div className="flex min-h-72 flex-col items-center justify-center rounded-md border border-amber-200 bg-amber-50 px-4 text-center">
+        <p className="text-sm font-semibold text-amber-900">
+          Mailchimp ще не підключений.
+        </p>
+        <p className="mt-1 max-w-md text-sm text-amber-800">
+          Додайте API key і server prefix у змінні середовища, щоб бачити email-метрики.
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Повторити
+        </button>
+      </div>
+    )
+  }
+
+  if (!performance?.hasCampaigns) {
+    const emptyText = performance?.totalCampaigns
+      ? `${formatChartNumber(
+          performance.totalCampaigns,
+        )} кампаній за місяць були виключені як тестові, копії або розсилки менш ніж на ${formatChartNumber(
+          performance.config.thresholds.minCampaignRecipients,
+        )} отримувачів.`
+      : 'Панель заповниться, коли за вибраний місяць у Mailchimp будуть sent campaigns.'
+
+    return (
+      <EmptyState
+        title="Немає Mailchimp кампаній"
+        text={emptyText}
+      />
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      {performance.excludedCampaigns ? (
+        <p className="rounded-md bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500 ring-1 ring-inset ring-slate-200">
+          Виключено {formatChartNumber(performance.excludedCampaigns)} тестових,
+          копій або малих розсилок.
+        </p>
+      ) : null}
+
+      <MailchimpLevel title="Рівень 1 — Залученість">
+        <div className="grid gap-3 md:grid-cols-3">
+          <MailchimpRateMetricCard
+            label="Open rate"
+            metric={performance.engagement.openRate}
+          />
+          <MailchimpRateMetricCard
+            label="Click rate"
+            metric={performance.engagement.clickRate}
+          />
+          <MailchimpExecutiveMetricCard
+            label="Охоплення"
+            value={formatChartNumber(performance.engagement.reach.uniqueOpens)}
+            detail={`${formatChartNumber(
+              performance.engagement.reach.emailsSent,
+            )} надісланих`}
+          />
+        </div>
+      </MailchimpLevel>
+
+      <MailchimpLevel title="Рівень 2 — Здоровʼя бази">
+        <div className="grid gap-3 md:grid-cols-3">
+          <MailchimpExecutiveMetricCard
+            label="Зростання бази"
+            value={formatSignedChartNumber(performance.health.baseGrowth.netNew)}
+            detail={
+              performance.health.baseGrowth.memberCount !== null
+                ? `Поточний розмір бази: ${formatChartNumber(
+                    performance.health.baseGrowth.memberCount,
+                  )}`
+                : 'Додайте MAILCHIMP_LIST_ID для розміру бази'
+            }
+          />
+          <MailchimpExecutiveMetricCard
+            label="Відписки"
+            value={formatRateValue(performance.health.unsubscribes.rate)}
+            detail={`${formatChartNumber(performance.health.unsubscribes.count)} людей`}
+            tone={performance.health.unsubscribes.isWarning ? 'warning' : 'neutral'}
+          />
+          <MailchimpExecutiveMetricCard
+            label="Bounce"
+            value={formatRateValue(performance.health.bounce.rate)}
+            detail={`${formatChartNumber(
+              performance.health.bounce.count,
+            )} bounced · поріг ${formatRateValue(performance.health.bounce.threshold)}`}
+            tone={performance.health.bounce.isCritical ? 'critical' : 'neutral'}
+          />
+        </div>
+      </MailchimpLevel>
+
+      <MailchimpLevel
+        title="Рівень 3 — Топ-кампанії"
+        action={
+          href ? (
+            <a
+              href={href}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-700 hover:text-indigo-900"
+            >
+              Відкрити
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          ) : null
+        }
+      >
+        <div className="space-y-2">
+          {performance.campaigns.map((campaign) => (
+            <MailchimpCampaignRow key={campaign.id} campaign={campaign} />
+          ))}
+        </div>
+      </MailchimpLevel>
+    </div>
+  )
+}
+
+function MailchimpLevel({ title, action, children }) {
+  return (
+    <section className="border-t border-slate-100 pt-4 first:border-t-0 first:pt-0">
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function MailchimpRateMetricCard({ label, metric }) {
+  const isGood = metric.benchmarkStatus === 'good'
+
+  return (
+    <MailchimpExecutiveMetricCard
+      label={label}
+      value={formatRateValue(metric.value)}
+      tone={isGood ? 'good' : 'warning'}
+    >
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <MailchimpDeltaBadge value={metric.delta} />
+        <span
+          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+            isGood
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-amber-100 text-amber-800'
+          }`}
+        >
+          Бенчмарк {formatRateValue(metric.benchmark)}
+        </span>
+      </div>
+    </MailchimpExecutiveMetricCard>
+  )
+}
+
+function MailchimpExecutiveMetricCard({
+  label,
+  value,
+  detail,
+  tone = 'neutral',
+  children,
+}) {
+  const tones = {
+    neutral: 'border-slate-200 bg-slate-50',
+    good: 'border-emerald-200 bg-emerald-50',
+    warning: 'border-amber-200 bg-amber-50',
+    critical: 'border-rose-300 bg-rose-50',
+  }
+
+  return (
+    <div className={`rounded-md border px-3 py-3 ${tones[tone] || tones.neutral}`}>
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <p className="mt-2 text-2xl font-semibold leading-none text-slate-950">
+        {value}
+      </p>
+      {detail ? <p className="mt-2 text-xs leading-5 text-slate-500">{detail}</p> : null}
+      {children}
+    </div>
+  )
+}
+
+function MailchimpDeltaBadge({ value }) {
+  if (value === null || value === undefined) {
+    return (
+      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">
+        MoM —
+      </span>
+    )
+  }
+
+  const isPositive = value > 0
+  const isFlat = value === 0
+  const Icon = isPositive || isFlat ? ArrowUp : ArrowDown
+  const className = isFlat
+    ? 'bg-slate-100 text-slate-600'
+    : isPositive
+      ? 'bg-emerald-100 text-emerald-700'
+      : 'bg-rose-100 text-rose-700'
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {formatDeltaPp(value)}
+    </span>
+  )
+}
+
+function MailchimpCampaignRow({ campaign }) {
+  return (
+    <div
+      className={`flex flex-col gap-3 rounded-md border bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between ${
+        campaign.isBest
+          ? 'border-indigo-200 border-l-4 border-l-[#4361ee] bg-blue-50/40'
+          : 'border-slate-200 border-l-4 border-l-transparent'
+      }`}
+    >
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="truncate text-sm font-medium text-slate-950">
+            {campaign.title || campaign.subject || 'Campaign'}
+          </p>
+          {campaign.isBest ? (
+            <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">
+              Найкраща за місяць
+            </span>
+          ) : null}
+        </div>
+        <p className="mt-1 truncate text-xs text-slate-500">
+          {[formatCampaignDate(campaign.sendTime), campaign.subject, campaign.listName]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      </div>
+      <div className="flex shrink-0 gap-2 text-xs">
+        <MailchimpCampaignRateBadge label="OR" value={campaign.openRate} />
+        <MailchimpCampaignRateBadge
+          label="CR"
+          value={campaign.clickRate}
+          weak={campaign.isWeakClickRate}
+        />
+      </div>
+    </div>
+  )
+}
+
+function MailchimpCampaignRateBadge({ label, value, weak = false }) {
+  return (
+    <span
+      className={`rounded-full px-2.5 py-1 font-semibold ${
+        weak ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700'
+      }`}
+    >
+      {label} {formatRateValue(value)}
+    </span>
+  )
+}
+
 function AwarenessAudiencePill({ audience }) {
   return (
     <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-emerald-100">
@@ -1259,6 +1675,22 @@ function formatChartNumber(value) {
   return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(value)
 }
 
+function formatSignedChartNumber(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
+  const number = Number(value)
+  const prefix = number > 0 ? '+' : ''
+  return `${prefix}${formatChartNumber(number)}`
+}
+
+function formatDeltaPp(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
+  const number = Number(value)
+  const prefix = number > 0 ? '+' : ''
+  return `${prefix}${new Intl.NumberFormat('uk-UA', {
+    maximumFractionDigits: 1,
+  }).format(number)} п.п.`
+}
+
 function formatPercent(value) {
   if (value === null || value === undefined) return '—'
   return new Intl.NumberFormat('uk-UA', {
@@ -1274,11 +1706,36 @@ function formatPercentNumber(value) {
   }).format(value)}%`
 }
 
+function formatRateValue(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
+  return `${new Intl.NumberFormat('uk-UA', {
+    maximumFractionDigits: 1,
+  }).format(Number(value || 0))}%`
+}
+
 function formatReachValue(value) {
   if (!value) return '—'
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} млн`
   if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)} тис.`
   return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(value)
+}
+
+function formatCampaignDate(value) {
+  if (!value) return ''
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  return date.toLocaleDateString('uk-UA', {
+    day: '2-digit',
+    month: 'short',
+  })
+}
+
+function normalizeExternalDashboardUrl(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  return /^https?:\/\//i.test(text) ? text : `https://${text}`
 }
 
 function formatEventDate(event) {
@@ -1511,10 +1968,47 @@ async function loadCoveragePayload(selectedMonth) {
   return coverage
 }
 
+async function loadMailchimpPayload(selectedMonth) {
+  const cached = readCachedPayload(
+    mailchimpPayloadCache,
+    selectedMonth,
+    MAILCHIMP_CACHE_TTL_MS,
+  )
+  if (cached) return cached
+
+  const payload = await optionalRequest(
+    `/api/mailchimp/campaigns?month=${encodeURIComponent(selectedMonth)}`,
+    {
+      month: selectedMonth,
+      campaigns: [],
+      metrics: {},
+      source: 'mailchimp-timeout',
+      isFallback: true,
+    },
+    16000,
+  )
+  const mailchimp = {
+    ...payload,
+    month: payload.month || selectedMonth,
+  }
+
+  if (!isMailchimpFallbackPayload(mailchimp)) {
+    writeCachedPayload(mailchimpPayloadCache, selectedMonth, mailchimp)
+  }
+
+  return mailchimp
+}
+
 function isCoverageFallbackPayload(payload) {
   if (!payload) return false
   if (payload.isFallback) return true
   return COVERAGE_FALLBACK_SOURCES.has(payload.source)
+}
+
+function isMailchimpFallbackPayload(payload) {
+  if (!payload) return false
+  if (payload.isFallback) return true
+  return MAILCHIMP_FALLBACK_SOURCES.has(payload.source)
 }
 
 function readCachedPayload(cache, key, ttlMs) {

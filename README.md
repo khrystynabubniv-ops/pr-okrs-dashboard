@@ -9,7 +9,7 @@
 - Recharts
 - Node.js + Express API proxy
 - PostgreSQL app-owned storage for gradual migration
-- Notion API, Claude API, Looqme coverage API
+- Notion API, Claude API, Looqme coverage API, Mailchimp Marketing API
 - Railway deploy via `railway.json`
 
 ## Local setup
@@ -62,8 +62,18 @@ LOOQME_OWN_BRANDS=Universe Group,Universe
 LOOQME_COMPETITOR_BRANDS=Skelar,Headway
 LOOQME_DEFAULT_BRAND=Universe Group
 LOOQME_TIMEOUT_MS=30000
-LOOQME_MAX_PAGES=1
+LOOQME_MAX_PAGES=5
 LOOQME_USE_MOCK=false
+VITE_LOOQME_DASHBOARD_URL=
+MAILCHIMP_API_KEY=
+MAILCHIMP_SERVER_PREFIX=
+MAILCHIMP_LIST_ID=
+MAILCHIMP_BASE_URL=
+MAILCHIMP_REPORTS_LIMIT=100
+MAILCHIMP_FETCH_REPORT_DETAILS=true
+MAILCHIMP_REPORT_DETAILS_CONCURRENCY=4
+MAILCHIMP_TIMEOUT_MS=15000
+VITE_MAILCHIMP_DASHBOARD_URL=
 EVENTS_AWARENESS_SPREADSHEET_ID=1StHTeMTN0m3WFaOmxucsR2njnmKv04_R7CqG-_ZjDhE
 KPI_SOURCE=google-sheet
 KPI_SPREADSHEET_ID=1-wWo9W9gL4jYqpsZNrtZnb85XL5sLkAI4GKEqiMkEnI
@@ -85,7 +95,9 @@ GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=
 
 `SMM_EMPLOYEE_COUNT` використовується для EGC KPI: поточний EGC count ділиться на кількість співробітників і порівнюється з цільовими 10%.
 
-`LOOQME_TOKEN` і `LOOQME_COVERAGE_URL` вмикають live coverage у Dashboard. За документацією Looqme Articles API endpoint — `https://hub.looqme.io/api/v1/articles-external`, токен іде як `Authorization: Token <token>`, а місячний фільтр додається як `start=YYYY-MM-DDT00:00:00&end=YYYY-MM-DDT23:59:59&by_created=false`. Якщо Looqme дає base URL + path окремо, використайте `LOOQME_BASE_URL` і `LOOQME_COVERAGE_PATH`; назви header/query параметрів можна змінити через `LOOQME_AUTH_*`, `LOOQME_TOKEN_QUERY_PARAM`, `LOOQME_DATE_*_PARAM` та `LOOQME_EXTRA_QUERY`. `LOOQME_MAX_PAGES=1` тримає Dashboard швидким: загальна кількість згадок береться з `count`, а деталізація медіа/тональності — з першої сторінки результатів. `LOOQME_USE_MOCK=true` залишений тільки для локальної демки.
+`LOOQME_TOKEN` і `LOOQME_COVERAGE_URL` вмикають live coverage у Dashboard. За документацією Looqme Articles API endpoint — `https://hub.looqme.io/api/v1/articles-external`, токен іде як `Authorization: Token <token>`, а місячний фільтр додається як `start=YYYY-MM-DDT00:00:00&end=YYYY-MM-DDT23:59:59&by_created=false`. Якщо Looqme дає base URL + path окремо, використайте `LOOQME_BASE_URL` і `LOOQME_COVERAGE_PATH`; назви header/query параметрів можна змінити через `LOOQME_AUTH_*`, `LOOQME_TOKEN_QUERY_PARAM`, `LOOQME_DATE_*_PARAM` та `LOOQME_EXTRA_QUERY`. `LOOQME_MAX_PAGES=5` завантажує до 5 сторінок результатів, щоб кількісні сегменти coverage краще сходились із загальним `count`. `VITE_LOOQME_DASHBOARD_URL` робить Looqme-показники в Dashboard клікабельними. `LOOQME_USE_MOCK=true` залишений тільки для локальної демки.
+
+`MAILCHIMP_API_KEY` вмикає email-метрики у Dashboard і Board Report Generator. Сервер бере Mailchimp Marketing API `/reports` і `/reports/{campaign_id}` за вибраний та попередній місяць, а для health бази використовує `/lists/{list_id}` і `/lists/{list_id}/growth-history`. `MAILCHIMP_SERVER_PREFIX` — це `usX` із Mailchimp URL або суфікса API key; якщо ключ має вигляд `...-us19`, сервер визначить prefix автоматично. `MAILCHIMP_LIST_ID` або `MAILCHIMP_AUDIENCE_ID` потрібен для розміру бази й net new growth. `MAILCHIMP_BASE_URL` потрібен лише для нестандартного base URL. `MAILCHIMP_FETCH_REPORT_DETAILS=false` вимикає detail-запити, якщо треба зменшити навантаження на API. `VITE_MAILCHIMP_DASHBOARD_URL` робить Mailchimp-блок клікабельним.
 
 Для збереження Board Report у Notion потрібен `NOTION_REPORTS_PARENT_PAGE_ID` або `NOTION_PARENT_PAGE_ID`.
 

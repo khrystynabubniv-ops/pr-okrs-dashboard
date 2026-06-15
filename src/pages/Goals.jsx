@@ -9,7 +9,6 @@ import {
   MONTHS,
 } from '../constants'
 import { DirectionBadge } from '../components/Badge'
-import { InfoTooltip } from '../components/InfoTooltip'
 import { Modal } from '../components/Modal'
 import { ProgressBar } from '../components/ProgressBar'
 import { EmptyState, ErrorState, LoadingState } from '../components/Status'
@@ -60,6 +59,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
     [],
   )
 
+  const directionFilter = validDirectionFilter(searchParams.get('direction'))
   const rawGoals = useMemo(() => data?.goals || [], [data])
   const goals = useMemo(
     () =>
@@ -70,14 +70,6 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
           : goal
       }),
     [localGoalEdits, rawGoals],
-  )
-  const directionOptions = useMemo(
-    () => uniqueOptions([...DIRECTIONS, ...goals.map((goal) => goal.direction)]),
-    [goals],
-  )
-  const directionFilter = validDirectionFilter(
-    searchParams.get('direction'),
-    directionOptions,
   )
   const ownerOptions = useMemo(
     () =>
@@ -250,7 +242,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {['Усі', ...directionOptions].map((direction) => {
+            {['Усі', ...DIRECTIONS].map((direction) => {
               const isActive = directionFilter === direction
               return (
                 <button
@@ -295,9 +287,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                     <th className="whitespace-nowrap px-3 py-3 font-semibold">
                       Напрямок
                     </th>
-                    <th className="w-12 whitespace-nowrap px-3 py-3 text-center font-semibold">
-                      Тип
-                    </th>
+                    <th className="whitespace-nowrap px-3 py-3 font-semibold">Тип</th>
                     <th className="whitespace-nowrap px-3 py-3 font-semibold">
                       Ціль 100%
                     </th>
@@ -329,11 +319,15 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                       <td className="px-3 py-4">
                         <DirectionBadge direction={goal.direction} />
                       </td>
-                      <td className="w-12 px-3 py-4 text-center text-slate-600">
-                        <InfoTooltip
-                          label={`Тип: ${goal.calculationLabel || goal.metricType}`}
-                          text={goalTypeTooltip(goal)}
-                        />
+                      <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                        <div className="space-y-1">
+                          <span>{goal.calculationLabel || goal.metricType}</span>
+                          {goal.explanation ? (
+                            <p className="max-w-48 whitespace-normal text-xs leading-snug text-slate-400">
+                              {goal.explanation}
+                            </p>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="whitespace-nowrap px-3 py-4 text-slate-600">
                         {displayTarget(goal)}
@@ -343,7 +337,24 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                       </td>
                       <td className="px-3 py-4">
                         {goal.progressMode === 'none' ? (
-                          <ProgressStatus goal={goal} />
+                          <div className="space-y-1">
+                            <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+                              {goal.progressLabel || 'Без прогрес-бару'}
+                            </span>
+                            {goal.statusLabel ? (
+                              <p
+                                className={`text-xs font-medium ${
+                                  goal.statusTone === 'danger'
+                                    ? 'text-red-600'
+                                    : goal.statusTone === 'success'
+                                      ? 'text-emerald-600'
+                                      : 'text-slate-500'
+                                }`}
+                              >
+                                {goal.statusLabel}
+                              </p>
+                            ) : null}
+                          </div>
                         ) : (
                           <ProgressBar value={getProgress(goal)} />
                         )}
@@ -408,7 +419,6 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
           <form id="create-goal" onSubmit={handleCreateGoal}>
             <GoalFormFields
               form={form}
-              directionOptions={directionOptions}
               ownerOptions={ownerOptions}
               onChange={(field, value) => setForm({ ...form, [field]: value })}
             />
@@ -458,7 +468,6 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
           <form id="edit-goal" onSubmit={handleSaveGoalDraft}>
             <GoalFormFields
               form={editForm}
-              directionOptions={directionOptions}
               ownerOptions={ownerOptions}
               onChange={(field, value) =>
                 setEditForm({ ...editForm, [field]: value })
@@ -531,7 +540,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
   )
 }
 
-function GoalFormFields({ form, directionOptions = DIRECTIONS, ownerOptions, onChange }) {
+function GoalFormFields({ form, ownerOptions, onChange }) {
   const needsTarget = goalNeedsTarget(form)
 
   return (
@@ -551,7 +560,7 @@ function GoalFormFields({ form, directionOptions = DIRECTIONS, ownerOptions, onC
           value={form.direction}
           onChange={(event) => onChange('direction', event.target.value)}
         >
-          {directionOptions.map((direction) => (
+          {DIRECTIONS.map((direction) => (
             <option key={direction}>{direction}</option>
           ))}
         </select>
@@ -639,40 +648,8 @@ function GoalFormFields({ form, directionOptions = DIRECTIONS, ownerOptions, onC
   )
 }
 
-function ProgressStatus({ goal }) {
-  return (
-    <div className="space-y-1">
-      <span
-        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${statusToneClass(
-          goal.statusTone,
-        )}`}
-      >
-        {goal.statusLabel || 'Без прогресу'}
-      </span>
-      {goal.progressLabel ? (
-        <p className="text-xs text-slate-500">{goal.progressLabel}</p>
-      ) : null}
-    </div>
-  )
-}
-
-function statusToneClass(tone) {
-  if (tone === 'green') return 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-  if (tone === 'rose') return 'bg-rose-50 text-rose-700 ring-rose-200'
-  if (tone === 'amber') return 'bg-amber-50 text-amber-700 ring-amber-200'
-  if (tone === 'blue') return 'bg-blue-50 text-blue-700 ring-blue-200'
-  return 'bg-slate-50 text-slate-700 ring-slate-200'
-}
-
-function goalTypeTooltip(goal) {
-  const label = goal.calculationLabel || goal.metricType || 'Тип метрики'
-  const details = [goal.explanation, goal.statusLabel].filter(Boolean).join(' ')
-
-  return details ? `${label}. ${details}` : label
-}
-
-function validDirectionFilter(value, directionOptions) {
-  return directionOptions.includes(value) ? value : 'Усі'
+function validDirectionFilter(value) {
+  return DIRECTIONS.includes(value) ? value : 'Усі'
 }
 
 function uniqueOptions(options) {

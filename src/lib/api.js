@@ -25,11 +25,8 @@ export async function apiRequest(path, options = {}) {
 
 export function getProgress(goal) {
   if (!goal) return 0
-
   if (goal.progressMode === 'none') return 0
-  if (typeof goal.progress === 'number') {
-    return Math.max(0, Math.min(100, Math.round(goal.progress)))
-  }
+  if (typeof goal.progress === 'number') return goal.progress
 
   if (goal.metricType === 'Якісна') {
     const current = String(goal.currentValue || '').trim().toLowerCase()
