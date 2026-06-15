@@ -62,6 +62,15 @@ export function normalizeReportInput(report = {}) {
   const hireEnabled = isPartnership ? Boolean(report.hireEnabled) : false
   const partnershipViews = report.views ?? report.partnershipViews
   const partnershipClicks = report.clicks ?? report.partnershipClicks
+  const reachUniverse = isLaunch ? toReportNumber(report.reachUniverse) : 0
+  const reachClevel = isLaunch ? toReportNumber(report.reachClevel) : 0
+  const reachMedia = isLaunch ? toReportNumber(report.reachMedia ?? report.mediaReach) : 0
+  const tgReach = tgEnabled ? toReportNumber(report.tgReach) : 0
+  const reachPartsTotal = reachUniverse + reachClevel + reachMedia + tgReach
+  const legacyReachTotal = toReportNumber(report.reachTotal ?? report.totalReach)
+  const linkClicks = isLaunch
+    ? toReportNumber(report.linkClicks) || toReportNumber(report.clicks)
+    : 0
   const campaigns = Array.isArray(report.campaigns)
     ? report.campaigns.map(normalizeCampaign)
     : []
@@ -97,18 +106,19 @@ export function normalizeReportInput(report = {}) {
 
     promoEnabled,
     campaigns: promoEnabled ? campaigns : [],
-    reachTotal: isLaunch ? toReportNumber(report.reachTotal ?? report.totalReach) : 0,
+    reachTotal: isLaunch ? reachPartsTotal || legacyReachTotal : 0,
     mediaMentions: toReportNumber(report.mediaMentions),
-    reachUniverse: isLaunch ? toReportNumber(report.reachUniverse) : 0,
-    reachClevel: isLaunch ? toReportNumber(report.reachClevel) : 0,
-    linkClicks: isLaunch ? toReportNumber(report.linkClicks) : 0,
+    reachUniverse,
+    reachClevel,
+    reachMedia,
+    linkClicks,
     productResultType: isLaunch ? String(report.productResultType || '').trim() : '',
     productResultValue: isLaunch ? toReportNumber(report.productResultValue) : 0,
     productResultNote: isLaunch ? String(report.productResultNote || '').trim() : '',
     tgEnabled,
     tgChannels: tgEnabled ? toReportNumber(report.tgChannels) : 0,
     tgCost: tgEnabled ? toReportNumber(report.tgCost) : 0,
-    tgReach: tgEnabled ? toReportNumber(report.tgReach) : 0,
+    tgReach,
     tgPosts: tgEnabled ? toReportNumber(report.tgPosts) : 0,
     tgChannelList: tgEnabled ? String(report.tgChannelList || '').trim() : '',
     otherSpendUsd: isLaunch ? toReportNumber(report.otherSpendUsd) : 0,
@@ -170,6 +180,7 @@ export function compute(report = {}) {
     const budgetAuto =
       campaignTotals.spendUsd + normalized.tgCost + normalized.otherSpendUsd
     const effectiveBudget = normalized.budgetOverride ?? budgetAuto
+    const clicksForCpc = normalized.linkClicks || campaignTotals.clicks
 
     return {
       type: normalized.type,
@@ -183,10 +194,13 @@ export function compute(report = {}) {
       reachTotal: normalized.reachTotal,
       reachUniverse: normalized.reachUniverse,
       reachClevel: normalized.reachClevel,
+      reachMedia: normalized.reachMedia,
       mediaMentions: normalized.mediaMentions,
       linkClicks: normalized.linkClicks,
+      clicks: clicksForCpc,
+      campaignClicks: campaignTotals.clicks,
       productResultValue: normalized.productResultValue,
-      cpc: safeDiv(effectiveBudget, normalized.linkClicks),
+      cpc: safeDiv(effectiveBudget, clicksForCpc),
       cpv: safeDiv(effectiveBudget, normalized.reachTotal),
       campaigns,
       campaignTotals,
@@ -260,14 +274,16 @@ export function buildReportFacts(report, metrics = compute(report)) {
         reachTotal: normalized.reachTotal,
         reachUniverse: normalized.reachUniverse,
         reachClevel: normalized.reachClevel,
+        reachMedia: normalized.reachMedia,
         linkClicks: normalized.linkClicks,
+        clicks: metrics.clicks,
+        campaignClicks: metrics.campaignTotals.clicks,
         productResultType: normalized.productResultType,
         productResultValue: normalized.productResultValue,
         productResultNote: normalized.productResultNote,
         campaigns: metrics.campaigns.map(campaignFact),
         telegram: normalized.tgEnabled
           ? {
-              channels: normalized.tgChannels,
               costUsd: normalized.tgCost,
               reach: normalized.tgReach,
               posts: normalized.tgPosts,

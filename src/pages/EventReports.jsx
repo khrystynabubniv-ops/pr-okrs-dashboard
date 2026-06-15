@@ -10,6 +10,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
+import { InfoTooltip } from '../components/InfoTooltip'
 import { apiRequest } from '../lib/api'
 import {
   buildReportFacts,
@@ -84,6 +85,7 @@ const initialForm = (type = 'event') => {
     reachTotal: '',
     reachUniverse: '',
     reachClevel: '',
+    reachMedia: '',
     linkClicks: '',
     productResultType: '',
     productResultValue: '',
@@ -803,16 +805,27 @@ function LaunchFields({
 
       <FormSection title="Результати">
         <div className="er-form-grid er-form-grid-3">
-          <Field label="Загальне охоплення">
-            <NumberInput
-              value={form.reachTotal}
-              onChange={(value) => updateField('reachTotal', value)}
+          <Field
+            label="Загальне охоплення"
+            info="Автоматична сума охоплень із соцмереж Universe, соцмереж C-level, платних ТГ-каналів і медіа."
+          >
+            <input
+              className="er-input er-number-input er-readonly-input"
+              value={numberInputValue(metrics.reachTotal)}
+              readOnly
+              aria-readonly="true"
             />
           </Field>
           <Field label="Згадки в медіа">
             <NumberInput
               value={form.mediaMentions}
               onChange={(value) => updateField('mediaMentions', value)}
+            />
+          </Field>
+          <Field label="Охоплення медіа">
+            <NumberInput
+              value={form.reachMedia}
+              onChange={(value) => updateField('reachMedia', value)}
             />
           </Field>
           <Field label="Охоплення соцмереж Universe">
@@ -871,10 +884,10 @@ function LaunchFields({
         />
         {form.tgEnabled ? (
           <div className="er-form-grid er-form-grid-2 er-disclosure-body">
-            <Field label="Кількість каналів">
+            <Field label="Кількість публікацій">
               <NumberInput
-                value={form.tgChannels}
-                onChange={(value) => updateField('tgChannels', value)}
+                value={form.tgPosts}
+                onChange={(value) => updateField('tgPosts', value)}
               />
             </Field>
             <Field label="Сумарна вартість ($)">
@@ -887,12 +900,6 @@ function LaunchFields({
               <NumberInput
                 value={form.tgReach}
                 onChange={(value) => updateField('tgReach', value)}
-              />
-            </Field>
-            <Field label="Кількість публікацій">
-              <NumberInput
-                value={form.tgPosts}
-                onChange={(value) => updateField('tgPosts', value)}
               />
             </Field>
             <Field label="Список каналів" full>
@@ -1213,7 +1220,8 @@ function detailMetricItems(report, metrics) {
       { label: 'Охоплення', value: formatCompact(metrics.reachTotal) },
       { label: 'Universe соц.', value: formatCompact(metrics.reachUniverse) },
       { label: 'C-level соц.', value: formatCompact(metrics.reachClevel) },
-      { label: 'Кліки', value: formatWhole(metrics.linkClicks) },
+      { label: 'Медіа охопл.', value: formatCompact(metrics.reachMedia) },
+      { label: 'Кліки', value: formatWhole(metrics.clicks) },
       { label: 'Згадки', value: formatWhole(metrics.mediaMentions) },
     ]
   }
@@ -1281,10 +1289,9 @@ function LaunchDetailBlocks({ report, metrics }) {
             <h3>Платні ТГ-блогери</h3>
           </div>
           <div className="er-detail-info-grid">
-            <InfoCard title="Каналів" text={formatWhole(report.tgChannels)} />
+            <InfoCard title="Публікацій" text={formatWhole(report.tgPosts)} />
             <InfoCard title="Вартість" text={formatUsd(report.tgCost)} />
             <InfoCard title="Охоплення / перегляди" text={formatCompact(report.tgReach)} />
-            <InfoCard title="Публікацій" text={formatWhole(report.tgPosts)} />
             <InfoCard title="Список каналів" text={report.tgChannelList} />
           </div>
         </section>
@@ -1436,10 +1443,13 @@ function FormSection({ title, children }) {
   )
 }
 
-function Field({ label, children, full = false }) {
+function Field({ label, children, full = false, info = '' }) {
   return (
     <label className={`er-field ${full ? 'er-field-full' : ''}`}>
-      <span>{label}</span>
+      <span className="er-field-label">
+        <span>{label}</span>
+        <InfoTooltip text={info} />
+      </span>
       {children}
     </label>
   )

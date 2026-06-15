@@ -468,7 +468,10 @@
   grid-column: 1 / -1;
 }
 
-.er-field > span {
+.er-field > .er-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   margin-bottom: 5px;
   color: var(--er-muted);
   font-size: 12.5px;
@@ -515,6 +518,12 @@ textarea.er-input {
 
 .er-number-input {
   font-variant-numeric: tabular-nums;
+}
+
+.er-readonly-input {
+  background: #f7f7f9;
+  color: var(--er-muted);
+  cursor: default;
 }
 
 .er-checkbox-row {

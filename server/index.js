@@ -3227,6 +3227,15 @@ function normalizeEventReportPayload(report = {}) {
   const hireEnabled = isPartnership ? booleanValue(report.hireEnabled) : false
   const rawViews = report.views ?? report.partnershipViews
   const rawClicks = report.clicks ?? report.partnershipClicks
+  const reachUniverse = isLaunch ? numberValue(report.reachUniverse) : 0
+  const reachClevel = isLaunch ? numberValue(report.reachClevel) : 0
+  const reachMedia = isLaunch ? numberValue(report.reachMedia ?? report.mediaReach) : 0
+  const tgReach = tgEnabled ? numberValue(report.tgReach) : 0
+  const reachPartsTotal = reachUniverse + reachClevel + reachMedia + tgReach
+  const legacyReachTotal = numberValue(report.reachTotal ?? report.totalReach)
+  const linkClicks = isLaunch
+    ? numberValue(report.linkClicks) || numberValue(report.clicks)
+    : 0
 
   return {
     type,
@@ -3257,17 +3266,18 @@ function normalizeEventReportPayload(report = {}) {
     mediaMentions: numberValue(report.mediaMentions),
     channels: isEvent ? textValue(report.channels) : '',
     engagement: isEvent ? textValue(report.engagement) : '',
-    reachTotal: isLaunch ? numberValue(report.reachTotal ?? report.totalReach) : 0,
-    reachUniverse: isLaunch ? numberValue(report.reachUniverse) : 0,
-    reachClevel: isLaunch ? numberValue(report.reachClevel) : 0,
-    linkClicks: isLaunch ? numberValue(report.linkClicks) : 0,
+    reachTotal: isLaunch ? reachPartsTotal || legacyReachTotal : 0,
+    reachUniverse,
+    reachClevel,
+    reachMedia,
+    linkClicks,
     productResultType: isLaunch ? textValue(report.productResultType) : '',
     productResultValue: isLaunch ? numberValue(report.productResultValue) : 0,
     productResultNote: isLaunch ? textValue(report.productResultNote) : '',
     tgEnabled,
     tgChannels: tgEnabled ? numberValue(report.tgChannels) : 0,
     tgCost: tgEnabled ? numberValue(report.tgCost) : 0,
-    tgReach: tgEnabled ? numberValue(report.tgReach) : 0,
+    tgReach,
     tgPosts: tgEnabled ? numberValue(report.tgPosts) : 0,
     tgChannelList: tgEnabled ? textValue(report.tgChannelList) : '',
     otherSpendUsd: isLaunch ? numberValue(report.otherSpendUsd) : 0,
@@ -3409,10 +3419,11 @@ async function generateEventReportViaOpenRouter(facts) {
 
 function eventReportAiSystemPrompt() {
   return [
-    'Ти senior Communications/PR аналітик. Пиши українською, стисло і business-facing.',
+    'Ти senior Communications/PR аналітик. Пиши українською, дуже стисло, business-facing і по факту.',
     'Критичне правило: не рахуй, не перераховуй і не вигадуй жодних чисел. Усі числові метрики вже пораховані кодом у facts. Використовуй числа тільки з facts або пропускай їх.',
+    'Не додавай загальних фраз, води чи очевидних висновків без опори на facts.',
     'Поверни тільки валідний JSON без markdown, пояснень чи code fence.',
-    'Схема відповіді: {"summary":"2-3 речення executive summary","insights":["4-6 коротких інсайтів"],"planFact":"1 короткий абзац про результат відносно цілі/контексту"}',
+    'Схема відповіді: {"summary":"1-2 речення executive summary","insights":["2-3 короткі фактичні інсайти"],"planFact":"1 коротке речення про результат відносно цілі/контексту"}',
     'Якщо даних мало, чесно напиши про обмеження даних без вигаданих висновків.',
   ].join('\n')
 }
@@ -3427,7 +3438,7 @@ function parseEventReportAiResponse(text) {
   return {
     summary: textValue(json.summary),
     insights: Array.isArray(json.insights)
-      ? json.insights.map(textValue).filter(Boolean).slice(0, 8)
+      ? json.insights.map(textValue).filter(Boolean).slice(0, 3)
       : [],
     planFact: textValue(json.planFact),
   }
