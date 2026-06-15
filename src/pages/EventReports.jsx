@@ -21,6 +21,7 @@ import {
   formatPercent,
   formatReportDateRange,
   formatUsd,
+  formatUsdUnit,
   formatWhole,
   normalizeReportInput,
 } from '../lib/eventReports'
@@ -257,7 +258,7 @@ function tableMetricCells(report, metrics) {
   if (report.type === 'partnership') {
     return [
       formatUsd(metrics.totalBudget),
-      formatUsd(metrics.cpv),
+      formatUsdUnit(metrics.cpv),
       report.hireEnabled ? formatWhole(metrics.hireCount) : '—',
       formatWhole(metrics.episodes),
     ]
@@ -266,16 +267,16 @@ function tableMetricCells(report, metrics) {
   if (report.type === 'launch') {
     return [
       formatUsd(metrics.totalBudget),
-      formatUsd(metrics.cpc),
-      formatUsd(metrics.cpv),
+      formatUsdUnit(metrics.cpc),
+      formatUsdUnit(metrics.cpv),
       formatCompact(metrics.reachTotal),
     ]
   }
 
   return [
     formatUsd(metrics.totalBudget),
-    formatUsd(metrics.cpa),
-    formatUsd(metrics.cpl),
+    formatUsdUnit(metrics.cpa),
+    formatUsdUnit(metrics.cpl),
     formatWhole(metrics.attended),
   ]
 }
@@ -1199,15 +1200,15 @@ function detailMetricItems(report, metrics) {
   if (report.type === 'partnership') {
     return [
       { label: 'Вартість', value: formatUsd(metrics.totalBudget) },
-      { label: 'CPV', value: formatUsd(metrics.cpv) },
-      { label: 'CPC', value: formatUsd(metrics.cpc) },
+      { label: 'CPV', value: formatUsdUnit(metrics.cpv) },
+      { label: 'CPC', value: formatUsdUnit(metrics.cpc) },
       { label: 'Наймів', value: report.hireEnabled ? formatWhole(metrics.hireCount) : '—' },
       { label: 'Випусків', value: formatWhole(metrics.episodes) },
       { label: 'Перегляди', value: formatCompact(metrics.views) },
       { label: 'Кліки', value: formatWhole(metrics.clicks) },
       {
         label: 'Вартість за найм',
-        value: metrics.hireCount ? formatUsd(metrics.costPerHire) : '—',
+        value: metrics.hireCount ? formatUsdUnit(metrics.costPerHire) : '—',
       },
     ]
   }
@@ -1215,8 +1216,8 @@ function detailMetricItems(report, metrics) {
   if (report.type === 'launch') {
     return [
       { label: 'Бюджет', value: formatUsd(metrics.totalBudget) },
-      { label: 'CPC', value: formatUsd(metrics.cpc) },
-      { label: 'CPV', value: formatUsd(metrics.cpv) },
+      { label: 'CPC', value: formatUsdUnit(metrics.cpc) },
+      { label: 'CPV', value: formatUsdUnit(metrics.cpv) },
       { label: 'Охоплення', value: formatCompact(metrics.reachTotal) },
       { label: 'Universe соц.', value: formatCompact(metrics.reachUniverse) },
       { label: 'C-level соц.', value: formatCompact(metrics.reachClevel) },
@@ -1231,9 +1232,9 @@ function detailMetricItems(report, metrics) {
     { label: 'Funnel', value: formatWhole(metrics.funnel) },
     { label: 'Прийшло', value: formatWhole(metrics.attended) },
     { label: 'Без команди', value: formatWhole(metrics.attendedNoTeam) },
-    { label: 'CPA', value: formatUsd(metrics.cpa) },
-    { label: 'CPL', value: formatUsd(metrics.cpl) },
-    { label: 'CPL без команди', value: formatUsd(metrics.cplNoTeam) },
+    { label: 'CPA', value: formatUsdUnit(metrics.cpa) },
+    { label: 'CPL', value: formatUsdUnit(metrics.cpl) },
+    { label: 'CPL без команди', value: formatUsdUnit(metrics.cplNoTeam) },
     { label: 'Згадки', value: formatWhole(metrics.mediaMentions) },
   ]
 }
@@ -1347,8 +1348,8 @@ function previewMetricItems(report, metrics) {
   if (report.type === 'partnership') {
     return [
       ['Вартість', formatUsd(metrics.totalBudget)],
-      ['CPV', formatUsd(metrics.cpv)],
-      ['CPC', formatUsd(metrics.cpc)],
+      ['CPV', formatUsdUnit(metrics.cpv)],
+      ['CPC', formatUsdUnit(metrics.cpc)],
       ['Наймів', report.hireEnabled ? formatWhole(metrics.hireCount) : '—'],
     ]
   }
@@ -1356,17 +1357,17 @@ function previewMetricItems(report, metrics) {
   if (report.type === 'launch') {
     return [
       ['Бюджет', formatUsd(metrics.totalBudget)],
-      ['CPC', formatUsd(metrics.cpc)],
-      ['CPV', formatUsd(metrics.cpv)],
+      ['CPC', formatUsdUnit(metrics.cpc)],
+      ['CPV', formatUsdUnit(metrics.cpv)],
       ['Охоплення', formatCompact(metrics.reachTotal)],
     ]
   }
 
   return [
     ['Бюджет', formatUsd(metrics.totalBudget)],
-    ['CPA', formatUsd(metrics.cpa)],
-    ['CPL', formatUsd(metrics.cpl)],
-    ['CPL без команди', formatUsd(metrics.cplNoTeam)],
+    ['CPA', formatUsdUnit(metrics.cpa)],
+    ['CPL', formatUsdUnit(metrics.cpl)],
+    ['CPL без команди', formatUsdUnit(metrics.cplNoTeam)],
   ]
 }
 

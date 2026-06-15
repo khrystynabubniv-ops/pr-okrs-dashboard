@@ -11,6 +11,11 @@ const euroFormatter = new Intl.NumberFormat('uk-UA', {
   maximumFractionDigits: 2,
 })
 
+const usdUnitFormatter = new Intl.NumberFormat('uk-UA', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
 export const safeDiv = (a, b) => (b && b !== 0 ? a / b : 0)
 
 export function toReportNumber(value) {
@@ -340,6 +345,12 @@ function campaignFact(campaign) {
 
 export function formatUsd(value) {
   return `$${integerFormatter.format(Math.round(toReportNumber(value)))}`
+}
+
+export function formatUsdUnit(value) {
+  const number = toReportNumber(value)
+  if (!number) return '$0'
+  return `$${usdUnitFormatter.format(number)}`
 }
 
 export function formatEur(value) {
