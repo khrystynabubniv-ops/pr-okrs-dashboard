@@ -808,7 +808,7 @@ function LaunchFields({
         <div className="er-form-grid er-form-grid-3">
           <Field
             label="Загальне охоплення"
-            info="Автоматична сума охоплень із соцмереж Universe, соцмереж C-level, платних ТГ-каналів і медіа."
+            info="Автоматична сума охоплень із соцмереж Universe, соцмереж C-level і медіа. Платні ТГ-канали показуються окремо."
           >
             <input
               className="er-input er-number-input er-readonly-input"
