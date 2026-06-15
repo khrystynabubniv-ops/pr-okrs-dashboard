@@ -19,7 +19,9 @@ import {
   ArrowDown,
   ArrowUp,
   ClipboardCopy,
+  ExternalLink,
   FileText,
+  Mail,
   Plus,
   RefreshCw,
   Save,
@@ -53,13 +55,23 @@ import {
 
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const COVERAGE_CACHE_TTL_MS = 10 * 60 * 1000
+const MAILCHIMP_CACHE_TTL_MS = 10 * 60 * 1000
 const COVERAGE_FALLBACK_SOURCES = new Set([
   'looqme-timeout',
   'looqme-missing-token',
   'looqme-missing-url',
 ])
+const MAILCHIMP_FALLBACK_SOURCES = new Set([
+  'mailchimp-timeout',
+  'mailchimp-missing-token',
+  'mailchimp-missing-server',
+])
+const MAILCHIMP_DASHBOARD_URL = normalizeExternalDashboardUrl(
+  import.meta.env.VITE_MAILCHIMP_DASHBOARD_URL,
+)
 const dashboardPayloadCache = new Map()
 const coveragePayloadCache = new Map()
+const mailchimpPayloadCache = new Map()
 
 export function DashboardPage({ selectedMonth }) {
   const navigate = useNavigate()
@@ -91,6 +103,15 @@ export function DashboardPage({ selectedMonth }) {
       keepPreviousData: true,
     },
   )
+  const mailchimpQuery = useAsyncData(
+    () => loadMailchimpPayload(selectedMonth),
+    [selectedMonth],
+    {
+      initialData: () =>
+        readCachedPayload(mailchimpPayloadCache, selectedMonth, MAILCHIMP_CACHE_TTL_MS),
+      keepPreviousData: true,
+    },
+  )
   const activeDashboardData =
     dashboardQuery.data?.month === selectedMonth ? dashboardQuery.data : null
   const rawCoverageData =
@@ -98,6 +119,11 @@ export function DashboardPage({ selectedMonth }) {
   const coverageFallback = isCoverageFallbackPayload(rawCoverageData)
   const activeCoverageData =
     rawCoverageData && !coverageFallback ? rawCoverageData : null
+  const rawMailchimpData =
+    mailchimpQuery.data?.month === selectedMonth ? mailchimpQuery.data : null
+  const mailchimpFallback = isMailchimpFallbackPayload(rawMailchimpData)
+  const activeMailchimpData =
+    rawMailchimpData && !mailchimpFallback ? rawMailchimpData : null
 
   const goals = useMemo(
     () => activeDashboardData?.goals || [],
@@ -117,6 +143,12 @@ export function DashboardPage({ selectedMonth }) {
   )
   const coverageLoading = coverageQuery.loading && !activeCoverageData
   const coverageUnavailable = !coverageLoading && coverageFallback
+  const mailchimp = useMemo(
+    () => activeMailchimpData || {},
+    [activeMailchimpData],
+  )
+  const mailchimpLoading = mailchimpQuery.loading && !activeMailchimpData
+  const mailchimpUnavailable = !mailchimpLoading && mailchimpFallback
   const eventAwareness = useMemo(
     () => activeDashboardData?.eventAwareness || { audiences: [], overall: null },
     [activeDashboardData],
@@ -133,9 +165,10 @@ export function DashboardPage({ selectedMonth }) {
         focus,
         events,
         coverage,
+        mailchimp,
         selectedMonth,
       }),
-    [coverage, events, focus, goals, selectedMonth],
+    [coverage, events, focus, goals, mailchimp, selectedMonth],
   )
   const directionStats = useMemo(
     () => directionProgressSummary(goals, selectedMonth),
@@ -185,6 +218,7 @@ export function DashboardPage({ selectedMonth }) {
         events,
         focus,
         coverage,
+        mailchimp,
         personalBrands,
         eventAwareness,
         candidateAwareness,
@@ -197,6 +231,7 @@ export function DashboardPage({ selectedMonth }) {
       events,
       focus,
       goals,
+      mailchimp,
       personalBrands,
       selectedMonth,
     ],
@@ -233,6 +268,7 @@ export function DashboardPage({ selectedMonth }) {
           focus,
           events,
           coverage,
+          mailchimp,
         }),
       })
       setReport({ month: selectedMonth, text: result.report })
@@ -331,7 +367,7 @@ export function DashboardPage({ selectedMonth }) {
 
       {!dashboardQuery.error && activeDashboardData && hasMonthData ? (
         <>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
             <MetricCard
               label="KPI в темпі року"
               value={`${executive.kpi.onTrack}/${executive.kpi.measured}`}
@@ -363,6 +399,13 @@ export function DashboardPage({ selectedMonth }) {
             <CandidateAwarenessKpiCard
               kpi={candidateAwareness}
               tooltip="Показує KPI з рядка “Збільшити к-сть кандидатів, які знають про компанію”: відсоток awareness, ціль і прогрес до 70%."
+            />
+            <MailchimpMetricCard
+              mailchimp={mailchimp}
+              loading={mailchimpLoading}
+              unavailable={mailchimpUnavailable}
+              onRetry={mailchimpQuery.retry}
+              tooltip="Бере campaign reports з Mailchimp Marketing API за вибраний місяць. Open rate рахуємо як unique opens / delivered, click rate — unique subscriber clicks / delivered."
             />
           </section>
 
@@ -468,6 +511,19 @@ export function DashboardPage({ selectedMonth }) {
                   text="Додайте у KPI-спредшит ціль/рядок про органічний трафік і помісячні значення."
                 />
               )}
+            </ChartPanel>
+
+            <ChartPanel
+              title="Mailchimp email performance"
+              tooltip="Показує campaign reports з Mailchimp за вибраний місяць: open rate, click rate, click-to-open rate, відписки, bounce rate і кампанії місяця."
+            >
+              <MailchimpPerformancePanel
+                mailchimp={mailchimp}
+                loading={mailchimpLoading}
+                unavailable={mailchimpUnavailable}
+                href={MAILCHIMP_DASHBOARD_URL}
+                onRetry={mailchimpQuery.retry}
+              />
             </ChartPanel>
 
             <ChartPanel
@@ -893,6 +949,7 @@ function hasDashboardMonthData({
   events,
   focus,
   coverage,
+  mailchimp,
   personalBrands,
   eventAwareness,
   candidateAwareness,
@@ -918,6 +975,7 @@ function hasDashboardMonthData({
       events.length ||
       focus.length ||
       hasCoverage ||
+      hasMailchimpValues(mailchimp) ||
       hasEventAwareness ||
       hasCandidateAwareness,
   )
@@ -943,6 +1001,19 @@ function hasCoverageValues(coverage) {
       coverage.audience?.total ||
       coverage.audience?.all,
     )
+}
+
+function hasMailchimpValues(mailchimp) {
+  const metrics = mailchimp?.metrics || {}
+  const campaigns = mailchimp?.campaigns || []
+
+  return Boolean(
+    campaigns.length ||
+      Number(metrics.campaigns || 0) ||
+      Number(metrics.emailsSent || 0) ||
+      Number(metrics.openRate || 0) ||
+      Number(metrics.clickRate || 0),
+  )
 }
 
 function createEmptyCompetitorForm(selectedMonth) {
@@ -1201,6 +1272,182 @@ function CandidateAwarenessKpiCard({ kpi, tooltip }) {
   )
 }
 
+function MailchimpMetricCard({ mailchimp, loading, unavailable, onRetry, tooltip }) {
+  const metrics = mailchimp?.metrics || {}
+  const hasData = hasMailchimpValues(mailchimp)
+  const detail = loading
+    ? 'Завантажуємо campaign reports...'
+    : unavailable
+      ? 'Потрібен Mailchimp API key'
+      : hasData
+        ? `${formatChartNumber(metrics.campaigns)} кампаній · ${formatChartNumber(
+            metrics.emailsSent,
+          )} sent · CR ${formatRateValue(metrics.clickRate)}`
+        : 'Кампаній за місяць немає'
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-4">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Email open rate
+        </p>
+        <InfoTooltip text={tooltip} />
+      </div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <Mail className="h-6 w-6 text-amber-600" />
+        <p className="text-3xl font-semibold leading-none text-slate-950">
+          {loading ? '...' : hasData ? formatRateValue(metrics.openRate) : '—'}
+        </p>
+      </div>
+      <p className="mt-3 text-sm leading-5 text-slate-600">{detail}</p>
+      {unavailable ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-3 inline-flex h-8 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Повторити
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function MailchimpPerformancePanel({
+  mailchimp,
+  loading,
+  unavailable,
+  href,
+  onRetry,
+}) {
+  const metrics = mailchimp?.metrics || {}
+  const campaigns = mailchimp?.campaigns || []
+
+  if (loading) {
+    return (
+      <div className="flex min-h-72 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm font-medium text-slate-500">
+        <RefreshCw className="mr-2 h-4 w-4 animate-spin text-amber-500" />
+        Завантажуємо Mailchimp...
+      </div>
+    )
+  }
+
+  if (unavailable) {
+    return (
+      <div className="flex min-h-72 flex-col items-center justify-center rounded-md border border-amber-200 bg-amber-50 px-4 text-center">
+        <p className="text-sm font-semibold text-amber-900">
+          Mailchimp ще не підключений.
+        </p>
+        <p className="mt-1 max-w-md text-sm text-amber-800">
+          Додайте API key і server prefix у змінні середовища, щоб бачити email-метрики.
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Повторити
+        </button>
+      </div>
+    )
+  }
+
+  if (!hasMailchimpValues(mailchimp)) {
+    return (
+      <EmptyState
+        title="Немає Mailchimp кампаній"
+        text="Панель заповниться, коли за вибраний місяць у Mailchimp будуть sent campaigns."
+      />
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MailchimpMetricTile label="Open rate" value={formatRateValue(metrics.openRate)} />
+        <MailchimpMetricTile label="Click rate" value={formatRateValue(metrics.clickRate)} />
+        <MailchimpMetricTile
+          label="Click-to-open"
+          value={formatRateValue(metrics.clickToOpenRate)}
+        />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MailchimpMetricTile
+          label="Sent"
+          value={formatChartNumber(metrics.emailsSent)}
+          detail={`${formatChartNumber(metrics.campaigns)} кампаній`}
+        />
+        <MailchimpMetricTile
+          label="Unsubscribe"
+          value={formatRateValue(metrics.unsubscribeRate)}
+          detail={`${formatChartNumber(metrics.unsubscribed)} людей`}
+        />
+        <MailchimpMetricTile
+          label="Bounce"
+          value={formatRateValue(metrics.bounceRate)}
+          detail={`${formatChartNumber(metrics.totalBounces)} bounced`}
+        />
+      </div>
+      <div className="border-t border-slate-100 pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-medium text-slate-950">Кампанії місяця</p>
+          {href ? (
+            <a
+              href={href}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-700 hover:text-indigo-900"
+            >
+              Відкрити
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          ) : null}
+        </div>
+        <div className="mt-3 space-y-2">
+          {campaigns.slice(0, 5).map((campaign) => (
+            <MailchimpCampaignRow key={campaign.id} campaign={campaign} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MailchimpMetricTile({ label, value, detail }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+      <p className="text-xs font-medium text-slate-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-slate-950">{value}</p>
+      {detail ? <p className="mt-1 text-xs text-slate-500">{detail}</p> : null}
+    </div>
+  )
+}
+
+function MailchimpCampaignRow({ campaign }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-slate-950">
+          {campaign.title || campaign.subject || 'Campaign'}
+        </p>
+        <p className="mt-1 truncate text-xs text-slate-500">
+          {[formatCampaignDate(campaign.sendTime), campaign.subject, campaign.listName]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      </div>
+      <div className="flex shrink-0 gap-2 text-xs">
+        <span className="rounded-full bg-amber-50 px-2.5 py-1 font-semibold text-amber-800">
+          OR {formatRateValue(campaign.openRate)}
+        </span>
+        <span className="rounded-full bg-indigo-50 px-2.5 py-1 font-semibold text-indigo-700">
+          CR {formatRateValue(campaign.clickRate)}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function AwarenessAudiencePill({ audience }) {
   return (
     <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-emerald-100">
@@ -1274,11 +1521,36 @@ function formatPercentNumber(value) {
   }).format(value)}%`
 }
 
+function formatRateValue(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
+  return `${new Intl.NumberFormat('uk-UA', {
+    maximumFractionDigits: 1,
+  }).format(Number(value || 0))}%`
+}
+
 function formatReachValue(value) {
   if (!value) return '—'
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} млн`
   if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)} тис.`
   return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(value)
+}
+
+function formatCampaignDate(value) {
+  if (!value) return ''
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  return date.toLocaleDateString('uk-UA', {
+    day: '2-digit',
+    month: 'short',
+  })
+}
+
+function normalizeExternalDashboardUrl(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  return /^https?:\/\//i.test(text) ? text : `https://${text}`
 }
 
 function formatEventDate(event) {
@@ -1511,10 +1783,47 @@ async function loadCoveragePayload(selectedMonth) {
   return coverage
 }
 
+async function loadMailchimpPayload(selectedMonth) {
+  const cached = readCachedPayload(
+    mailchimpPayloadCache,
+    selectedMonth,
+    MAILCHIMP_CACHE_TTL_MS,
+  )
+  if (cached) return cached
+
+  const payload = await optionalRequest(
+    `/api/mailchimp/campaigns?month=${encodeURIComponent(selectedMonth)}`,
+    {
+      month: selectedMonth,
+      campaigns: [],
+      metrics: {},
+      source: 'mailchimp-timeout',
+      isFallback: true,
+    },
+    16000,
+  )
+  const mailchimp = {
+    ...payload,
+    month: payload.month || selectedMonth,
+  }
+
+  if (!isMailchimpFallbackPayload(mailchimp)) {
+    writeCachedPayload(mailchimpPayloadCache, selectedMonth, mailchimp)
+  }
+
+  return mailchimp
+}
+
 function isCoverageFallbackPayload(payload) {
   if (!payload) return false
   if (payload.isFallback) return true
   return COVERAGE_FALLBACK_SOURCES.has(payload.source)
+}
+
+function isMailchimpFallbackPayload(payload) {
+  if (!payload) return false
+  if (payload.isFallback) return true
+  return MAILCHIMP_FALLBACK_SOURCES.has(payload.source)
 }
 
 function readCachedPayload(cache, key, ttlMs) {

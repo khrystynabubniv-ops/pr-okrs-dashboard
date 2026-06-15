@@ -92,6 +92,7 @@ const LOOQME_SENTIMENT_COLORS = {
   negative: '#ef4444',
 }
 const LOOQME_COVERAGE_CACHE_TTL_MS = 10 * 60 * 1000
+const MAILCHIMP_REPORTS_CACHE_TTL_MS = 10 * 60 * 1000
 
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
@@ -100,6 +101,7 @@ let focusDatabasePromise = null
 const dataSourceCache = new Map()
 const dataSourceSchemaCache = new Map()
 const looqmeCoverageCache = new Map()
+const mailchimpReportsCache = new Map()
 let googleTokenCache = null
 
 app.use(cors())
@@ -3158,6 +3160,386 @@ function sanitizeExternalError(value) {
   return cleanReportText(value, 500)
 }
 
+async function fetchMailchimpCampaignReports(month) {
+  const config = getMailchimpConfig()
+
+  if (!config.apiKey) {
+    return emptyMailchimpReportsPayload(month, 'mailchimp-missing-token', true)
+  }
+
+  if (!config.url) {
+    return emptyMailchimpReportsPayload(month, 'mailchimp-missing-server', true)
+  }
+
+  const { url } = buildMailchimpReportsUrl(config, month)
+  const cacheKey = mailchimpReportsCacheKey(config, month, url)
+  const cached = readMailchimpReportsCache(cacheKey)
+  if (cached) return cached
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: buildMailchimpHeaders(config),
+    signal: AbortSignal.timeout(config.timeoutMs),
+  })
+  const body = await response.text()
+
+  if (!response.ok) {
+    throw createHttpError(
+      502,
+      'Mailchimp API не повернув campaign reports.',
+      sanitizeExternalError(body),
+    )
+  }
+
+  const payload = parseMailchimpResponseBody(body)
+  const reports = normalizeMailchimpReportsPayload(payload, month)
+  writeMailchimpReportsCache(cacheKey, reports)
+  return reports
+}
+
+function getMailchimpConfig() {
+  const apiKey = textValue(
+    process.env.MAILCHIMP_API_KEY || process.env.MAILCHIMP_TOKEN,
+  )
+  const serverPrefix = textValue(
+    process.env.MAILCHIMP_SERVER_PREFIX ||
+      process.env.MAILCHIMP_DC ||
+      process.env.MAILCHIMP_DATA_CENTER ||
+      mailchimpServerPrefixFromApiKey(apiKey),
+  )
+  const explicitBaseUrl = textValue(process.env.MAILCHIMP_BASE_URL)
+  const url = explicitBaseUrl
+    ? normalizeExternalUrl(explicitBaseUrl)
+    : serverPrefix
+      ? `https://${serverPrefix}.api.mailchimp.com/3.0`
+      : ''
+
+  return {
+    apiKey,
+    url,
+    type: textValue(process.env.MAILCHIMP_CAMPAIGN_TYPE),
+    count: boundedInteger(process.env.MAILCHIMP_REPORTS_LIMIT, 100, 1, 1000),
+    timeoutMs: boundedInteger(process.env.MAILCHIMP_TIMEOUT_MS, 15000, 1000, 120000),
+  }
+}
+
+function mailchimpServerPrefixFromApiKey(apiKey) {
+  const match = textValue(apiKey).match(/-([a-z]+\d+)$/i)
+  return match?.[1] || ''
+}
+
+function buildMailchimpReportsUrl(config, month) {
+  const url = new URL('reports', `${config.url.replace(/\/$/, '')}/`)
+  const range = coverageMonthDateRange(month)
+
+  url.searchParams.set('count', String(config.count))
+  url.searchParams.set('offset', '0')
+
+  if (config.type) {
+    url.searchParams.set('type', config.type)
+  }
+
+  if (range) {
+    url.searchParams.set('since_send_time', mailchimpIsoBoundary(range.from))
+    url.searchParams.set('before_send_time', mailchimpIsoBoundary(range.to))
+  }
+
+  return { range, url }
+}
+
+function mailchimpIsoBoundary(value) {
+  const text = textValue(value)
+  if (!text || /[zZ]$|[+-]\d{2}:?\d{2}$/.test(text)) return text
+  return `${text}+00:00`
+}
+
+function buildMailchimpHeaders(config) {
+  return {
+    Accept: 'application/json',
+    Authorization: `Basic ${Buffer.from(`codex:${config.apiKey}`).toString('base64')}`,
+  }
+}
+
+function mailchimpReportsCacheKey(config, month, url) {
+  return [month || '', config.url, config.type, config.count, url.toString()].join('|')
+}
+
+function readMailchimpReportsCache(cacheKey) {
+  const cached = mailchimpReportsCache.get(cacheKey)
+  if (!cached) return null
+
+  if (Date.now() - cached.cachedAt > MAILCHIMP_REPORTS_CACHE_TTL_MS) {
+    mailchimpReportsCache.delete(cacheKey)
+    return null
+  }
+
+  return cached.payload
+}
+
+function writeMailchimpReportsCache(cacheKey, payload) {
+  mailchimpReportsCache.set(cacheKey, {
+    cachedAt: Date.now(),
+    payload,
+  })
+}
+
+function parseMailchimpResponseBody(body) {
+  const text = String(body || '').trim()
+  if (!text) return {}
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw createHttpError(502, 'Mailchimp API повернув невалідний JSON.')
+  }
+}
+
+function normalizeMailchimpReportsPayload(rawPayload, month) {
+  const campaigns = extractMailchimpReports(rawPayload)
+    .map(normalizeMailchimpReport)
+    .filter((campaign) => campaign.id || campaign.title || campaign.sendTime)
+    .sort((left, right) => Date.parse(right.sendTime || 0) - Date.parse(left.sendTime || 0))
+
+  return {
+    ...emptyMailchimpReportsPayload(month, 'mailchimp'),
+    totalItems: Number(rawPayload?.total_items ?? campaigns.length),
+    campaigns,
+    metrics: aggregateMailchimpCampaignMetrics(campaigns),
+  }
+}
+
+function extractMailchimpReports(payload) {
+  if (Array.isArray(payload)) return payload
+  if (!payload || typeof payload !== 'object') return []
+
+  for (const key of ['reports', 'campaigns', 'items', 'results', 'data']) {
+    if (Array.isArray(payload[key])) return payload[key]
+  }
+
+  return []
+}
+
+function normalizeMailchimpReport(report = {}, index = 0) {
+  const opens = report.opens || {}
+  const clicks = report.clicks || {}
+  const bounces = report.bounces || {}
+  const forwards = report.forwards || {}
+  const emailsSent = mailchimpNumberValue(report.emails_sent ?? report.emailsSent)
+  const hardBounces = mailchimpNumberValue(bounces.hard_bounces ?? report.hard_bounces)
+  const softBounces = mailchimpNumberValue(bounces.soft_bounces ?? report.soft_bounces)
+  const syntaxErrors = mailchimpNumberValue(bounces.syntax_errors ?? report.syntax_errors)
+  const totalBounces =
+    mailchimpNumberValue(bounces.total_bounces ?? report.total_bounces) ||
+    hardBounces + softBounces + syntaxErrors
+  const delivered = Math.max(0, emailsSent - totalBounces)
+  const uniqueOpens = mailchimpNumberValue(opens.unique_opens ?? report.unique_opens)
+  const totalOpens = mailchimpNumberValue(opens.opens_total ?? report.opens_total)
+  const uniqueClicks = mailchimpNumberValue(clicks.unique_clicks ?? report.unique_clicks)
+  const uniqueSubscriberClicks = mailchimpNumberValue(
+    clicks.unique_subscriber_clicks ?? report.unique_subscriber_clicks ?? uniqueClicks,
+  )
+  const totalClicks = mailchimpNumberValue(clicks.clicks_total ?? report.clicks_total)
+
+  return {
+    id: textValue(report.id || report.campaign_id || `mailchimp-${index + 1}`),
+    title: textValue(
+      report.campaign_title ||
+        report.title ||
+        report.settings?.title ||
+        report.settings?.subject_line ||
+        report.subject_line ||
+        `Campaign ${index + 1}`,
+    ),
+    subject: textValue(report.subject_line || report.settings?.subject_line),
+    listName: textValue(report.list_name || report.recipients?.list_name),
+    type: textValue(report.type),
+    sendTime: textValue(report.send_time || report.sent_time),
+    archiveUrl: textValue(report.archive_url || report.long_archive_url),
+    emailsSent,
+    delivered,
+    hardBounces,
+    softBounces,
+    syntaxErrors,
+    totalBounces,
+    bounceRate: normalizeMailchimpRate(
+      report.bounce_rate ?? bounces.bounce_rate,
+      emailsSent ? totalBounces / emailsSent : null,
+    ),
+    uniqueOpens,
+    totalOpens,
+    openRate: normalizeMailchimpRate(
+      opens.open_rate ?? report.open_rate,
+      delivered ? uniqueOpens / delivered : null,
+    ),
+    lastOpen: textValue(opens.last_open || report.last_open),
+    uniqueClicks,
+    uniqueSubscriberClicks,
+    totalClicks,
+    clickRate: normalizeMailchimpRate(
+      clicks.click_rate ?? report.click_rate,
+      delivered ? uniqueSubscriberClicks / delivered : null,
+    ),
+    clickToOpenRate: normalizeMailchimpRate(
+      clicks.click_to_open_rate ?? report.click_to_open_rate,
+      uniqueOpens ? uniqueSubscriberClicks / uniqueOpens : null,
+    ),
+    lastClick: textValue(clicks.last_click || report.last_click),
+    unsubscribed: mailchimpNumberValue(
+      report.unsubscribed ?? report.unsubscribes ?? report.unsubscribed_count,
+    ),
+    forwardsCount: mailchimpNumberValue(
+      forwards.forwards_count ?? report.forwards_count,
+    ),
+    forwardsOpens: mailchimpNumberValue(
+      forwards.forwards_opens ?? report.forwards_opens,
+    ),
+    abuseReports: mailchimpNumberValue(report.abuse_reports ?? report.abuseReports),
+  }
+}
+
+function aggregateMailchimpCampaignMetrics(campaigns = []) {
+  const totals = campaigns.reduce(
+    (summary, campaign) => {
+      summary.campaigns += 1
+      summary.emailsSent += campaign.emailsSent
+      summary.delivered += campaign.delivered
+      summary.uniqueOpens += campaign.uniqueOpens
+      summary.totalOpens += campaign.totalOpens
+      summary.uniqueClicks += campaign.uniqueClicks
+      summary.uniqueSubscriberClicks += campaign.uniqueSubscriberClicks
+      summary.totalClicks += campaign.totalClicks
+      summary.unsubscribed += campaign.unsubscribed
+      summary.totalBounces += campaign.totalBounces
+      summary.abuseReports += campaign.abuseReports
+      return summary
+    },
+    {
+      campaigns: 0,
+      emailsSent: 0,
+      delivered: 0,
+      uniqueOpens: 0,
+      totalOpens: 0,
+      uniqueClicks: 0,
+      uniqueSubscriberClicks: 0,
+      totalClicks: 0,
+      unsubscribed: 0,
+      totalBounces: 0,
+      abuseReports: 0,
+    },
+  )
+
+  return {
+    ...totals,
+    openRate: totals.delivered
+      ? roundMailchimpNumber((totals.uniqueOpens / totals.delivered) * 100)
+      : averageMailchimpRate(campaigns, 'openRate'),
+    clickRate: totals.delivered
+      ? roundMailchimpNumber(
+          (totals.uniqueSubscriberClicks / totals.delivered) * 100,
+        )
+      : averageMailchimpRate(campaigns, 'clickRate'),
+    clickToOpenRate: totals.uniqueOpens
+      ? roundMailchimpNumber(
+          (totals.uniqueSubscriberClicks / totals.uniqueOpens) * 100,
+        )
+      : averageMailchimpRate(campaigns, 'clickToOpenRate'),
+    unsubscribeRate: totals.delivered
+      ? roundMailchimpNumber((totals.unsubscribed / totals.delivered) * 100)
+      : 0,
+    bounceRate: totals.emailsSent
+      ? roundMailchimpNumber((totals.totalBounces / totals.emailsSent) * 100)
+      : 0,
+    bestOpenCampaign: bestMailchimpCampaign(campaigns, 'openRate'),
+    latestCampaign: campaigns[0] || null,
+  }
+}
+
+function emptyMailchimpReportsPayload(month, source, isFallback = false) {
+  return {
+    month,
+    source,
+    isFallback,
+    totalItems: 0,
+    campaigns: [],
+    metrics: {
+      campaigns: 0,
+      emailsSent: 0,
+      delivered: 0,
+      uniqueOpens: 0,
+      totalOpens: 0,
+      uniqueClicks: 0,
+      uniqueSubscriberClicks: 0,
+      totalClicks: 0,
+      openRate: 0,
+      clickRate: 0,
+      clickToOpenRate: 0,
+      unsubscribed: 0,
+      unsubscribeRate: 0,
+      totalBounces: 0,
+      bounceRate: 0,
+      abuseReports: 0,
+      bestOpenCampaign: null,
+      latestCampaign: null,
+    },
+  }
+}
+
+function normalizeMailchimpRate(value, fallbackRatio = null) {
+  if (hasNumberLikeValue(value)) {
+    const text = String(value)
+    const number = parseMetricNumber(value)
+    const percent = !text.includes('%') && Math.abs(number) <= 1 ? number * 100 : number
+    return roundMailchimpNumber(percent)
+  }
+
+  if (typeof fallbackRatio === 'number' && Number.isFinite(fallbackRatio)) {
+    return roundMailchimpNumber(fallbackRatio * 100)
+  }
+
+  return 0
+}
+
+function averageMailchimpRate(campaigns, field) {
+  const values = campaigns
+    .map((campaign) => Number(campaign[field] || 0))
+    .filter((value) => Number.isFinite(value) && value > 0)
+  const average = values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : 0
+
+  return roundMailchimpNumber(average)
+}
+
+function bestMailchimpCampaign(campaigns, field) {
+  return campaigns.reduce((best, campaign) => {
+    if (!best) return campaign
+    return Number(campaign[field] || 0) > Number(best[field] || 0) ? campaign : best
+  }, null)
+}
+
+function roundMailchimpNumber(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return 0
+  return Math.round(number * 10) / 10
+}
+
+function mailchimpNumberValue(value) {
+  if (!hasNumberLikeValue(value)) return 0
+  const number = typeof value === 'number' ? value : parseMetricNumber(value)
+  return Number.isFinite(number) ? number : 0
+}
+
+function hasNumberLikeValue(value) {
+  if (typeof value === 'number') return Number.isFinite(value)
+  return /-?\d/.test(String(value || ''))
+}
+
+function boundedInteger(value, fallback, min, max) {
+  const number = Number(value || fallback)
+  if (!Number.isFinite(number)) return fallback
+  return Math.min(max, Math.max(min, Math.floor(number)))
+}
+
 async function listEventReports() {
   if (isDatabaseConfigured()) return listStoredEventReports()
   return readLocalEventReports()
@@ -3470,6 +3852,9 @@ app.get('/api/health', asyncHandler(async (_request, response) => {
       anthropic: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY),
       openRouter: Boolean(process.env.OPENROUTER_API_KEY),
       looqmeTokenPresent: Boolean(process.env.LOOQME_TOKEN),
+      mailchimpTokenPresent: Boolean(
+        process.env.MAILCHIMP_API_KEY || process.env.MAILCHIMP_TOKEN,
+      ),
     },
   })
 }))
@@ -3724,6 +4109,10 @@ app.get('/api/looqme/coverage', asyncHandler(async (request, response) => {
   response.json(await applyManualCompetitors(coverage, month))
 }))
 
+app.get('/api/mailchimp/campaigns', asyncHandler(async (request, response) => {
+  response.json(await fetchMailchimpCampaignReports(request.query.month))
+}))
+
 app.get('/api/coverage/competitors', asyncHandler(async (request, response) => {
   response.json({ competitors: await getManualCompetitorMentions(request.query.month) })
 }))
@@ -3762,8 +4151,22 @@ app.post('/api/event-reports/generate', requireAuth, asyncHandler(async (request
 }))
 
 app.post('/api/generate-report', asyncHandler(async (request, response) => {
-  const { month, goals = [], focus = [], events = [], coverage = {} } = request.body
-  const reportData = buildBoardReportData({ month, goals, focus, events, coverage })
+  const {
+    month,
+    goals = [],
+    focus = [],
+    events = [],
+    coverage = {},
+    mailchimp = {},
+  } = request.body
+  const reportData = buildBoardReportData({
+    month,
+    goals,
+    focus,
+    events,
+    coverage,
+    mailchimp,
+  })
 
   if (!process.env.ANTHROPIC_KEY) {
     response.json({
@@ -3786,6 +4189,7 @@ app.post('/api/generate-report', asyncHandler(async (request, response) => {
           'Це короткий board-facing звіт, а не повний список задач.',
           'Обовʼязковий формат: "## {Місяць} — підсумок", markdown-таблиця з кількісними показниками, "## Що зроблено", тематичні блоки, "## {Наступний місяць} — план".',
           'У summary-таблиці покажи виконуваність команди, органічний трафік якщо є, згадки у медіа, Instagram якщо є, івенти та контакти.',
+          'Якщо є Mailchimp, додай email performance: кількість кампаній, open rate, click rate, CTOR, unsubscribe/bounce health і найсильнішу кампанію.',
           'У блоці "Медіа / PR" порівняй Universe Group із конкурентами з Looqme/SMM даних: що зробили ми, що видно по конкурентах, які прояви/медіа були помітні.',
           'У блоці "Події / EB" окремо зафіксуй кількість івентів, участь/організовані події та контакти.',
           'Використовуй Monthly Focus як контекст планів на місяць: додай важливі виконані результати та коротко познач незакриті фокуси тільки якщо є змістовний коментар або це важлива прогалина.',
@@ -3797,6 +4201,7 @@ app.post('/api/generate-report', asyncHandler(async (request, response) => {
           `Monthly focus: ${JSON.stringify(focus)}`,
           `Events: ${JSON.stringify(events)}`,
           `Media coverage: ${JSON.stringify(coverage)}`,
+          `Mailchimp campaign reports: ${JSON.stringify(mailchimp)}`,
         ].join('\n\n'),
       },
     ],
@@ -3847,9 +4252,10 @@ app.post('/api/notion/board-report', requireAuth, asyncHandler(async (request, r
   response.status(201).json({ reportId: storedReport?.id || null, pageId: page.id })
 }))
 
-function buildBoardReportData({ month, goals, focus, events, coverage }) {
+function buildBoardReportData({ month, goals, focus, events, coverage, mailchimp }) {
   const goalCompletion = buildGoalCompletionSummary(goals, month)
   const coverageSummary = buildCoverageReportSummary(coverage)
+  const mailchimpSummary = buildMailchimpReportSummary(mailchimp)
   const eventSummary = buildEventReportSummary(events)
   const organicTraffic = buildGoalMetricSummary(
     goals,
@@ -3877,6 +4283,7 @@ function buildBoardReportData({ month, goals, focus, events, coverage }) {
     instagram,
     mediaMentions,
     coverage: coverageSummary,
+    mailchimp: mailchimpSummary,
     events: eventSummary,
     focusSections,
   }
@@ -3939,6 +4346,10 @@ function buildBoardSummaryRows(reportData) {
     rows.push(['Instagram', formatInstagramForTable(reportData.instagram)])
   }
 
+  if (reportData.mailchimp.campaigns) {
+    rows.push(['Email / Mailchimp', formatMailchimpForTable(reportData.mailchimp)])
+  }
+
   rows.push([
     'Івенти',
     `**${reportData.events.total}** ${activityLabel(
@@ -3954,7 +4365,7 @@ function buildBoardSummaryRows(reportData) {
 }
 
 function buildBoardDoneSections(reportData) {
-  const { focusSections, coverage, events, instagram } = reportData
+  const { focusSections, coverage, events, instagram, mailchimp } = reportData
 
   return [
     {
@@ -3978,6 +4389,10 @@ function buildBoardDoneSections(reportData) {
         ...eventBullets(events),
         ...focusBullets(focusSections.events),
       ],
+    },
+    {
+      title: 'Email / Mailchimp',
+      lines: mailchimpBullets(mailchimp),
     },
     {
       title: 'SMM',
@@ -4096,6 +4511,34 @@ function buildCoverageReportSummary(coverage = {}) {
     totalReach,
     outlets,
     sentiment,
+  }
+}
+
+function buildMailchimpReportSummary(mailchimp = {}) {
+  const metrics = mailchimp.metrics || {}
+  const campaigns = Array.isArray(mailchimp.campaigns) ? mailchimp.campaigns : []
+  const bestOpenCampaign = metrics.bestOpenCampaign || bestMailchimpCampaign(
+    campaigns,
+    'openRate',
+  )
+
+  return {
+    campaigns: Number(metrics.campaigns || campaigns.length || 0),
+    emailsSent: Number(metrics.emailsSent || 0),
+    delivered: Number(metrics.delivered || 0),
+    openRate: normalizeMailchimpRate(metrics.openRate),
+    clickRate: normalizeMailchimpRate(metrics.clickRate),
+    clickToOpenRate: normalizeMailchimpRate(metrics.clickToOpenRate),
+    uniqueOpens: Number(metrics.uniqueOpens || 0),
+    uniqueSubscriberClicks: Number(metrics.uniqueSubscriberClicks || 0),
+    unsubscribed: Number(metrics.unsubscribed || 0),
+    unsubscribeRate: normalizeMailchimpRate(metrics.unsubscribeRate),
+    totalBounces: Number(metrics.totalBounces || 0),
+    bounceRate: normalizeMailchimpRate(metrics.bounceRate),
+    abuseReports: Number(metrics.abuseReports || 0),
+    bestOpenCampaign,
+    latestCampaign: metrics.latestCampaign || campaigns[0] || null,
+    topCampaigns: campaigns.slice(0, 5),
   }
 }
 
@@ -4283,6 +4726,51 @@ function smmBullets(instagram, coverage) {
   return lines
 }
 
+function mailchimpBullets(mailchimp) {
+  if (!mailchimp.campaigns) return []
+
+  const lines = [
+    `Email-кампанії: ${formatReportNumber(mailchimp.campaigns)}; надіслано ${formatReportNumber(
+      mailchimp.emailsSent,
+    )}; open rate ${formatReportPercent(mailchimp.openRate)}, click rate ${formatReportPercent(
+      mailchimp.clickRate,
+    )}, CTOR ${formatReportPercent(mailchimp.clickToOpenRate)}.`,
+  ]
+
+  if (mailchimp.unsubscribed || mailchimp.totalBounces) {
+    lines.push(
+      `List health: unsubscribe rate ${formatReportPercent(
+        mailchimp.unsubscribeRate,
+      )}, bounce rate ${formatReportPercent(mailchimp.bounceRate)}.`,
+    )
+  }
+
+  if (mailchimp.bestOpenCampaign?.title) {
+    lines.push(
+      `Найвищий open rate: ${cleanReportText(
+        mailchimp.bestOpenCampaign.title,
+        120,
+      )} — ${formatReportPercent(mailchimp.bestOpenCampaign.openRate)}.`,
+    )
+  }
+
+  const campaignLines = mailchimp.topCampaigns
+    .filter((campaign) => campaign.title)
+    .slice(0, 3)
+    .map(
+      (campaign) =>
+        `${cleanReportText(campaign.title, 80)} (${formatReportPercent(
+          campaign.openRate,
+        )} OR / ${formatReportPercent(campaign.clickRate)} CR)`,
+    )
+
+  if (campaignLines.length) {
+    lines.push(`Кампанії місяця: ${campaignLines.join('; ')}.`)
+  }
+
+  return lines
+}
+
 function formatGoalMetricForTable(metric) {
   const value = metric.hasCurrent
     ? `**${formatReportNumber(metric.current)}**`
@@ -4319,6 +4807,14 @@ function formatMediaMentionsForTable(reportData) {
   return `**${formatReportNumber(mediaMentions.current)}** медіазгадок ${
     mediaMentions.basis
   }${target}${competitors}`
+}
+
+function formatMailchimpForTable(mailchimp) {
+  return `**${formatReportPercent(mailchimp.openRate)}** open rate · click rate ${formatReportPercent(
+    mailchimp.clickRate,
+  )} · CTOR ${formatReportPercent(mailchimp.clickToOpenRate)} · ${formatReportNumber(
+    mailchimp.campaigns,
+  )} кампаній / ${formatReportNumber(mailchimp.emailsSent)} sent`
 }
 
 function formatDoneFocusLine(entry) {
@@ -4635,6 +5131,12 @@ function formatReportNumber(value) {
   return new Intl.NumberFormat('uk-UA', {
     maximumFractionDigits: Number.isInteger(value) ? 0 : 1,
   }).format(value || 0)
+}
+
+function formatReportPercent(value) {
+  return `${new Intl.NumberFormat('uk-UA', {
+    maximumFractionDigits: 1,
+  }).format(Number(value || 0))}%`
 }
 
 function formatReachShort(value) {
