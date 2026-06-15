@@ -71,7 +71,7 @@ export function normalizeReportInput(report = {}) {
   const reachClevel = isLaunch ? toReportNumber(report.reachClevel) : 0
   const reachMedia = isLaunch ? toReportNumber(report.reachMedia ?? report.mediaReach) : 0
   const tgReach = tgEnabled ? toReportNumber(report.tgReach) : 0
-  const reachPartsTotal = reachUniverse + reachClevel + reachMedia
+  const reachPartsTotal = reachUniverse + reachClevel + reachMedia + tgReach
   const legacyReachTotal = toReportNumber(report.reachTotal ?? report.totalReach)
   const linkClicks = isLaunch
     ? toReportNumber(report.linkClicks) || toReportNumber(report.clicks)
@@ -200,6 +200,7 @@ export function compute(report = {}) {
       reachUniverse: normalized.reachUniverse,
       reachClevel: normalized.reachClevel,
       reachMedia: normalized.reachMedia,
+      tgReach: normalized.tgReach,
       mediaMentions: normalized.mediaMentions,
       linkClicks: normalized.linkClicks,
       clicks: clicksForCpc,

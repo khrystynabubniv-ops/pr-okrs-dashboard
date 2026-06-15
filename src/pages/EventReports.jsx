@@ -808,7 +808,7 @@ function LaunchFields({
         <div className="er-form-grid er-form-grid-3">
           <Field
             label="Загальне охоплення"
-            info="Автоматична сума охоплень із соцмереж Universe, соцмереж C-level і медіа. Платні ТГ-канали показуються окремо."
+            info="Автоматична сума охоплень із соцмереж Universe, соцмереж C-level, медіа та платних ТГ-каналів."
           >
             <input
               className="er-input er-number-input er-readonly-input"
@@ -1222,6 +1222,7 @@ function detailMetricItems(report, metrics) {
       { label: 'Universe соц.', value: formatCompact(metrics.reachUniverse) },
       { label: 'C-level соц.', value: formatCompact(metrics.reachClevel) },
       { label: 'Медіа охопл.', value: formatCompact(metrics.reachMedia) },
+      { label: 'ТГ охопл.', value: formatCompact(metrics.tgReach) },
       { label: 'Кліки', value: formatWhole(metrics.clicks) },
       { label: 'Згадки', value: formatWhole(metrics.mediaMentions) },
     ]

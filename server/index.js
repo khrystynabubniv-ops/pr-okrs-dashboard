@@ -3231,7 +3231,7 @@ function normalizeEventReportPayload(report = {}) {
   const reachClevel = isLaunch ? numberValue(report.reachClevel) : 0
   const reachMedia = isLaunch ? numberValue(report.reachMedia ?? report.mediaReach) : 0
   const tgReach = tgEnabled ? numberValue(report.tgReach) : 0
-  const reachPartsTotal = reachUniverse + reachClevel + reachMedia
+  const reachPartsTotal = reachUniverse + reachClevel + reachMedia + tgReach
   const legacyReachTotal = numberValue(report.reachTotal ?? report.totalReach)
   const linkClicks = isLaunch
     ? numberValue(report.linkClicks) || numberValue(report.clicks)
