@@ -3220,13 +3220,20 @@ async function fetchMailchimpCampaignReports(month) {
   }
 
   const previousMonth = previousMailchimpMonthLabel(month)
-  const [current, previous, audience] = await Promise.all([
+  const [current, previous] = await Promise.all([
     fetchMailchimpReportsForMonth(config, month),
     previousMonth
       ? fetchMailchimpReportsForMonth(config, previousMonth)
       : emptyMailchimpReportsPayload('', 'mailchimp'),
-    fetchMailchimpAudienceSnapshot(config, month),
   ])
+  const audienceConfig = {
+    ...config,
+    listId:
+      config.listId ||
+      inferMailchimpListId(current.campaigns) ||
+      inferMailchimpListId(previous.campaigns),
+  }
+  const audience = await fetchMailchimpAudienceSnapshot(audienceConfig, month)
 
   return {
     ...current,
@@ -3234,6 +3241,11 @@ async function fetchMailchimpCampaignReports(month) {
     previous,
     audience,
   }
+}
+
+function inferMailchimpListId(campaigns = []) {
+  const campaign = campaigns.find((item) => textValue(item.listId))
+  return textValue(campaign?.listId)
 }
 
 async function fetchMailchimpReportsForMonth(config, month) {

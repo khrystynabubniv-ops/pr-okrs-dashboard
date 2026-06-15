@@ -67,12 +67,10 @@ export function buildMailchimpPerformance(
       openRate: rateMetric({
         value: currentMetrics.openRate,
         previousValue: previousMetrics.openRate,
-        benchmark: config.industryBenchmarks.openRate,
       }),
       clickRate: rateMetric({
         value: currentMetrics.clickRate,
         previousValue: previousMetrics.clickRate,
-        benchmark: config.industryBenchmarks.clickRate,
       }),
       reach: {
         uniqueOpens: currentMetrics.uniqueOpens,
@@ -147,10 +145,8 @@ function filterRealCampaigns(campaigns, config) {
     const hasExcludedTitle = config.excludedCampaignTitleTerms.some((term) =>
       haystack.includes(normalizeSearchText(term)),
     )
-    const hasEnoughRecipients =
-      campaign.emailsSent >= config.thresholds.minCampaignRecipients
 
-    return !hasExcludedTitle && hasEnoughRecipients
+    return !hasExcludedTitle
   })
 }
 
@@ -206,16 +202,13 @@ function rateFromTotals(numerator, denominator, campaigns, fallbackField) {
   return roundRate(rates.reduce((sum, value) => sum + value, 0) / rates.length)
 }
 
-function rateMetric({ value, previousValue, benchmark }) {
+function rateMetric({ value, previousValue }) {
   return {
     value,
     delta:
       hasNumber(value) && hasNumber(previousValue)
         ? roundRate(value - previousValue)
         : null,
-    benchmark,
-    benchmarkStatus:
-      hasNumber(value) && hasNumber(benchmark) && value >= benchmark ? 'good' : 'watch',
   }
 }
 

@@ -161,6 +161,18 @@ export function DashboardPage({ selectedMonth }) {
   )
   const mailchimpLoading = mailchimpQuery.loading && !activeMailchimpData
   const mailchimpUnavailable = !mailchimpLoading && mailchimpFallback
+  const mailchimpTooltip = [
+    'Бере Mailchimp reports за вибраний і попередній календарний місяць. Дельти — різниця агрегатів поточного і попереднього календарного місяця.',
+    'Малі розсилки включені в метрики та список.',
+    'Тестові/копії за назвою не відображаються і не входять у метрики.',
+    mailchimpPerformance.excludedCampaigns
+      ? `За цей місяць виключено ${formatChartNumber(
+          mailchimpPerformance.excludedCampaigns,
+        )} тестових або копій.`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' ')
   const eventAwareness = useMemo(
     () => activeDashboardData?.eventAwareness || { audiences: [], overall: null },
     [activeDashboardData],
@@ -401,7 +413,7 @@ export function DashboardPage({ selectedMonth }) {
               value={executive.ownMentionsTotal}
               unit="згадок"
               detail={`Конкуренти: ${executive.competitorMentionsTotal}; тональність наших згадок нижче.`}
-              tooltip="Бере coverage з Looqme. Universe Group рахуємо як наш бренд; конкуренти показані окремо як бенчмарк."
+              tooltip="Бере coverage з Looqme. Universe Group рахуємо як наш бренд; конкурентів показуємо окремо для порівняння."
               tone="violet"
             />
             <EventAwarenessMetricCard
@@ -417,7 +429,7 @@ export function DashboardPage({ selectedMonth }) {
               loading={mailchimpLoading}
               unavailable={mailchimpUnavailable}
               onRetry={mailchimpQuery.retry}
-              tooltip="Бере Mailchimp reports за вибраний і попередній календарний місяць. Тестові/копії та кампанії з малою кількістю отримувачів не входять у executive-метрики."
+              tooltip={mailchimpTooltip}
             />
           </section>
 
@@ -527,7 +539,7 @@ export function DashboardPage({ selectedMonth }) {
 
             <ChartPanel
               title="Email performance"
-              tooltip="Показує Mailchimp campaign reports для керівного огляду: engagement, health бази та реальні кампанії місяця. Дельти — різниця агрегатів поточного і попереднього календарного місяця."
+              tooltip={mailchimpTooltip}
             >
               <MailchimpPerformancePanel
                 performance={mailchimpPerformance}
@@ -632,7 +644,7 @@ export function DashboardPage({ selectedMonth }) {
                     Media coverage
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    Наші згадки окремо від конкурентного бенчмарку.
+                    Наші згадки окремо від конкурентного порівняння.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -717,7 +729,7 @@ export function DashboardPage({ selectedMonth }) {
                 {manualCompetitors.length ? (
                   <div className="border-t border-slate-100 pt-4">
                     <p className="text-sm font-medium text-slate-950">
-                      Ручний конкурентний бенчмарк
+                      Ручне конкурентне порівняння
                     </p>
                     <div className="mt-3 space-y-2">
                       {manualCompetitors.map((item) => (
@@ -824,7 +836,7 @@ export function DashboardPage({ selectedMonth }) {
 
           {competitorModalOpen ? (
             <Modal
-              title="Конкурентний бенчмарк"
+              title="Конкурентне порівняння"
               onClose={() => setCompetitorModalOpen(false)}
               footer={
                 <>
@@ -1305,7 +1317,7 @@ function MailchimpMetricCard({ performance, loading, unavailable, onRetry, toolt
             performance.engagement.reach.emailsSent,
           )} sent · CR ${formatRateValue(performance.engagement.clickRate.value)}`
         : performance?.totalCampaigns
-          ? `${formatChartNumber(performance.totalCampaigns)} кампаній відфільтровано як тестові/малі`
+          ? `${formatChartNumber(performance.totalCampaigns)} кампаній відфільтровано як тестові/копії`
           : 'Кампаній за місяць немає'
 
   return (
@@ -1378,9 +1390,7 @@ function MailchimpPerformancePanel({
     const emptyText = performance?.totalCampaigns
       ? `${formatChartNumber(
           performance.totalCampaigns,
-        )} кампаній за місяць були виключені як тестові, копії або розсилки менш ніж на ${formatChartNumber(
-          performance.config.thresholds.minCampaignRecipients,
-        )} отримувачів.`
+        )} кампаній за місяць були виключені як тестові або копії.`
       : 'Панель заповниться, коли за вибраний місяць у Mailchimp будуть sent campaigns.'
 
     return (
@@ -1393,13 +1403,6 @@ function MailchimpPerformancePanel({
 
   return (
     <div className="space-y-5">
-      {performance.excludedCampaigns ? (
-        <p className="rounded-md bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500 ring-1 ring-inset ring-slate-200">
-          Виключено {formatChartNumber(performance.excludedCampaigns)} тестових,
-          копій або малих розсилок.
-        </p>
-      ) : null}
-
       <MailchimpLevel title="Рівень 1 — Залученість">
         <div className="grid gap-3 md:grid-cols-3">
           <MailchimpRateMetricCard
@@ -1430,7 +1433,7 @@ function MailchimpPerformancePanel({
                 ? `Поточний розмір бази: ${formatChartNumber(
                     performance.health.baseGrowth.memberCount,
                   )}`
-                : 'Додайте MAILCHIMP_LIST_ID для розміру бази'
+                : 'Розмір бази недоступний: потрібен Audience ID'
             }
           />
           <MailchimpExecutiveMetricCard
@@ -1487,25 +1490,13 @@ function MailchimpLevel({ title, action, children }) {
 }
 
 function MailchimpRateMetricCard({ label, metric }) {
-  const isGood = metric.benchmarkStatus === 'good'
-
   return (
     <MailchimpExecutiveMetricCard
       label={label}
       value={formatRateValue(metric.value)}
-      tone={isGood ? 'good' : 'warning'}
     >
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <MailchimpDeltaBadge value={metric.delta} />
-        <span
-          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-            isGood
-              ? 'bg-emerald-100 text-emerald-700'
-              : 'bg-amber-100 text-amber-800'
-          }`}
-        >
-          Бенчмарк {formatRateValue(metric.benchmark)}
-        </span>
       </div>
     </MailchimpExecutiveMetricCard>
   )

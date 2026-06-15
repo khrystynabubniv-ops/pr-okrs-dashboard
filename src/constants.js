@@ -52,12 +52,7 @@ export const DIRECTION_STYLES = {
 }
 
 export const MAILCHIMP_PERFORMANCE_CONFIG = {
-  industryBenchmarks: {
-    openRate: 35,
-    clickRate: 6,
-  },
   thresholds: {
-    minCampaignRecipients: 50,
     bounceRateWarning: 2,
     weakClickRate: 6,
     unsubscribeRateWarning: 0.5,
