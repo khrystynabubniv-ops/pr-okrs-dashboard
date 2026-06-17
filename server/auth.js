@@ -20,6 +20,14 @@ const DEFAULT_ALLOWED_EMAILS = [
   'anna.gayuk@uni.tech',
   'yevheniia.moskalchuk@uni.tech',
   'khrystyna.bubniv@uni.tech',
+  'diana.bondarenko@uni.tech',
+  'inna.buhai@uni.tech',
+  'iryna.krylova@uni.tech',
+  'mariia.tarasiuk@uni.tech',
+  'nataliia.babii@uni.tech',
+  'oleksandra.lukianova@uni.tech',
+  'vira.bihanovska@uni.tech',
+  'oleksandra.stoliarenko@uni.tech',
 ]
 
 export function authStatus() {
