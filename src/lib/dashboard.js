@@ -217,8 +217,9 @@ export function candidateAwarenessKpi(goals, selectedMonth) {
 
   const target = parseMetricNumber(goal.target)
   const point = latestRawPointUpToMonth(goal.values || {}, selectedMonth)
+  const shouldUseCalculatedAverage = goal.calculationType === 'averagePercent'
   const rawValue =
-    point?.value ||
+    (shouldUseCalculatedAverage ? goal.currentValue || goal.displayCurrentValue : point?.value) ||
     goal.currentValue ||
     goal.displayCurrentValue ||
     goal.progressLabel ||

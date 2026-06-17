@@ -536,6 +536,28 @@ function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod 
   const filledValues = filledMonthlyValues(values)
   const target = parseMetricNumber(targetText)
 
+  if (type === 'averagePercent') {
+    const valuesOnly = filledValues.map(({ value }) => parsePercentMetricNumber(value))
+    const current = averageMetricValues(valuesOnly)
+    const progress = target && current !== null ? clampPercent(Math.round((current / target) * 100)) : null
+
+    return {
+      type,
+      label: 'Середній %',
+      metricType: 'Відсоткова',
+      target,
+      currentValue: current ?? 0,
+      displayCurrentValue: current === null ? 'Немає даних' : `${formatPercentNumber(current)} середнє`,
+      displayTarget: target ? `${formatPercentNumber(target)}` : targetText || 'Ціль',
+      progress,
+      progressLabel: progress === null ? 'Немає даних' : `${progress}%`,
+      progressMode: progress === null ? 'none' : 'bar',
+      statusLabel: progress === null ? 'Ще немає даних' : progress >= 100 ? 'Виконано' : 'В процесі',
+      statusTone: progress === null ? 'muted' : progress >= 100 ? 'success' : 'warning',
+      explanation: 'Рахуємо середній відсоток за всі заповнені місяці поточного року.',
+    }
+  }
+
   if (type === 'cumulative') {
     const current = sumMonthlyValues(values)
     const progress = target ? clampPercent(Math.round((current / target) * 100)) : null
@@ -678,10 +700,6 @@ function inferKpiCalculationType({ title, targetText, values, measurementPeriod 
   const filled = filledMonthlyValues(values)
   const target = parseMetricNumber(targetText)
 
-  if (haystack.includes('cpc') || haystack.includes('цпц') || hasCompositeMonthlyValue(values)) {
-    return 'guardrail'
-  }
-
   if (
     haystack.includes('20 30') ||
     haystack.includes('+20') ||
@@ -701,9 +719,15 @@ function inferKpiCalculationType({ title, targetText, values, measurementPeriod 
 
   if (String(targetText || '').includes('%') && target > 0 && target <= 100) {
     const hasOnlyPercentValues = filled.every(({ value }) => String(value).includes('%') || parseMetricNumber(value) <= 100)
-    if (target >= 100 && hasOnlyPercentValues) return 'monthlyPercent'
+    const hasExplicitPercentValues = filled.some(({ value }) => String(value).includes('%'))
     if (target < 100 && haystack.includes('впізнаван')) return 'snapshot'
+    if (target < 100 && hasExplicitPercentValues) return 'averagePercent'
+    if (target >= 100 && hasOnlyPercentValues) return 'monthlyPercent'
     if (hasOnlyPercentValues) return 'monthlyPercent'
+  }
+
+  if (haystack.includes('cpc') || haystack.includes('цпц') || hasCompositeMonthlyValue(values)) {
+    return 'guardrail'
   }
 
   if (target > 1) return 'cumulative'
@@ -751,8 +775,19 @@ function extractMetricNumbers(value) {
     .filter((number) => Number.isFinite(number))
 }
 
+function averageMetricValues(values) {
+  const numbers = values.filter((value) => Number.isFinite(value))
+  if (!numbers.length) return null
+  const average = numbers.reduce((sum, value) => sum + value, 0) / numbers.length
+  return Number(average.toFixed(1))
+}
+
 function clampPercent(value) {
   return Math.max(0, Math.min(100, value))
+}
+
+function formatPercentNumber(value) {
+  return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 1 }).format(value || 0) + '%'
 }
 
 function formatPercentLike(value) {
@@ -1035,18 +1070,24 @@ async function resolveGoogleSheetTitle(spreadsheetId, { gid, sheetName } = {}) {
 }
 
 async function fetchPublicGoogleSheetCsvByGid(spreadsheetId, gid = '0') {
-  const url = googleSheetCsvExportUrl(spreadsheetId, gid, false)
-  const response = await fetch(url)
-  const body = await response.text()
+  const urls = [
+    googleSheetCsvExportUrl(spreadsheetId, gid, true),
+    googleSheetCsvExportUrl(spreadsheetId, gid, false),
+  ]
 
-  if (!response.ok || body.trimStart().startsWith('<!DOCTYPE html>')) {
-    throw createHttpError(
-      502,
-      'Не вдалося прочитати KPI Google Sheet. Перевірте доступ для service account або public view.',
-    )
+  for (const url of urls) {
+    const response = await fetch(url)
+    const body = await response.text()
+
+    if (response.ok && !body.trimStart().startsWith('<!DOCTYPE html>')) {
+      return parseCsvRows(body)
+    }
   }
 
-  return parseCsvRows(body)
+  throw createHttpError(
+    502,
+    'Не вдалося прочитати KPI Google Sheet. Перевірте доступ для service account або public view.',
+  )
 }
 
 async function fetchAuthenticatedGoogleSheetCsvByGid(spreadsheetId, gid = '0') {
