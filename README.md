@@ -36,7 +36,8 @@ DATABASE_URL=
 DATABASE_SSL=
 DB_MIGRATE_REQUIRED=false
 APP_BASE_URL=http://localhost:3001
-AUTH_REQUIRED=false
+AUTH_REQUIRED=
+AUTH_ALLOWED_EMAILS=oleksandra.kolosok@uni.tech,anastasiia.slobodianiuk@uni.tech,anna.gayuk@uni.tech,yevheniia.moskalchuk@uni.tech,khrystyna.bubniv@uni.tech
 AUTH_ALLOWED_EMAIL_DOMAINS=
 GOOGLE_OAUTH_CLIENT_ID=
 GOOGLE_OAUTH_CLIENT_SECRET=
@@ -91,7 +92,7 @@ GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=
 
 Якщо заданий `DATABASE_URL`, застосунок працює у migration mode: старі Notion/Google Sheets дані читаються як раніше, але нові записи й редагування з епки зберігаються в Postgres і мерджаться поверх старих джерел. Це дозволяє плавно зробити Postgres єдиним source of truth.
 
-Для OAuth через Google додайте `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `APP_BASE_URL`. Коли треба вимагати логін для запису даних, поставте `AUTH_REQUIRED=true`. `AUTH_ALLOWED_EMAIL_DOMAINS` можна заповнити списком доменів через кому.
+Для OAuth через Google додайте `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `APP_BASE_URL`. У production auth вмикається автоматично, якщо заданий allowlist; локально можна поставити `AUTH_REQUIRED=true`, щоб вимагати логін. `AUTH_ALLOWED_EMAILS` приймає список конкретних email через кому і має пріоритет над `AUTH_ALLOWED_EMAIL_DOMAINS`. Якщо `AUTH_ALLOWED_EMAILS` не заданий, застосунок використовує вбудований allowlist команди.
 
 `SMM_EMPLOYEE_COUNT` використовується для EGC KPI: поточний EGC count ділиться на кількість співробітників і порівнюється з цільовими 10%.
 

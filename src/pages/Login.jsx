@@ -93,7 +93,7 @@ export function LoginPage() {
                 Увійдіть у Comms Tool
               </h2>
               <p className="mt-3 text-sm leading-6 text-slate-600">
-                Доступ відкритий лише для залогінених Google email.
+                Доступ відкритий лише для запрошених Google акаунтів.
               </p>
 
               <a
@@ -107,7 +107,7 @@ export function LoginPage() {
               <div className="mt-6 space-y-3 border-t border-slate-100 pt-5 text-sm text-slate-600">
                 <div className="flex items-center gap-3">
                   <Mail className="h-4 w-4 text-slate-400" />
-                  <span>Вхід через робочий email</span>
+                  <span>Вхід через дозволений email</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <CheckCircle2 className="h-4 w-4 text-emerald-600" />

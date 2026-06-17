@@ -14,6 +14,13 @@ const SESSION_DAYS = 30
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GOOGLE_USERINFO_URL = 'https://openidconnect.googleapis.com/v1/userinfo'
+const DEFAULT_ALLOWED_EMAILS = [
+  'oleksandra.kolosok@uni.tech',
+  'anastasiia.slobodianiuk@uni.tech',
+  'anna.gayuk@uni.tech',
+  'yevheniia.moskalchuk@uni.tech',
+  'khrystyna.bubniv@uni.tech',
+]
 
 export function authStatus() {
   const googleConfigured = Boolean(
@@ -30,13 +37,18 @@ export function authStatus() {
 }
 
 export function isAuthRequired() {
-  return String(process.env.AUTH_REQUIRED || '').trim().toLowerCase() === 'true'
+  const value = String(process.env.AUTH_REQUIRED || '').trim().toLowerCase()
+  if (['true', '1', 'yes', 'on'].includes(value)) return true
+  if (['false', '0', 'no', 'off'].includes(value)) return false
+
+  return process.env.NODE_ENV === 'production' && getAllowedEmails().length > 0
 }
 
 export async function attachUser(request, _response, next) {
   try {
     const token = parseCookies(request.headers.cookie)[SESSION_COOKIE]
-    request.user = token ? await findSessionUser(token) : null
+    const user = token ? await findSessionUser(token) : null
+    request.user = user && isAllowedEmail(user.email) ? user : null
   } catch (error) {
     console.error('Failed to read auth session', error)
     request.user = null
@@ -229,17 +241,47 @@ async function fetchGoogleProfile(accessToken) {
 }
 
 function assertAllowedEmail(email) {
-  const allowedDomains = String(process.env.AUTH_ALLOWED_EMAIL_DOMAINS || '')
-    .split(',')
-    .map((domain) => domain.trim().toLowerCase())
-    .filter(Boolean)
+  if (isAllowedEmail(email)) return
 
-  if (!allowedDomains.length) return
+  throw createHttpError(403, 'Цей email не має доступу до Comms Tool.')
+}
 
-  const domain = String(email || '').split('@').pop()?.toLowerCase()
-  if (!domain || !allowedDomains.includes(domain)) {
-    throw createHttpError(403, 'Цей email не має доступу до Comms Tool.')
+function isAllowedEmail(email) {
+  const normalizedEmail = normalizeEmail(email)
+  const allowedEmails = getAllowedEmails()
+
+  if (allowedEmails.length) {
+    return allowedEmails.includes(normalizedEmail)
   }
+
+  const allowedDomains = getAllowedEmailDomains()
+  if (!allowedDomains.length) return true
+
+  const domain = normalizedEmail.split('@').pop()
+  return Boolean(domain && allowedDomains.includes(domain))
+}
+
+function getAllowedEmails() {
+  const configuredEmails = parseCsv(process.env.AUTH_ALLOWED_EMAILS).map(normalizeEmail)
+
+  return configuredEmails.length ? configuredEmails : DEFAULT_ALLOWED_EMAILS
+}
+
+function getAllowedEmailDomains() {
+  return parseCsv(process.env.AUTH_ALLOWED_EMAIL_DOMAINS).map((domain) =>
+    domain.toLowerCase(),
+  )
+}
+
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase()
+}
+
+function parseCsv(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 function appBaseUrl(request) {
