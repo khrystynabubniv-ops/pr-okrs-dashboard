@@ -80,7 +80,7 @@ KPI_SOURCE=google-sheet
 KPI_SPREADSHEET_ID=1-wWo9W9gL4jYqpsZNrtZnb85XL5sLkAI4GKEqiMkEnI
 KPI_SHEET_GID=0
 KPI_SHEET_NAME=
-SMM_EMPLOYEE_COUNT=305
+SMM_EMPLOYEE_COUNT=310
 GOOGLE_SERVICE_ACCOUNT_JSON=
 GOOGLE_SERVICE_ACCOUNT_EMAIL=
 GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=
@@ -94,7 +94,7 @@ GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=
 
 Для OAuth через Google додайте `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `APP_BASE_URL`. У production auth вмикається автоматично, якщо заданий allowlist; локально можна поставити `AUTH_REQUIRED=true`, щоб вимагати логін. `AUTH_ALLOWED_EMAILS` приймає список конкретних email через кому і має пріоритет над `AUTH_ALLOWED_EMAIL_DOMAINS`. Якщо `AUTH_ALLOWED_EMAILS` не заданий, застосунок використовує вбудований allowlist команди.
 
-`SMM_EMPLOYEE_COUNT` використовується для EGC KPI: поточний EGC count ділиться на кількість співробітників і порівнюється з цільовими 10%.
+`SMM_EMPLOYEE_COUNT` використовується для EGC KPI: середній EGC count за заповнені місяці порівнюється з 10% від кількості співробітників.
 
 `LOOQME_TOKEN` і `LOOQME_COVERAGE_URL` вмикають live coverage у Dashboard. За документацією Looqme Articles API endpoint — `https://hub.looqme.io/api/v1/articles-external`, токен іде як `Authorization: Token <token>`, а місячний фільтр додається як `start=YYYY-MM-DDT00:00:00&end=YYYY-MM-DDT23:59:59&by_created=false`. Якщо Looqme дає base URL + path окремо, використайте `LOOQME_BASE_URL` і `LOOQME_COVERAGE_PATH`; назви header/query параметрів можна змінити через `LOOQME_AUTH_*`, `LOOQME_TOKEN_QUERY_PARAM`, `LOOQME_DATE_*_PARAM` та `LOOQME_EXTRA_QUERY`. `LOOQME_MAX_PAGES=5` завантажує до 5 сторінок результатів, щоб кількісні сегменти coverage краще сходились із загальним `count`. `VITE_LOOQME_DASHBOARD_URL` робить Looqme-показники в Dashboard клікабельними. `LOOQME_USE_MOCK=true` залишений тільки для локальної демки.
 

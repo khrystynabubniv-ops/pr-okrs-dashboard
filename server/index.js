@@ -93,6 +93,7 @@ const LOOQME_SENTIMENT_COLORS = {
 }
 const LOOQME_COVERAGE_CACHE_TTL_MS = 10 * 60 * 1000
 const MAILCHIMP_REPORTS_CACHE_TTL_MS = 10 * 60 * 1000
+const SMM_EMPLOYEE_COUNT = parsePositiveNumber(process.env.SMM_EMPLOYEE_COUNT) || 310
 
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
@@ -204,6 +205,11 @@ function parsePercentMetricNumber(value) {
   }
 
   return parseMetricNumber(value)
+}
+
+function parsePositiveNumber(value) {
+  const parsed = parseMetricNumber(value)
+  return parsed > 0 ? parsed : null
 }
 
 function normalizeNumericText(value) {
@@ -580,6 +586,60 @@ function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod 
     }
   }
 
+  if (type === 'latestNumber') {
+    const latest = filledValues.at(-1)
+    const current = latest ? parseMetricNumber(latest.value) : null
+    const progress = target && current !== null ? clampPercent(Math.round((current / target) * 100)) : null
+
+    return {
+      type,
+      label: 'Актуальний показник',
+      metricType: 'Кількісна',
+      target,
+      currentValue: current ?? 0,
+      displayCurrentValue: current === null ? 'Немає даних' : `${formatGoalNumber(current)} актуально`,
+      displayTarget: target ? formatGoalNumber(target) : 'Потрібна річна ціль',
+      progress,
+      progressLabel: progress === null ? 'Немає даних' : `${progress}%`,
+      progressMode: progress === null ? 'none' : 'bar',
+      statusLabel: progress === null ? 'Ще немає даних' : progress >= 100 ? 'Виконано' : 'В процесі',
+      statusTone: progress === null ? 'muted' : progress >= 100 ? 'success' : 'warning',
+      explanation: 'Беремо останній заповнений місяць як актуальний показник, не сумуємо.',
+    }
+  }
+
+  if (type === 'employeeShareAverage') {
+    const valuesOnly = filledValues.map(({ value }) => parseMetricNumber(value))
+    const current = averageMetricValues(valuesOnly)
+    const targetPercent = target || 10
+    const targetCount = Math.round((SMM_EMPLOYEE_COUNT * targetPercent) / 100)
+    const currentPercent =
+      current !== null ? (current / SMM_EMPLOYEE_COUNT) * 100 : null
+    const progress =
+      targetCount && current !== null
+        ? clampPercent(Math.round((current / targetCount) * 100))
+        : null
+
+    return {
+      type,
+      label: 'Середнє vs 10% команди',
+      metricType: 'Кількісна',
+      target: targetCount,
+      currentValue: current ?? 0,
+      displayCurrentValue:
+        current === null
+          ? 'Немає даних'
+          : `${formatGoalNumber(current)} середнє (${formatPercentNumber(currentPercent)})`,
+      displayTarget: `${formatGoalNumber(targetCount)} (${formatPercentNumber(targetPercent)})`,
+      progress,
+      progressLabel: progress === null ? 'Немає даних' : `${progress}%`,
+      progressMode: progress === null ? 'none' : 'bar',
+      statusLabel: progress === null ? 'Ще немає даних' : progress >= 100 ? 'Виконано' : 'В процесі',
+      statusTone: progress === null ? 'muted' : progress >= 100 ? 'success' : 'warning',
+      explanation: `10% від ${formatGoalNumber(SMM_EMPLOYEE_COUNT)} співробітників = ${formatGoalNumber(targetCount)}. Рахуємо середній EGC count за заповненими місяцями.`,
+    }
+  }
+
   if (type === 'cumulative') {
     const current = sumMonthlyValues(values)
     const progress = target ? clampPercent(Math.round((current / target) * 100)) : null
@@ -739,6 +799,8 @@ function inferKpiCalculationType({ title, targetText, values, measurementPeriod 
     return 'snapshot'
   }
 
+  if (isEmployeeShareKpi(haystack)) return 'employeeShareAverage'
+
   if (String(targetText || '').includes('%') && target > 0 && target <= 100) {
     const hasOnlyPercentValues = filled.every(({ value }) => String(value).includes('%') || parseMetricNumber(value) <= 100)
     const hasExplicitPercentValues = filled.some(({ value }) => String(value).includes('%'))
@@ -752,6 +814,7 @@ function inferKpiCalculationType({ title, targetText, values, measurementPeriod 
     return 'guardrail'
   }
 
+  if (isLatestNumberKpi(haystack)) return 'latestNumber'
   if (isAverageNumberKpi(haystack)) return 'averageNumber'
 
   if (target > 1) return 'cumulative'
@@ -759,11 +822,23 @@ function inferKpiCalculationType({ title, targetText, values, measurementPeriod 
   return 'default'
 }
 
+function isLatestNumberKpi(haystack) {
+  return (
+    haystack.includes('instagram') &&
+    (haystack.includes('підписник') || haystack.includes('followers'))
+  )
+}
+
 function isAverageNumberKpi(haystack) {
   return (
     (haystack.includes('органічн') && haystack.includes('трафік')) ||
-    (haystack.includes('брендов') && haystack.includes('запит'))
+    (haystack.includes('брендов') && haystack.includes('запит')) ||
+    (haystack.includes('reels') && haystack.includes('охоплен'))
   )
+}
+
+function isEmployeeShareKpi(haystack) {
+  return haystack.includes('egc') || haystack.includes('співробітник')
 }
 
 function filledMonthlyValues(values) {
