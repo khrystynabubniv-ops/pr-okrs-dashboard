@@ -22,7 +22,6 @@ const FALLBACK_OWNER_OPTIONS = [
   'Employer Brand Lead',
   'PR Manager',
   'SMM Manager',
-  'Personal Brands Manager',
   'Brand Designer',
 ]
 

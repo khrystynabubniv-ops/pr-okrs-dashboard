@@ -43,7 +43,6 @@ import {
   executiveSummary,
   hasSeriesData,
   mediaCoverageSummary,
-  personalBrandBars,
 } from '../lib/dashboard'
 import {
   eventLeadLabel,
@@ -213,10 +212,6 @@ export function DashboardPage({ selectedMonth }) {
       buildMonthlySeries(goals, ['трафік', 'organic', 'органіч'], selectedMonth),
     [goals, selectedMonth],
   )
-  const personalBrands = useMemo(
-    () => personalBrandBars(goals, selectedMonth),
-    [goals, selectedMonth],
-  )
   const mediaCoverage = useMemo(
     () => mediaCoverageSummary(coverage),
     [coverage],
@@ -243,7 +238,6 @@ export function DashboardPage({ selectedMonth }) {
         focus,
         coverage,
         mailchimpPerformance,
-        personalBrands,
         eventAwareness,
         candidateAwareness,
         selectedMonth,
@@ -256,7 +250,6 @@ export function DashboardPage({ selectedMonth }) {
       focus,
       goals,
       mailchimpPerformance,
-      personalBrands,
       selectedMonth,
     ],
   )
@@ -550,68 +543,6 @@ export function DashboardPage({ selectedMonth }) {
               />
             </ChartPanel>
 
-            <ChartPanel
-              title="Personal Brands фоловери"
-              tooltip="Дані беруться з KPI-спредшиту. Значення місяця показує фактичну кількість фоловерів; якщо річна ціль у спредшиті порожня, прогрес не рахується."
-            >
-              {personalBrands.length ? (
-                <div className="space-y-4">
-                  {personalBrands.map((item) => (
-                    <div key={item.id} className="border-b border-slate-100 pb-4 last:border-0">
-                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-slate-950">
-                            {item.name}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {item.sourceMonth && item.sourceMonth !== selectedMonth
-                              ? `останнє значення: ${item.sourceMonth.split(' ')[0]}${
-                                  item.target ? '' : ' · ціль не вказана'
-                                }`
-                              : item.target
-                                ? 'Річна ціль = 100%'
-                                : 'ціль не вказана'}
-                          </p>
-                        </div>
-                        <p className="text-sm font-semibold text-slate-950">
-                          {formatChartNumber(item.current)} /{' '}
-                          {item.target
-                            ? formatChartNumber(item.target)
-                            : 'ціль не вказана'}
-                          {item.deltaLabel ? (
-                            <span
-                              className={`ml-2 text-xs ${
-                                item.delta >= 0 ? 'text-emerald-700' : 'text-rose-700'
-                              }`}
-                            >
-                              {item.deltaLabel}
-                            </span>
-                          ) : null}
-                        </p>
-                      </div>
-                      {item.target ? (
-                        <>
-                          <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100">
-                            <div
-                              className="h-full rounded-full bg-violet-500"
-                              style={{ width: `${item.progress}%` }}
-                            />
-                          </div>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {item.progress}% від річної цілі
-                          </p>
-                        </>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState
-                  title="Немає Personal Brands цілей"
-                  text="Додайте цілі цього напрямку в KPI-спредшит."
-                />
-              )}
-            </ChartPanel>
           </section>
 
           <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
@@ -976,16 +907,12 @@ function hasDashboardMonthData({
   focus,
   coverage,
   mailchimpPerformance,
-  personalBrands,
   eventAwareness,
   candidateAwareness,
   selectedMonth,
 }) {
   const hasKpiForMonth = goals.some((goal) =>
     String(goal.values?.[selectedMonth] ?? '').trim(),
-  )
-  const hasPersonalBrandForMonth = personalBrands.some(
-    (item) => item.sourceMonth === selectedMonth && item.current !== null,
   )
   const hasCoverage = hasCoverageValues(coverage)
   const hasEventAwareness = (eventAwareness?.audiences || []).some(
@@ -997,7 +924,6 @@ function hasDashboardMonthData({
 
   return Boolean(
     hasKpiForMonth ||
-      hasPersonalBrandForMonth ||
       events.length ||
       focus.length ||
       hasCoverage ||

@@ -17,7 +17,6 @@ export const DIRECTIONS = [
   'Employer Brand',
   'SMM',
   'PR',
-  'Personal Brands',
   'Brand Design',
 ]
 
@@ -38,11 +37,6 @@ export const DIRECTION_STYLES = {
     badge: 'bg-orange-50 text-orange-700 ring-orange-200',
     dot: 'bg-orange-500',
     chart: '#f97316',
-  },
-  'Personal Brands': {
-    badge: 'bg-violet-50 text-violet-700 ring-violet-200',
-    dot: 'bg-violet-500',
-    chart: '#8b5cf6',
   },
   'Brand Design': {
     badge: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
