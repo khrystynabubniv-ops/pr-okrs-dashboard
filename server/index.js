@@ -558,6 +558,28 @@ function buildKpiGoalCalculation({ title, targetText, values, measurementPeriod 
     }
   }
 
+  if (type === 'averageNumber') {
+    const valuesOnly = filledValues.map(({ value }) => parseMetricNumber(value))
+    const current = averageMetricValues(valuesOnly)
+    const progress = target && current !== null ? clampPercent(Math.round((current / target) * 100)) : null
+
+    return {
+      type,
+      label: 'Середнє за місяць',
+      metricType: 'Кількісна',
+      target,
+      currentValue: current ?? 0,
+      displayCurrentValue: current === null ? 'Немає даних' : `${formatGoalNumber(current)} середнє`,
+      displayTarget: target ? formatGoalNumber(target) : 'Потрібна річна ціль',
+      progress,
+      progressLabel: progress === null ? 'Немає даних' : `${progress}%`,
+      progressMode: progress === null ? 'none' : 'bar',
+      statusLabel: progress === null ? 'Ще немає даних' : progress >= 100 ? 'Виконано' : 'В процесі',
+      statusTone: progress === null ? 'muted' : progress >= 100 ? 'success' : 'warning',
+      explanation: 'Рахуємо середнє арифметичне за всі заповнені місяці року.',
+    }
+  }
+
   if (type === 'cumulative') {
     const current = sumMonthlyValues(values)
     const progress = target ? clampPercent(Math.round((current / target) * 100)) : null
@@ -730,9 +752,18 @@ function inferKpiCalculationType({ title, targetText, values, measurementPeriod 
     return 'guardrail'
   }
 
+  if (isAverageNumberKpi(haystack)) return 'averageNumber'
+
   if (target > 1) return 'cumulative'
 
   return 'default'
+}
+
+function isAverageNumberKpi(haystack) {
+  return (
+    (haystack.includes('органічн') && haystack.includes('трафік')) ||
+    (haystack.includes('брендов') && haystack.includes('запит'))
+  )
 }
 
 function filledMonthlyValues(values) {
