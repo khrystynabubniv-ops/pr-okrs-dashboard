@@ -59,6 +59,7 @@ import {
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
 const COVERAGE_CACHE_TTL_MS = 10 * 60 * 1000
 const MAILCHIMP_CACHE_TTL_MS = 10 * 60 * 1000
+const DASHBOARD_NOTION_TIMEOUT_MS = 15000
 const COVERAGE_FALLBACK_SOURCES = new Set([
   'looqme-timeout',
   'looqme-missing-token',
@@ -1828,20 +1829,20 @@ async function loadDashboardPayload(selectedMonth) {
   )
   if (cached) return cached
 
-  const [goalsPayload, events, focus, eventAwareness] = await Promise.all([
+  const [goalsPayload, eventAwareness] = await Promise.all([
     optionalRequest('/api/kpi-goals', { goals: [] }, 10000),
-    optionalRequest(
-      `/api/notion/events?month=${encodeURIComponent(selectedMonth)}`,
-      { events: [] },
-      4000,
-    ),
-    optionalRequest(
-      `/api/notion/monthly-focus?month=${encodeURIComponent(selectedMonth)}`,
-      { entries: [] },
-      4000,
-    ),
     optionalRequest('/api/event-awareness', { audiences: [], overall: null }, 6000),
   ])
+  const events = await optionalRequest(
+    `/api/notion/events?month=${encodeURIComponent(selectedMonth)}`,
+    { events: [], isFallback: true },
+    DASHBOARD_NOTION_TIMEOUT_MS,
+  )
+  const focus = await optionalRequest(
+    `/api/notion/monthly-focus?month=${encodeURIComponent(selectedMonth)}`,
+    { entries: [], isFallback: true },
+    DASHBOARD_NOTION_TIMEOUT_MS,
+  )
   const payload = {
     month: selectedMonth,
     goals: goalsPayload.goals || [],
@@ -1850,7 +1851,9 @@ async function loadDashboardPayload(selectedMonth) {
     eventAwareness,
   }
 
-  writeCachedPayload(dashboardPayloadCache, selectedMonth, payload)
+  if (!events.isFallback && !focus.isFallback) {
+    writeCachedPayload(dashboardPayloadCache, selectedMonth, payload)
+  }
   return payload
 }
 

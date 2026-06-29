@@ -101,6 +101,9 @@ let focusDatabaseId = process.env.NOTION_FOCUS_DB || ''
 let focusDatabasePromise = null
 const dataSourceCache = new Map()
 const dataSourceSchemaCache = new Map()
+const notionDatabaseQueryCache = new Map()
+const NOTION_DATABASE_QUERY_CACHE_TTL_MS = 60 * 1000
+const NOTION_DATABASE_QUERY_STALE_TTL_MS = 10 * 60 * 1000
 const looqmeCoverageCache = new Map()
 const mailchimpReportsCache = new Map()
 let googleTokenCache = null
@@ -345,23 +348,46 @@ function parseJsonProperty(property, fallback = {}) {
 }
 
 async function queryAllDatabase(databaseId) {
+  const cached = notionDatabaseQueryCache.get(databaseId)
+  const cachedAge = cached ? Date.now() - cached.cachedAt : Infinity
+  if (cached && cachedAge <= NOTION_DATABASE_QUERY_CACHE_TTL_MS) {
+    return cached.results
+  }
+
   const notion = getNotion()
   const dataSourceId = await resolveDataSourceId(databaseId)
   const results = []
   let cursor
 
-  do {
-    const response = await notion.dataSources.query({
-      data_source_id: dataSourceId,
-      page_size: 100,
-      start_cursor: cursor,
-      result_type: 'page',
-    })
-    results.push(...response.results)
-    cursor = response.has_more ? response.next_cursor : undefined
-  } while (cursor)
+  try {
+    do {
+      const response = await notion.dataSources.query({
+        data_source_id: dataSourceId,
+        page_size: 100,
+        start_cursor: cursor,
+        result_type: 'page',
+      })
+      results.push(...response.results)
+      cursor = response.has_more ? response.next_cursor : undefined
+    } while (cursor)
 
-  return results
+    notionDatabaseQueryCache.set(databaseId, {
+      cachedAt: Date.now(),
+      results,
+    })
+    return results
+  } catch (error) {
+    if (cached && cachedAge <= NOTION_DATABASE_QUERY_STALE_TTL_MS) {
+      console.warn(
+        `Using stale Notion data for ${databaseId} after query failure: ${
+          error.code || error.message
+        }`,
+      )
+      return cached.results
+    }
+
+    throw error
+  }
 }
 
 async function resolveDataSourceId(databaseId) {
@@ -4546,10 +4572,20 @@ app.get('/api/notion/events', asyncHandler(async (request, response) => {
   const activitiesDatabaseId = process.env.NOTION_ACTIVITIES_DB
   const month = request.query.month
 
-  const [calendarPages, activityPages] = await Promise.all([
-    queryAllDatabase(calendarDatabaseId),
-    activitiesDatabaseId ? queryAllDatabase(activitiesDatabaseId) : Promise.resolve([]),
-  ])
+  const calendarPages = await queryAllDatabase(calendarDatabaseId)
+  let activityPages = []
+
+  if (activitiesDatabaseId) {
+    try {
+      activityPages = await queryAllDatabase(activitiesDatabaseId)
+    } catch (error) {
+      console.warn(
+        `Failed to load event activity metrics; returning calendar events only: ${
+          error.code || error.message
+        }`,
+      )
+    }
+  }
 
   const calendarEvents = calendarPages.map(normalizeCalendarEvent).filter((event) => {
     const matchesMonth = month ? eventMatchesMonth(event, month) : Boolean(event.rawDate)
