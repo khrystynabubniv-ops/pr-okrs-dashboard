@@ -44,23 +44,41 @@ export function getEventTiming(event, today = new Date()) {
 }
 
 export function isEventCompleted(event, today = new Date()) {
+  const status = eventStatusLabel(event)
+  if (status) return isDoneEventStatus(status)
+
   return getEventTiming(event, today) === 'completed'
 }
 
 export function eventStatusMeta(event, today = new Date()) {
-  const timing = getEventTiming(event, today)
-
-  if (timing === 'completed') {
+  const status = eventStatusLabel(event)
+  if (isDoneEventStatus(status)) {
     return {
       label: 'Відбулося',
       className: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
     }
   }
 
+  if (status) {
+    return {
+      label: status,
+      className: eventStatusClassName(status),
+    }
+  }
+
+  const timing = getEventTiming(event, today)
+
   if (timing === 'today') {
     return {
       label: 'Сьогодні',
       className: 'bg-blue-50 text-blue-700 ring-blue-200',
+    }
+  }
+
+  if (timing === 'completed') {
+    return {
+      label: 'Без статусу',
+      className: 'bg-slate-50 text-slate-700 ring-slate-200',
     }
   }
 
@@ -100,4 +118,62 @@ export function eventSummaryStats(events, today = new Date()) {
     completed,
     participating: events.length,
   }
+}
+
+function eventStatusLabel(event) {
+  return String(event?.status || '').trim()
+}
+
+function isDoneEventStatus(status) {
+  return [
+    'done',
+    'completed',
+    'complete',
+    'виконано',
+    'відбулося',
+    'відбулось',
+    'відбувся',
+    'відбулась',
+    'відбулася',
+    '✅',
+  ].includes(normalizeEventStatus(status))
+}
+
+function eventStatusClassName(status) {
+  const normalized = normalizeEventStatus(status)
+
+  if (
+    [
+      'canceled',
+      'cancelled',
+      'cancel',
+      'not done',
+      'not completed',
+      'no',
+      'false',
+      'скасовано',
+      'скасований',
+      'відмінено',
+      'не виконано',
+      'не відбулося',
+      'не відбулось',
+      'ні',
+    ].includes(normalized)
+  ) {
+    return 'bg-rose-50 text-rose-700 ring-rose-200'
+  }
+
+  if (normalized.includes('postpon') || normalized.includes('перенес')) {
+    return 'bg-amber-50 text-amber-700 ring-amber-200'
+  }
+
+  if (normalized.includes('progress') || normalized.includes('процес')) {
+    return 'bg-blue-50 text-blue-700 ring-blue-200'
+  }
+
+  return 'bg-slate-50 text-slate-700 ring-slate-200'
+}
+
+function normalizeEventStatus(status) {
+  return String(status || '').trim().toLowerCase()
 }
