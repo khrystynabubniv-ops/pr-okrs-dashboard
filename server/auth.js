@@ -29,6 +29,7 @@ const DEFAULT_ALLOWED_EMAILS = [
   'vira.bihanovska@uni.tech',
   'oleksandra.stoliarenko@uni.tech',
 ]
+const EMAIL_EXCEPTIONS = ['o.olepir@formatsia.com.ua']
 
 export function authStatus() {
   const googleConfigured = Boolean(
@@ -256,6 +257,8 @@ function assertAllowedEmail(email) {
 
 function isAllowedEmail(email) {
   const normalizedEmail = normalizeEmail(email)
+  if (EMAIL_EXCEPTIONS.includes(normalizedEmail)) return true
+
   const allowedEmails = getAllowedEmails()
 
   if (allowedEmails.length) {
