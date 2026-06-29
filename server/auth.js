@@ -29,7 +29,7 @@ const DEFAULT_ALLOWED_EMAILS = [
   'vira.bihanovska@uni.tech',
   'oleksandra.stoliarenko@uni.tech',
 ]
-const EMAIL_EXCEPTIONS = ['o.olepir@formatsia.com.ua']
+const EMAIL_EXCEPTIONS = ['o.olepir@formatsia.com.ua', 'olepir.o@gmail.com']
 
 export function authStatus() {
   const googleConfigured = Boolean(
