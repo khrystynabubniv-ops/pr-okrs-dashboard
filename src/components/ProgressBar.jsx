@@ -3,13 +3,13 @@ export function ProgressBar({ value }) {
 
   return (
     <div className="flex min-w-36 items-center gap-3">
-      <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-line2">
         <div
-          className="h-full rounded-full bg-[#4361ee] transition-all"
+          className="h-full rounded-full bg-accent transition-all"
           style={{ width: `${percent}%` }}
         />
       </div>
-      <span className="w-10 text-right text-xs font-medium text-slate-600">
+      <span className="mono w-10 text-right text-xs font-semibold text-ink2">
         {percent}%
       </span>
     </div>

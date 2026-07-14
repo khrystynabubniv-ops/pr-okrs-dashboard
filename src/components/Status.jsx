@@ -2,9 +2,9 @@ import { AlertCircle, RefreshCw } from 'lucide-react'
 
 export function LoadingState({ label = 'Завантаження даних...' }) {
   return (
-    <div className="grid min-h-48 place-items-center rounded-lg border border-slate-200 bg-white">
-      <div className="flex items-center gap-3 text-sm text-slate-500">
-        <RefreshCw className="h-4 w-4 animate-spin text-[#4361ee]" />
+    <div className="grid min-h-48 place-items-center rounded-[10px] border border-line bg-white">
+      <div className="flex items-center gap-3 text-sm text-ink3">
+        <RefreshCw className="h-4 w-4 animate-spin text-accent" />
         {label}
       </div>
     </div>
@@ -13,7 +13,7 @@ export function LoadingState({ label = 'Завантаження даних...' 
 
 export function ErrorState({ error, onRetry }) {
   return (
-    <div className="rounded-lg border border-rose-200 bg-rose-50 px-5 py-4">
+    <div className="rounded-[10px] border border-rose-200 bg-rose-50 px-5 py-4">
       <div className="flex items-start gap-3">
         <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
         <div className="min-w-0 flex-1">
@@ -45,9 +45,9 @@ export function ErrorState({ error, onRetry }) {
 
 export function EmptyState({ title, text }) {
   return (
-    <div className="rounded-lg border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
-      <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
-      {text ? <p className="mt-2 text-sm text-slate-500">{text}</p> : null}
+    <div className="rounded-[10px] border border-dashed border-line bg-white px-6 py-10 text-center">
+      <h3 className="text-sm font-semibold text-ink">{title}</h3>
+      {text ? <p className="mt-2 text-sm text-ink3">{text}</p> : null}
     </div>
   )
 }

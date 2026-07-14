@@ -8,6 +8,7 @@ import { EventsPage } from './pages/Events'
 import { GoalsPage } from './pages/Goals'
 import { LoginPage } from './pages/Login'
 import { MonthlyFocusPage } from './pages/MonthlyFocus'
+import { SmmPage } from './pages/Smm'
 
 export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH)
@@ -24,6 +25,15 @@ export default function App() {
               <Route
                 path="dashboard"
                 element={<DashboardPage selectedMonth={selectedMonth} />}
+              />
+              <Route
+                path="smm"
+                element={
+                  <SmmPage
+                    selectedMonth={selectedMonth}
+                    onMonthChange={setSelectedMonth}
+                  />
+                }
               />
               <Route path="goals" element={<GoalsPage selectedMonth={selectedMonth} />} />
               <Route

@@ -79,4 +79,4 @@ export const EVENT_TYPES = [
   'Внутрішній івент',
 ]
 
-export const CURRENT_MONTH = 'Травень 2026'
+export const CURRENT_MONTH = 'Липень 2026'

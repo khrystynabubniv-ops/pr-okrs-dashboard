@@ -106,6 +106,7 @@ const NOTION_DATABASE_QUERY_CACHE_TTL_MS = 60 * 1000
 const NOTION_DATABASE_QUERY_STALE_TTL_MS = 10 * 60 * 1000
 const looqmeCoverageCache = new Map()
 const mailchimpReportsCache = new Map()
+const smmInsightsCache = new Map()
 let googleTokenCache = null
 
 app.use(cors())
@@ -4329,6 +4330,83 @@ function parseEventReportAiResponse(text) {
   }
 }
 
+async function generateSmmInsightsAi({ month, data }) {
+  if (!process.env.OPENROUTER_API_KEY) {
+    throw createHttpError(
+      503,
+      'OPENROUTER_API_KEY не налаштований. Додайте ключ у змінні середовища.',
+    )
+  }
+
+  const apiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.APP_BASE_URL || 'http://localhost:5173',
+      'X-OpenRouter-Title': 'Comms Tool',
+    },
+    body: JSON.stringify({
+      model: process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4.6',
+      max_tokens: 1100,
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: smmInsightsSystemPrompt() },
+        { role: 'user', content: smmInsightsUserPrompt({ month, data }) },
+      ],
+    }),
+  })
+
+  if (!apiResponse.ok) {
+    throw createHttpError(
+      502,
+      'OpenRouter не згенерував SMM висновки.',
+      await apiResponse.text(),
+    )
+  }
+
+  const payload = await apiResponse.json()
+  const content = payload.choices?.[0]?.message?.content || ''
+  return parseSmmInsightsResponse(content)
+}
+
+function smmInsightsSystemPrompt() {
+  return [
+    'Ти — аналітичний асистент дешборду соціальних мереж. На основі структурованих даних про перформанс Instagram за місяць (KPI, тренди, розбивка по форматах контенту, топ/гірші пости) згенеруй короткий висновок українською для голови PR, який хоче за хвилину зрозуміти стан справ.',
+    'Поверни ТІЛЬКИ JSON без жодного тексту навколо, markdown чи code fence.',
+    'Схема відповіді: { "leadParagraph": string, "insights": [{ "kind": "insight"|"recommendation"|"risk", "text": string }] }',
+    'Дай 4-6 пунктів insights, mix категорій залежно від того, що справді видно в даних.',
+    'Не вигадуй фактів, яких немає у вхідних даних. Не використовуй категорію "risk", якщо в даних немає підстав для тривоги.',
+    'Пиши стисло, business-facing, без загальних порад без опори на дані.',
+  ].join('\n')
+}
+
+function smmInsightsUserPrompt({ month, data }) {
+  return `Month: ${month}\nInstagram performance JSON:\n${JSON.stringify(data, null, 2)}`
+}
+
+function parseSmmInsightsResponse(text) {
+  const json = parseJsonObject(text)
+  const insights = Array.isArray(json.insights)
+    ? json.insights
+        .map((item) => ({
+          kind: ['insight', 'recommendation', 'risk'].includes(item?.kind)
+            ? item.kind
+            : 'insight',
+          text: textValue(item?.text),
+        }))
+        .filter((item) => item.text)
+        .slice(0, 6)
+    : []
+  const leadParagraph = textValue(json.leadParagraph)
+
+  if (!leadParagraph || !insights.length) {
+    throw createHttpError(502, 'AI повернув неповні SMM висновки.')
+  }
+
+  return { leadParagraph, insights }
+}
+
 function parseJsonObject(text) {
   const cleaned = String(text || '')
     .trim()
@@ -4635,6 +4713,49 @@ app.get('/api/looqme/coverage', asyncHandler(async (request, response) => {
 
 app.get('/api/mailchimp/campaigns', asyncHandler(async (request, response) => {
   response.json(await fetchMailchimpCampaignReports(request.query.month))
+}))
+
+app.get('/api/smm/insights', asyncHandler(async (request, response) => {
+  const month = textValue(request.query.month)
+
+  if (!month) {
+    throw createHttpError(400, 'Передайте month у форматі YYYY-MM.')
+  }
+
+  const cached = smmInsightsCache.get(month)
+
+  if (!cached) {
+    response
+      .status(404)
+      .json({ message: 'Для цього місяця ще немає згенерованих SMM висновків.' })
+    return
+  }
+
+  response.json({ ...cached, source: 'cache' })
+}))
+
+app.post('/api/smm/insights/generate', asyncHandler(async (request, response) => {
+  const month = textValue(request.body?.month)
+  const data = request.body?.data
+
+  if (!month) {
+    throw createHttpError(400, 'Передайте month у форматі YYYY-MM.')
+  }
+
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw createHttpError(400, 'Передайте агреговані SMM дані в полі data.')
+  }
+
+  const generated = await generateSmmInsightsAi({ month, data })
+  const payload = {
+    ...generated,
+    month,
+    generatedAt: new Date().toISOString(),
+    source: 'openrouter',
+  }
+
+  smmInsightsCache.set(month, payload)
+  response.json(payload)
 }))
 
 app.get('/api/coverage/competitors', asyncHandler(async (request, response) => {

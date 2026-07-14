@@ -385,7 +385,7 @@ export function DashboardPage({ selectedMonth }) {
 
       {!dashboardQuery.error && activeDashboardData && hasMonthData ? (
         <>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               label="KPI в темпі року"
               value={`${executive.kpi.onTrack}/${executive.kpi.measured}`}
@@ -410,14 +410,6 @@ export function DashboardPage({ selectedMonth }) {
               tooltip="Бере coverage з Looqme. Universe Group рахуємо як наш бренд; конкурентів показуємо окремо для порівняння."
               tone="violet"
             />
-            <EventAwarenessMetricCard
-              awareness={eventAwareness}
-              tooltip="Показує awareness по бренду після івентів з Google Sheet Awaraness 2025-2026: окремо Students і Middle+."
-            />
-            <CandidateAwarenessKpiCard
-              kpi={candidateAwareness}
-              tooltip="Показує KPI з рядка “Збільшити к-сть кандидатів, які знають про компанію”: відсоток awareness, ціль і прогрес до 70%."
-            />
             <MailchimpMetricCard
               performance={mailchimpPerformance}
               loading={mailchimpLoading}
@@ -427,11 +419,64 @@ export function DashboardPage({ selectedMonth }) {
             />
           </section>
 
+          <section className="grid gap-4 md:grid-cols-2">
+            <EventAwarenessMetricCard
+              awareness={eventAwareness}
+              tooltip="Показує awareness по бренду після івентів з Google Sheet Awaraness 2025-2026: окремо Students і Middle+."
+            />
+            <CandidateAwarenessKpiCard
+              kpi={candidateAwareness}
+              tooltip="Показує KPI з рядка “Збільшити к-сть кандидатів, які знають про компанію”: відсоток awareness, ціль і прогрес до 70%."
+            />
+          </section>
+
           <DirectionHealthPanel
             items={directionStats}
             selectedMonth={selectedMonth}
             onDirectionOpen={openDirectionGoals}
           />
+
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.9fr)_minmax(320px,1fr)]">
+            <ChartPanel
+              title="Media coverage"
+              tooltip="Цей графік бере значення з KPI-спредшиту, якщо є ціль/рядок про медіа згадки. Окремий блок нижче показує Looqme coverage."
+            >
+              {hasSeriesData(mediaSeries) ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={mediaSeries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#efeeea" />
+                    <XAxis dataKey="month" tickLine={false} axisLine={false} />
+                    <YAxis tickLine={false} axisLine={false} width={44} />
+                    <Tooltip content={<MonthlyTooltip metricLabel="Згадки" />} />
+                    <Bar
+                      dataKey="value"
+                      fill="#0bab7c"
+                      radius={[4, 4, 0, 0]}
+                      name="Згадки"
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyState
+                  title="Немає даних для графіка"
+                  text="Зараз графік бере значення тільки з KPI-спредшиту. Looqme-блок нижче показує coverage за вибраний місяць."
+                />
+              )}
+            </ChartPanel>
+
+            <ChartPanel
+              title="Email performance"
+              tooltip={mailchimpTooltip}
+            >
+              <MailchimpPerformancePanel
+                performance={mailchimpPerformance}
+                loading={mailchimpLoading}
+                unavailable={mailchimpUnavailable}
+                href={MAILCHIMP_DASHBOARD_URL}
+                onRetry={mailchimpQuery.retry}
+              />
+            </ChartPanel>
+          </section>
 
           <section className="grid gap-4 xl:grid-cols-2">
             <ChartPanel
@@ -439,12 +484,12 @@ export function DashboardPage({ selectedMonth }) {
               tooltip="Бере значення з KPI-спредшиту: кожна місячна колонка показує фактичну кількість підписників на кінець місяця. Підпис +n/-n показує зміну до попереднього місяця."
             >
               {hasSeriesData(instagramSeries) ? (
-                <ResponsiveContainer width="100%" height={280}>
+                <ResponsiveContainer width="100%" height={260}>
                   <LineChart
                     data={instagramSeries}
                     margin={{ top: 24, right: 20, left: 4 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#efeeea" />
                     <XAxis dataKey="month" tickLine={false} axisLine={false} />
                     <YAxis
                       tickLine={false}
@@ -459,7 +504,7 @@ export function DashboardPage({ selectedMonth }) {
                     <Line
                       type="monotone"
                       dataKey="value"
-                      stroke="#4361ee"
+                      stroke="#0bab7c"
                       strokeWidth={3}
                       dot={{ r: 3 }}
                       connectNulls
@@ -478,46 +523,19 @@ export function DashboardPage({ selectedMonth }) {
             </ChartPanel>
 
             <ChartPanel
-              title="Медіа згадки: помісячна динаміка"
-              tooltip="Цей графік бере значення з KPI-спредшиту, якщо є ціль/рядок про медіа згадки. Окремий блок нижче показує Looqme coverage."
-            >
-              {hasSeriesData(mediaSeries) ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={mediaSeries}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="month" tickLine={false} axisLine={false} />
-                    <YAxis tickLine={false} axisLine={false} width={44} />
-                    <Tooltip content={<MonthlyTooltip metricLabel="Згадки" />} />
-                    <Bar
-                      dataKey="value"
-                      fill="#f97316"
-                      radius={[4, 4, 0, 0]}
-                      name="Згадки"
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <EmptyState
-                  title="Немає даних для графіка"
-                  text="Зараз графік бере значення тільки з KPI-спредшиту. Looqme-блок нижче показує coverage за вибраний місяць."
-                />
-              )}
-            </ChartPanel>
-
-            <ChartPanel
               title="Трафік із сайту: органічний"
               tooltip="Показує органічний трафік сайту з KPI-спредшиту, якщо для цієї метрики заповнені місячні значення."
             >
               {hasSeriesData(trafficSeries) ? (
-                <ResponsiveContainer width="100%" height={280}>
+                <ResponsiveContainer width="100%" height={260}>
                   <BarChart data={trafficSeries}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#efeeea" />
                     <XAxis dataKey="month" tickLine={false} axisLine={false} />
                     <YAxis tickLine={false} axisLine={false} width={56} />
                     <Tooltip content={<MonthlyTooltip metricLabel="Сесії" />} />
                     <Bar
                       dataKey="value"
-                      fill="#10b981"
+                      fill="#d08911"
                       radius={[4, 4, 0, 0]}
                       name="Сесії"
                     />
@@ -530,30 +548,16 @@ export function DashboardPage({ selectedMonth }) {
                 />
               )}
             </ChartPanel>
-
-            <ChartPanel
-              title="Email performance"
-              tooltip={mailchimpTooltip}
-            >
-              <MailchimpPerformancePanel
-                performance={mailchimpPerformance}
-                loading={mailchimpLoading}
-                unavailable={mailchimpUnavailable}
-                href={MAILCHIMP_DASHBOARD_URL}
-                onRetry={mailchimpQuery.retry}
-              />
-            </ChartPanel>
-
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
-            <div className="rounded-lg border border-slate-200 bg-white px-5 py-5">
+          <section className="grid gap-4 xl:grid-cols-2">
+            <div className="panel px-5 py-5">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-950">
-                    Івенти місяця
+                  <h2 className="text-base font-semibold text-ink">
+                    Upcoming events
                   </h2>
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 text-sm text-ink3">
                     {events.length} івентів · {eventsContactsSummary}
                   </p>
                 </div>
@@ -569,13 +573,13 @@ export function DashboardPage({ selectedMonth }) {
               </div>
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-white px-5 py-5">
+            <div className="panel px-5 py-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-950">
-                    Media coverage
+                  <h2 className="text-base font-semibold text-ink">
+                    Recent coverage
                   </h2>
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 text-sm text-ink3">
                     Наші згадки окремо від конкурентного порівняння.
                   </p>
                 </div>
@@ -583,7 +587,7 @@ export function DashboardPage({ selectedMonth }) {
                   <button
                     type="button"
                     onClick={openCompetitorModal}
-                    className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink2 hover:bg-line2"
                   >
                     <Plus className="h-4 w-4" />
                     Конкурент
@@ -744,25 +748,80 @@ export function DashboardPage({ selectedMonth }) {
             </div>
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white px-5 py-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+            <div className="panel px-5 py-5">
               <div>
-                <h2 className="text-base font-semibold text-slate-950">
-                  Board Report Generator
+                <p className="section-label">Board report</p>
+                <h2 className="mt-1 text-base font-semibold text-ink">
+                  Генерація звіту
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Збирає KPI, івенти та медіа за вибраний місяць.
+                <p className="mt-2 text-sm leading-6 text-ink2">
+                  Збирає KPI, івенти, coverage та email performance за вибраний місяць.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={generateReport}
                 disabled={reportLoading}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                className="mt-5 inline-flex h-10 items-center justify-center gap-2 rounded-md bg-accent px-4 text-sm font-semibold text-white hover:bg-accent2 disabled:opacity-60"
               >
                 <FileText className="h-4 w-4" />
                 {reportLoading ? 'Генерація...' : 'Згенерувати Board Report'}
               </button>
+              {saveStatus ? (
+                <p className="mt-3 text-sm font-medium text-ink3">{saveStatus}</p>
+              ) : null}
+            </div>
+
+            <div className="panel overflow-hidden">
+              <div className="flex flex-col gap-3 border-b border-line2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-base font-semibold text-ink">
+                    Preview · {selectedMonth}
+                  </h2>
+                  <p className="mt-1 text-sm text-ink3">
+                    {activeReport ? 'Готовий текст звіту' : 'Зʼявиться після генерації'}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={copyReport}
+                    disabled={!activeReport}
+                    className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink2 hover:bg-line2 disabled:opacity-50"
+                  >
+                    <ClipboardCopy className="h-4 w-4" />
+                    Копіювати
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveReportToNotion}
+                    disabled={!activeReport}
+                    className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-white hover:bg-accent2 disabled:opacity-50"
+                  >
+                    <Save className="h-4 w-4" />
+                    Зберегти
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-96 overflow-y-auto px-5 py-4">
+                {activeReport ? (
+                  <pre className="whitespace-pre-wrap text-sm leading-6 text-ink2">
+                    {activeReport}
+                  </pre>
+                ) : (
+                  <div className="grid min-h-48 place-items-center rounded-md border border-dashed border-line bg-[#fbfcfb] px-4 text-center text-sm text-ink3">
+                    {reportLoading ? (
+                      <span className="inline-flex items-center gap-2 font-semibold text-ink2">
+                        <RefreshCw className="h-4 w-4 animate-spin text-accent" />
+                        Генеруємо Board Report...
+                      </span>
+                    ) : (
+                      'Натисніть генерацію, щоб переглянути текст перед копіюванням або збереженням.'
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </section>
 
@@ -865,39 +924,6 @@ export function DashboardPage({ selectedMonth }) {
         </>
       ) : null}
 
-      {activeReport ? (
-        <Modal
-          title={`Board Report · ${selectedMonth}`}
-          onClose={() => setReport(null)}
-          footer={
-            <>
-              {saveStatus ? (
-                <span className="mr-auto text-sm text-slate-600">{saveStatus}</span>
-              ) : null}
-              <button
-                type="button"
-                onClick={copyReport}
-                className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                <ClipboardCopy className="h-4 w-4" />
-                Копіювати
-              </button>
-              <button
-                type="button"
-                onClick={saveReportToNotion}
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white hover:bg-blue-700"
-              >
-                <Save className="h-4 w-4" />
-                Зберегти в Notion
-              </button>
-            </>
-          }
-        >
-          <pre className="whitespace-pre-wrap rounded-md bg-slate-50 p-4 text-sm leading-6 text-slate-800">
-            {activeReport}
-          </pre>
-        </Modal>
-      ) : null}
     </div>
   )
 }
@@ -1702,21 +1728,21 @@ function DirectionHealthPanel({ items, selectedMonth, onDirectionOpen }) {
   const monthName = selectedMonth.split(' ')[0]
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white">
-      <div className="flex flex-col gap-1 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+    <section className="panel">
+      <div className="flex flex-col gap-1 border-b border-line2 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-base font-semibold text-slate-950">
+          <h2 className="text-base font-semibold text-ink">
             Стан KPI по напрямах
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-ink3">
             Де все йде в темпі року, а де бракує даних або є відставання.
           </p>
         </div>
       </div>
       <div className="overflow-x-auto p-5">
-        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+        <table className="min-w-full divide-y divide-line2 text-left text-sm">
           <thead>
-            <tr className="text-xs uppercase tracking-wide text-slate-500">
+            <tr className="text-xs uppercase tracking-wide text-ink3">
               <th className="px-3 py-3 font-semibold">Напрямок</th>
               <th className="px-3 py-3 font-semibold">
                 <HeaderWithInfo
@@ -1744,7 +1770,7 @@ function DirectionHealthPanel({ items, selectedMonth, onDirectionOpen }) {
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-line2">
             {items.map((item) => (
               <tr
                 key={item.direction}
@@ -1758,12 +1784,12 @@ function DirectionHealthPanel({ items, selectedMonth, onDirectionOpen }) {
                     onDirectionOpen(item.direction)
                   }
                 }}
-                className="cursor-pointer transition hover:bg-blue-50/60 focus:bg-blue-50 focus:outline-none"
+                className="cursor-pointer transition hover:bg-soft/40 focus:bg-soft/50 focus:outline-none"
               >
                 <td className="px-3 py-4">
                   <DirectionBadge direction={item.direction} />
                 </td>
-                <td className="whitespace-nowrap px-3 py-4 font-medium text-slate-950">
+                <td className="mono whitespace-nowrap px-3 py-4 font-semibold text-ink">
                   {item.measured ? `${item.onTrack} з ${item.measured} KPI` : '—'}
                 </td>
                 <td className="whitespace-nowrap px-3 py-4">
@@ -1777,18 +1803,18 @@ function DirectionHealthPanel({ items, selectedMonth, onDirectionOpen }) {
                     {item.atRisk ? `${item.atRisk} відстає` : 'не відстають'}
                   </span>
                 </td>
-                <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                <td className="whitespace-nowrap px-3 py-4 text-ink2">
                   {item.updated} з {item.measurable} KPI
                 </td>
                 <td className="min-w-48 px-3 py-4">
                   <div className="flex items-center gap-3">
-                    <div className="h-2 w-28 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-2 w-28 overflow-hidden rounded-full bg-line2">
                       <div
-                        className="h-full rounded-full bg-[#4361ee]"
+                        className="h-full rounded-full bg-accent"
                         style={{ width: `${Math.min(100, item.average)}%` }}
                       />
                     </div>
-                    <span className="font-medium text-slate-950">{item.average}%</span>
+                    <span className="mono font-semibold text-ink">{item.average}%</span>
                   </div>
                 </td>
               </tr>
@@ -1811,9 +1837,9 @@ function HeaderWithInfo({ label, text }) {
 
 function ChartPanel({ title, children, tooltip }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-5 py-5">
+    <div className="panel min-w-0 px-5 py-5">
       <div className="flex items-start justify-between gap-3">
-        <h2 className="text-base font-semibold text-slate-950">{title}</h2>
+        <h2 className="text-base font-semibold text-ink">{title}</h2>
         <InfoTooltip text={tooltip} />
       </div>
       <div className="mt-4">{children}</div>
