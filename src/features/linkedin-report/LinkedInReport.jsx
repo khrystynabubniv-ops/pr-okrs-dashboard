@@ -195,6 +195,16 @@ function fmtPct(n) {
   const s = n > 0 ? "+" : "";
   return `${s}${n.toFixed(1)}%`;
 }
+function sumPostMetric(posts, key) {
+  if (!Array.isArray(posts)) return 0;
+  return posts.reduce((sum, post) => sum + (Number(post?.[key]) || 0), 0);
+}
+function monthImpressions(month) {
+  if (!month) return null;
+  if (month.impressionsOverview !== null && month.impressionsOverview !== undefined) return month.impressionsOverview;
+  const total = sumPostMetric(month.postsList, "impressions");
+  return total || null;
+}
 function computeGrowth(months) {
   return months.map((m, i) => {
     const prev = months[i - 1];
@@ -432,6 +442,7 @@ export default function LinkedInReport() {
     return arr;
   }, [current, sortKey, sortDir]);
 
+  const currentImpressions = monthImpressions(current);
   const maxTotal = current?.postsList?.length ? Math.max(...current.postsList.map((p) => p.total)) : null;
   const minTotal = current?.postsList?.length > 1 ? Math.min(...current.postsList.map((p) => p.total)) : null;
 
@@ -546,6 +557,7 @@ export default function LinkedInReport() {
         const er = impressions ? (total / impressions) * 100 : 0;
         return { title: p.title, impressions, clicks, likes, comments, reposts, saves, shares, total, er: Number(er.toFixed(2)) };
       });
+    const postsImpressions = sumPostMetric(cleanPosts, "impressions");
     const id = recordIdForPerson(personId, newMonth.label);
     const month = {
       id,
@@ -555,7 +567,7 @@ export default function LinkedInReport() {
       followers: Number(newMonth.followers),
       views: newMonth.views ? Number(newMonth.views) : null,
       viewsDelta: null,
-      impressionsOverview: newMonth.impressionsOverview ? Number(newMonth.impressionsOverview) : null,
+      impressionsOverview: newMonth.impressionsOverview ? Number(newMonth.impressionsOverview) : postsImpressions || null,
       impressionsDelta: null,
       postsList: cleanPosts,
       conclusions: [],
@@ -879,7 +891,7 @@ export default function LinkedInReport() {
               </div>
               <div className="li-stat-card">
                 <div className="li-stat-label">Покази (impressions)</div>
-                <div className="li-stat-value ymr-mono">{fmt(current.impressionsOverview)}</div>
+                <div className="li-stat-value ymr-mono">{fmt(currentImpressions)}</div>
                 {current.impressionsDelta !== null && current.impressionsDelta !== undefined && (
                   <div className={`li-stat-delta ${current.impressionsDelta >= 0 ? "up" : "dn"}`}>{fmtPct(current.impressionsDelta)} до попер. місяця</div>
                 )}
