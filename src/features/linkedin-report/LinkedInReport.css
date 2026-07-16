@@ -296,7 +296,6 @@
 
 .li-person-panel {
   display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.7fr);
   gap: 12px;
   align-items: end;
   border: 1px solid var(--li-line2);
@@ -306,9 +305,17 @@
   margin-bottom: 14px;
 }
 
+.li-person-panel.is-choosing {
+  grid-template-columns: minmax(220px, 1fr) auto;
+}
+
+.li-person-panel.is-adding {
+  grid-template-columns: 1fr;
+}
+
 .li-new-person-grid {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(130px, 0.7fr) auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(130px, 0.7fr) auto auto;
   gap: 8px;
   align-items: end;
 }

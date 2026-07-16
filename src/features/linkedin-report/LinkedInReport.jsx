@@ -365,6 +365,7 @@ export default function LinkedInReport() {
   const [showEntryModal, setShowEntryModal] = useState(false);
   const [entryType, setEntryType] = useState("linkedin");
   const [entryPersonId, setEntryPersonId] = useState(DEFAULT_PERSON_ID);
+  const [addingPerson, setAddingPerson] = useState(false);
   const [newPerson, setNewPerson] = useState(emptyPerson);
   const [newMonth, setNewMonth] = useState(() => ({ ...emptyMonth, label: currentMonthLabel() }));
   const [newPosts, setNewPosts] = useState([{ ...emptyPost }]);
@@ -465,6 +466,7 @@ export default function LinkedInReport() {
   function openEntryModal(type = tab === "pr" ? "pr" : "linkedin") {
     setEntryType(type);
     setEntryPersonId(selectedPerson);
+    setAddingPerson(false);
     setNewMonth((current) => ({ ...current, label: current.label || currentMonthLabel() }));
     setNewPrPublication((current) => ({
       ...current,
@@ -474,6 +476,7 @@ export default function LinkedInReport() {
   }
 
   function closeEntryModal() {
+    setAddingPerson(false);
     setShowEntryModal(false);
   }
 
@@ -543,6 +546,7 @@ export default function LinkedInReport() {
     setEntryPersonId(person.id);
     setSelected(null);
     setNewPerson(emptyPerson);
+    setAddingPerson(false);
   }
 
   async function saveNewMonth() {
@@ -696,41 +700,59 @@ export default function LinkedInReport() {
                   </button>
                 ))}
               </div>
-              <div className="li-person-panel">
-                <label className="li-field">C-level людина
-                  <select
-                    className="ymr-input"
-                    value={entryPersonId}
-                    onChange={(event) => setEntryPersonId(event.target.value)}
-                  >
-                    {people.map((person) => (
-                      <option key={person.id} value={person.id}>
-                        {personName(person)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="li-new-person-grid">
-                  <label className="li-field">Додати C-level
-                    <input
-                      className="ymr-input"
-                      placeholder="Імʼя та прізвище"
-                      value={newPerson.name}
-                      onChange={(event) => setNewPerson({ ...newPerson, name: event.target.value })}
-                    />
-                  </label>
-                  <label className="li-field">Роль
-                    <input
-                      className="ymr-input"
-                      placeholder="CEO / CFO / CMO"
-                      value={newPerson.role}
-                      onChange={(event) => setNewPerson({ ...newPerson, role: event.target.value })}
-                    />
-                  </label>
-                  <button className="ymr-btn" type="button" onClick={saveNewPerson}>
-                    <Plus size={13} /> додати людину
-                  </button>
-                </div>
+              <div className={`li-person-panel ${addingPerson ? "is-adding" : "is-choosing"}`}>
+                {addingPerson ? (
+                  <div className="li-new-person-grid">
+                    <label className="li-field">Нова C-level людина
+                      <input
+                        className="ymr-input"
+                        placeholder="Імʼя та прізвище"
+                        value={newPerson.name}
+                        onChange={(event) => setNewPerson({ ...newPerson, name: event.target.value })}
+                      />
+                    </label>
+                    <label className="li-field">Роль
+                      <input
+                        className="ymr-input"
+                        placeholder="CEO / CFO / CMO"
+                        value={newPerson.role}
+                        onChange={(event) => setNewPerson({ ...newPerson, role: event.target.value })}
+                      />
+                    </label>
+                    <button className="ymr-btn li-primary-btn" type="button" onClick={saveNewPerson}>
+                      <Plus size={13} /> зберегти людину
+                    </button>
+                    <button className="ymr-btn" type="button" onClick={() => setAddingPerson(false)}>
+                      обрати існуючу
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <label className="li-field">C-level людина
+                      <select
+                        className="ymr-input"
+                        value={entryPersonId}
+                        onChange={(event) => setEntryPersonId(event.target.value)}
+                      >
+                        {people.map((person) => (
+                          <option key={person.id} value={person.id}>
+                            {personName(person)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      className="ymr-btn"
+                      type="button"
+                      onClick={() => {
+                        setNewPerson(emptyPerson);
+                        setAddingPerson(true);
+                      }}
+                    >
+                      <Plus size={13} /> додати людину
+                    </button>
+                  </>
+                )}
               </div>
 
               {entryType === "linkedin" ? (
