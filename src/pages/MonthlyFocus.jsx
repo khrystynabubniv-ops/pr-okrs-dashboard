@@ -108,17 +108,17 @@ export function MonthlyFocusPage({ selectedMonth }) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-lg border border-slate-200 bg-white px-5 py-5">
+      <section className="ui-panel px-5 py-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-slate-950">
+            <h2 className="font-display text-[19px] font-bold text-ink">
               Фокуси на {selectedMonth}
             </h2>
           </div>
           <button
             type="button"
             onClick={openCreateModal}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white hover:bg-blue-700"
+            className="ui-button ui-button-primary"
           >
             <Plus className="h-4 w-4" />
             Додати фокус
@@ -136,17 +136,14 @@ export function MonthlyFocusPage({ selectedMonth }) {
         </div>
       </section>
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="ui-toggle max-w-full overflow-x-auto">
         {['Усі', ...FOCUS_TEAMS].map((team) => (
           <button
             key={team}
             type="button"
             onClick={() => setTeamFilter(team)}
-            className={`shrink-0 rounded-md border px-3 py-2 text-sm font-medium transition ${
-              teamFilter === team
-                ? 'border-[#4361ee] bg-blue-50 text-[#4361ee]'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            }`}
+            aria-pressed={teamFilter === team}
+            className="ui-toggle-button shrink-0"
           >
             {team}
           </button>
@@ -160,9 +157,9 @@ export function MonthlyFocusPage({ selectedMonth }) {
       {mutationError ? <ErrorState error={mutationError} /> : null}
 
       {!focusQuery.loading && !focusQuery.error ? (
-        <section className="rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-5 py-4">
-            <h2 className="text-base font-semibold text-slate-950">
+        <section className="ui-panel overflow-hidden">
+          <div className="border-b border-line px-5 py-4">
+            <h2 className="font-display text-[19px] font-bold text-ink">
               Список фокусів
             </h2>
           </div>
@@ -173,54 +170,54 @@ export function MonthlyFocusPage({ selectedMonth }) {
                 text="Створіть перший фокус або перевірте, що в Notion у полі Month вибраний цей місяць."
               />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+              <div className="ui-table-shell">
+                <table className="ui-table">
                   <thead>
-                    <tr className="text-xs uppercase tracking-wide text-slate-500">
-                      <th className="px-3 py-3 font-semibold">Фокус</th>
-                      <th className="px-3 py-3 font-semibold">Команда</th>
-                      <th className="px-3 py-3 font-semibold">Owner</th>
-                      <th className="px-3 py-3 font-semibold">Критерій</th>
-                      <th className="px-3 py-3 font-semibold">Статус</th>
-                      <th className="px-3 py-3 font-semibold">Коментар</th>
-                      <th className="px-3 py-3 font-semibold">Дії</th>
+                    <tr>
+                      <th>Фокус</th>
+                      <th>Команда</th>
+                      <th>Owner</th>
+                      <th>Критерій</th>
+                      <th>Статус</th>
+                      <th>Коментар</th>
+                      <th>Дії</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody>
                     {visibleEntries.map((entry) => (
                       <tr key={entry.id}>
-                        <td className="max-w-sm px-3 py-4 font-medium text-slate-950">
+                        <td className="max-w-sm font-medium text-ink">
                           {entry.title}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                        <td className="whitespace-nowrap text-muted">
                           {entry.team || '—'}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                        <td className="whitespace-nowrap text-muted">
                           {entry.owner || '—'}
                         </td>
-                        <td className="max-w-sm px-3 py-4 text-slate-600">
-                          <span className="font-medium text-slate-700">
+                        <td className="max-w-sm text-muted">
+                          <span className="font-medium text-ink">
                             {entry.metricType || 'Критерій'}
                           </span>
                           {entry.metric ? (
                             <span className="mt-1 block">{entry.metric}</span>
                           ) : null}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-4">
+                        <td className="whitespace-nowrap">
                           <FocusStatusSelect
                             value={entry.status || statusFromAchieved(entry.achieved)}
                             disabled={updatingStatusId === entry.id}
                             onChange={(status) => handleStatusChange(entry, status)}
                           />
                         </td>
-                        <td className="max-w-xs px-3 py-4 text-slate-600">
+                        <td className="max-w-xs text-muted">
                           {entry.comment || '—'}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-4">
+                        <td className="whitespace-nowrap">
                           <button
                             type="button"
                             onClick={() => openEditModal(entry)}
-                            className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            className="ui-button ui-button-ghost min-h-9 px-3 py-2"
                           >
                             <Pencil className="h-4 w-4" />
                             Редагувати
@@ -243,7 +240,7 @@ export function MonthlyFocusPage({ selectedMonth }) {
           footer={
             <>
               {saved ? (
-                <span className="mr-auto inline-flex items-center gap-2 text-sm font-medium text-emerald-700">
+                <span className="mr-auto inline-flex items-center gap-2 text-sm font-medium text-good">
                   <CheckCircle2 className="h-4 w-4" />
                   Збережено
                 </span>
@@ -251,7 +248,7 @@ export function MonthlyFocusPage({ selectedMonth }) {
               <button
                 type="button"
                 onClick={() => setModalFocus(null)}
-                className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="ui-button ui-button-ghost"
               >
                 Скасувати
               </button>
@@ -259,7 +256,7 @@ export function MonthlyFocusPage({ selectedMonth }) {
                 type="submit"
                 form="monthly-focus-form"
                 disabled={saving || !modalFocus.title.trim()}
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                className="ui-button ui-button-primary"
               >
                 <Save className="h-4 w-4" />
                 Зберегти
@@ -409,17 +406,17 @@ function createEmptyFocus(selectedMonth, teamFilter) {
 
 function FocusStat({ label, value, tone = 'default' }) {
   const tones = {
-    default: 'border-slate-200 bg-slate-50',
-    green: 'border-emerald-200 bg-emerald-50',
-    orange: 'border-orange-200 bg-orange-50',
+    default: 'border-line bg-surface-2',
+    green: 'border-line bg-good-soft',
+    orange: 'border-line bg-warn-soft',
   }
 
   return (
-    <div className={`rounded-lg border px-4 py-3 ${tones[tone] || tones.default}`}>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+    <div className={`rounded-card border p-3.5 ${tones[tone] || tones.default}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
         {label}
       </p>
-      <p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p>
+      <p className="mono mt-1 text-2xl font-bold text-ink">{value}</p>
     </div>
   )
 }
@@ -434,10 +431,10 @@ function FocusStatusSelect({ value, disabled, onChange }) {
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
-      className={`h-9 min-w-36 rounded-full border px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-blue-100 disabled:opacity-60 ${
+      className={`h-9 min-w-36 rounded-tag border px-3 text-sm font-medium outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent-soft disabled:opacity-55 ${
         isDone
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          : 'border-slate-200 bg-slate-50 text-slate-700'
+          ? 'border-line bg-good-soft text-good'
+          : 'border-line bg-surface-2 text-muted'
       }`}
     >
       {FOCUS_STATUS_OPTIONS.map((status) => (

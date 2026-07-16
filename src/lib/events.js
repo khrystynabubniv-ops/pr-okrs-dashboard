@@ -55,7 +55,7 @@ export function eventStatusMeta(event, today = new Date()) {
   if (isDoneEventStatus(status)) {
     return {
       label: 'Відбулося',
-      className: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+      className: 'bg-good-soft text-good ring-line',
     }
   }
 
@@ -71,20 +71,20 @@ export function eventStatusMeta(event, today = new Date()) {
   if (timing === 'today') {
     return {
       label: 'Сьогодні',
-      className: 'bg-blue-50 text-blue-700 ring-blue-200',
+      className: 'bg-accent-soft text-accent-d ring-line',
     }
   }
 
   if (timing === 'completed') {
     return {
       label: 'Без статусу',
-      className: 'bg-slate-50 text-slate-700 ring-slate-200',
+      className: 'bg-surface-2 text-muted ring-line',
     }
   }
 
   return {
     label: 'Заплановано',
-    className: 'bg-slate-50 text-slate-700 ring-slate-200',
+    className: 'bg-surface-2 text-muted ring-line',
   }
 }
 
@@ -94,20 +94,20 @@ export function eventLeadLabel(event, today = new Date()) {
   if (contacts > 0) {
     return {
       text: `${contacts} лідів`,
-      className: 'text-slate-700',
+      className: 'text-ink',
     }
   }
 
   if (!isEventCompleted(event, today)) {
     return {
       text: 'Leads is coming',
-      className: 'text-blue-700',
+      className: 'text-accent-d',
     }
   }
 
   return {
     text: '0 лідів',
-    className: 'text-slate-700',
+    className: 'text-muted',
   }
 }
 
@@ -160,18 +160,18 @@ function eventStatusClassName(status) {
       'ні',
     ].includes(normalized)
   ) {
-    return 'bg-rose-50 text-rose-700 ring-rose-200'
+    return 'bg-warn-soft text-warn ring-line'
   }
 
   if (normalized.includes('postpon') || normalized.includes('перенес')) {
-    return 'bg-amber-50 text-amber-700 ring-amber-200'
+    return 'bg-warn-soft text-warn ring-line'
   }
 
   if (normalized.includes('progress') || normalized.includes('процес')) {
-    return 'bg-blue-50 text-blue-700 ring-blue-200'
+    return 'bg-accent-soft text-accent-d ring-line'
   }
 
-  return 'bg-slate-50 text-slate-700 ring-slate-200'
+  return 'bg-surface-2 text-muted ring-line'
 }
 
 function normalizeEventStatus(status) {

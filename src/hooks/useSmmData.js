@@ -12,11 +12,16 @@ export function useSmmData(month, previewState = '') {
     let isMounted = true
     const normalizedPreviewState = String(previewState || '').toLowerCase()
 
-    setState((current) => ({ ...current, loading: true, error: null }))
+    const loadingTimeout = window.setTimeout(() => {
+      if (isMounted) {
+        setState((current) => ({ ...current, loading: true, error: null }))
+      }
+    }, 0)
 
     if (normalizedPreviewState === 'loading') {
       return () => {
         isMounted = false
+        window.clearTimeout(loadingTimeout)
       }
     }
 
@@ -41,6 +46,7 @@ export function useSmmData(month, previewState = '') {
 
     return () => {
       isMounted = false
+      window.clearTimeout(loadingTimeout)
       window.clearTimeout(timeout)
     }
   }, [month, previewState])

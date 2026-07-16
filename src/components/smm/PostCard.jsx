@@ -22,7 +22,7 @@ const tagStyles = {
 export function PostCard({ post }) {
   return (
     <article className="panel min-w-0 overflow-hidden">
-      <div className="relative aspect-[16/10] overflow-hidden bg-line2 [background-image:repeating-linear-gradient(135deg,#f8faf8_0,#f8faf8_10px,#e7e6e1_10px,#e7e6e1_20px)]">
+      <div className="relative aspect-[16/10] overflow-hidden bg-surface-2 [background-image:repeating-linear-gradient(135deg,var(--surface-2)_0,var(--surface-2)_10px,var(--line)_10px,var(--line)_20px)]">
         {post.thumbnailUrl ? (
           <img
             src={post.thumbnailUrl}
@@ -67,7 +67,7 @@ export function PostCard({ post }) {
           {post.benchmark ? <BenchmarkBadge benchmark={post.benchmark} /> : null}
         </div>
 
-        <div className="rounded-md border border-line2 bg-[#fbfcfb] px-3 py-3">
+        <div className="rounded-card border border-line bg-surface-2 px-3 py-3">
           <div className="flex items-center justify-between gap-3">
             <p className="inline-flex items-center gap-2 text-sm font-semibold text-ink">
               <Heart className="h-4 w-4 text-neg" />

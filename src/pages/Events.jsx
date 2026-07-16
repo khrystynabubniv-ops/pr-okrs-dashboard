@@ -30,7 +30,7 @@ export function EventsPage({ selectedMonth }) {
 
       {!loading && !error ? (
         <>
-          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <MetricCard
               label="Всього івентів"
               value={events.length}
@@ -51,15 +51,15 @@ export function EventsPage({ selectedMonth }) {
             />
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <section className="ui-panel overflow-hidden">
+            <div className="flex items-center justify-between border-b border-line px-5 py-4">
               <div>
-                <h2 className="inline-flex items-center gap-2 text-base font-semibold text-slate-950">
+                <h2 className="inline-flex items-center gap-2 font-display text-[19px] font-bold text-ink">
                   Календар івентів
                   <InfoTooltip text={CALENDAR_EVENTS_HELP} />
                 </h2>
               </div>
-              <CalendarDays className="h-5 w-5 text-[#4361ee]" />
+              <CalendarDays className="h-5 w-5 text-accent" />
             </div>
             <div className="p-5">
               {!events.length ? (
@@ -68,68 +68,68 @@ export function EventsPage({ selectedMonth }) {
                   text="Перевірте дату в полі Таймінг або доступ Notion integration до Calendar Events database."
                 />
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                <div className="ui-table-shell">
+                  <table className="ui-table">
                     <thead>
-                      <tr className="text-xs uppercase tracking-wide text-slate-500">
-                        <th className="px-3 py-3 font-semibold">Назва</th>
-                        <th className="px-3 py-3 font-semibold">Тип</th>
-                        <th className="px-3 py-3 font-semibold">Дата</th>
-                        <th className="px-3 py-3 font-semibold">Роль</th>
-                        <th className="px-3 py-3 font-semibold">Ціль</th>
-                        <th className="px-3 py-3 font-semibold">Зібрані ліди</th>
-                        <th className="px-3 py-3 font-semibold">Аудиторія</th>
+                      <tr>
+                        <th>Назва</th>
+                        <th>Тип</th>
+                        <th>Дата</th>
+                        <th>Роль</th>
+                        <th>Ціль</th>
+                        <th>Зібрані ліди</th>
+                        <th>Аудиторія</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody>
                       {events.map((event) => {
                         const status = eventStatusMeta(event)
                         const leads = eventLeadLabel(event)
 
                         return (
                           <tr key={event.id}>
-                            <td className="max-w-xs px-3 py-4 font-medium text-slate-950">
+                            <td className="max-w-xs font-medium text-ink">
                               <div className="flex flex-wrap items-center gap-2">
                                 <span>{event.title}</span>
                                 <span
-                                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${status.className}`}
+                                  className={`ui-tag ring-1 ring-inset ${status.className}`}
                                 >
                                   {status.label}
                                 </span>
                               </div>
                               {event.metricsMatched ? (
-                                <p className="mt-1 text-xs font-normal text-emerald-700">
+                                <p className="mt-1 text-xs font-normal text-good">
                                   метрики з Activities
                                 </p>
                               ) : null}
                             </td>
-                            <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                            <td className="whitespace-nowrap text-muted">
                               {event.type || '—'}
                             </td>
-                            <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                            <td className="mono whitespace-nowrap text-muted">
                               {event.date || '—'}
                             </td>
-                            <td className="whitespace-nowrap px-3 py-4">
+                            <td className="whitespace-nowrap">
                               <span
-                                className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${
+                                className={`ui-tag ring-1 ring-inset ${
                                   event.role === 'Owner'
-                                    ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-                                    : 'bg-slate-50 text-slate-700 ring-slate-200'
+                                    ? 'bg-good-soft text-good ring-line'
+                                    : 'bg-surface-2 text-muted ring-line'
                                 }`}
                               >
                                 {eventRoleLabel(event.role)}
                               </span>
                             </td>
-                            <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                            <td className="whitespace-nowrap text-muted">
                               {event.goal || '—'}
                             </td>
-                            <td className="whitespace-nowrap px-3 py-4 text-slate-950">
+                            <td className="whitespace-nowrap text-ink">
                               <span className="inline-flex items-center gap-2">
-                                <Users className="h-4 w-4 text-slate-400" />
+                                <Users className="h-4 w-4 text-muted" />
                                 <span className={leads.className}>{leads.text}</span>
                               </span>
                             </td>
-                            <td className="px-3 py-4 text-slate-600">
+                            <td className="text-muted">
                               {event.audience || '—'}
                             </td>
                           </tr>

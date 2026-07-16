@@ -2,19 +2,19 @@ import { AlertTriangle, CheckCircle2, Eye, Signal } from 'lucide-react'
 
 const toneStyles = {
   green: {
-    shell: 'border-emerald-200 bg-[linear-gradient(135deg,#f4fbf7_0%,#d6f4e7_100%)]',
+    shell: 'border-line bg-good-soft',
     icon: 'bg-pos text-white',
     dot: 'bg-pos',
     Icon: CheckCircle2,
   },
   yellow: {
-    shell: 'border-amber-200 bg-[linear-gradient(135deg,#fffaf0_0%,#fdefd6_100%)]',
+    shell: 'border-line bg-warn-soft',
     icon: 'bg-warn text-white',
     dot: 'bg-warn',
     Icon: Signal,
   },
   red: {
-    shell: 'border-rose-200 bg-[linear-gradient(135deg,#fff6f4_0%,#fde5df_100%)]',
+    shell: 'border-line bg-warn-soft',
     icon: 'bg-neg text-white',
     dot: 'bg-neg',
     Icon: AlertTriangle,

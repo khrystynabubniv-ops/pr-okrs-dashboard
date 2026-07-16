@@ -137,13 +137,13 @@ export function mediaCoverageSummary(coverage) {
         label: 'ЗМІ(Медіа)',
         value: Number(coverage.mentionsByChannel?.media ?? 0),
         delta: coverage.mentionsByChannel?.mediaDelta,
-        color: '#6678ff',
+        color: 'var(--accent)',
       },
       {
         label: 'Соціальні мережі',
         value: Number(coverage.mentionsByChannel?.social ?? 0),
         delta: coverage.mentionsByChannel?.socialDelta,
-        color: '#2dd68f',
+        color: 'var(--good)',
       },
     ],
   })
@@ -155,13 +155,13 @@ export function mediaCoverageSummary(coverage) {
         label: 'ЗМІ(Медіа)',
         value: parseReachNumber(coverage.audience?.media),
         delta: coverage.audience?.mediaDelta,
-        color: '#6678ff',
+        color: 'var(--accent)',
       },
       {
         label: 'Соціальні мережі',
         value: parseReachNumber(coverage.audience?.social),
         delta: coverage.audience?.socialDelta,
-        color: '#2dd68f',
+        color: 'var(--good)',
       },
     ],
   })

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { PlugZap, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
+import { PlugZap, TrendingDown, TrendingUp } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { InstagramIcon } from '../components/icons/InstagramIcon'
 import { MonthSelector } from '../components/MonthSelector'
@@ -79,7 +79,7 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
             <button
               type="button"
               onClick={() => setConnectionNotice('Інтеграція в розробці')}
-              className="mt-5 inline-flex h-10 items-center justify-center gap-2 rounded-md bg-accent px-4 text-sm font-semibold text-white hover:bg-accent2"
+            className="ui-button ui-button-primary mt-5"
             >
               <PlugZap className="h-4 w-4" />
               Підключити Instagram
@@ -178,7 +178,7 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
 function SmmShell({ selectedMonth, onMonthChange, source, children }) {
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 rounded-[10px] border border-line bg-white px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="ui-panel flex flex-col gap-4 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <MonthSelector value={selectedMonth} onChange={onMonthChange} />
           <nav className="flex gap-1 overflow-x-auto">
@@ -186,7 +186,7 @@ function SmmShell({ selectedMonth, onMonthChange, source, children }) {
               <a
                 key={anchor.href}
                 href={anchor.href}
-                className="shrink-0 rounded-md px-3 py-2 text-sm font-semibold text-ink2 transition hover:bg-line2 hover:text-ink"
+                className="shrink-0 rounded-button px-3 py-2 text-sm font-semibold text-muted transition hover:bg-hover-soft hover:text-ink"
               >
                 {anchor.label}
               </a>
@@ -208,15 +208,15 @@ function SmmKpiCard({ label, value, delta, deltaPercent, detail, progress }) {
 
   return (
     <article className="panel px-4 py-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-ink3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
         {label}
       </p>
       <div className="mt-3 flex flex-wrap items-end gap-2">
-        <p className="mono text-3xl font-semibold leading-none text-ink">{value}</p>
+        <p className="mono text-2xl font-bold leading-none text-ink">{value}</p>
         {hasDelta ? (
           <span
             className={`mb-0.5 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${
-              isPositive ? 'bg-soft text-accent2' : 'bg-rose-50 text-rose-700'
+              isPositive ? 'bg-good-soft text-good' : 'bg-warn-soft text-warn'
             }`}
           >
             <DeltaIcon className="h-3.5 w-3.5" />
@@ -228,13 +228,13 @@ function SmmKpiCard({ label, value, delta, deltaPercent, detail, progress }) {
         <div className="mt-4">
           <div className="h-2 overflow-hidden rounded-full bg-line2">
             <div
-              className="h-full rounded-full bg-accent"
+              className="h-full rounded-tag bg-accent"
               style={{ width: `${Math.min(100, Number(progress || 0))}%` }}
             />
           </div>
         </div>
       ) : null}
-      <p className="mt-3 text-sm leading-5 text-ink2">{detail}</p>
+      <p className="mt-3 text-sm leading-5 text-muted">{detail}</p>
     </article>
   )
 }

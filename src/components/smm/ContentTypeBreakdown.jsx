@@ -6,30 +6,30 @@ export function ContentTypeBreakdown({ items = [] }) {
       <div className="border-b border-line2 px-5 py-4">
         <h2 className="text-base font-semibold text-ink">Розбивка по типу контенту</h2>
       </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
+      <div className="ui-table-shell border-0">
+        <table className="ui-table">
           <thead>
-            <tr className="border-b border-line2 text-xs font-semibold uppercase tracking-[0.08em] text-ink3">
-              <th className="px-5 py-3">Формат</th>
-              <th className="px-3 py-3 text-right">Пости</th>
-              <th className="px-3 py-3 text-right">Сер. перегляди</th>
-              <th className="px-5 py-3">ER</th>
+            <tr>
+              <th>Формат</th>
+              <th className="text-right">Пости</th>
+              <th className="text-right">Сер. перегляди</th>
+              <th>ER</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-line2">
+          <tbody>
             {items.map((item) => (
               <tr key={item.format}>
-                <td className="px-5 py-4">
+                <td>
                   <p className="font-semibold text-ink">{item.format}</p>
                   <p className="mt-1 text-xs text-ink3">{item.note}</p>
                 </td>
-                <td className="mono whitespace-nowrap px-3 py-4 text-right font-semibold text-ink">
+                <td className="mono whitespace-nowrap text-right font-semibold text-ink">
                   {item.posts}
                 </td>
-                <td className="mono whitespace-nowrap px-3 py-4 text-right font-semibold text-ink">
+                <td className="mono whitespace-nowrap text-right font-semibold text-ink">
                   {formatNumber(item.avgViews)}
                 </td>
-                <td className="min-w-44 px-5 py-4">
+                <td className="min-w-44">
                   <div className="flex items-center gap-3">
                     <div className="h-2 flex-1 overflow-hidden rounded-full bg-line2">
                       <div

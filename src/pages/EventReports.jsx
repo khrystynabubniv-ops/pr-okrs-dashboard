@@ -424,6 +424,15 @@ function ReportForm({ onClose, onCreated }) {
     }
   }
 
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape' && !submitting) onClose()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose, submitting])
+
   function handleOverlayClick(event) {
     if (event.target === event.currentTarget && !submitting) onClose()
   }
@@ -1090,6 +1099,15 @@ function ReportDetail({ report, onClose }) {
   const normalized = useMemo(() => normalizeReportInput(report), [report])
   const metrics = useMemo(() => compute(normalized), [normalized])
   const insights = Array.isArray(report.aiInsights) ? report.aiInsights : []
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') onClose()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
 
   function handleOverlayClick(event) {
     if (event.target === event.currentTarget) onClose()

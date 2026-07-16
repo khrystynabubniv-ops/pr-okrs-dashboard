@@ -210,29 +210,29 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
     <div className="space-y-6">
       {mutationError ? <ErrorState error={mutationError} /> : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white">
-        <div className="space-y-4 border-b border-slate-200 px-5 py-4">
+      <section className="ui-panel overflow-hidden">
+        <div className="space-y-4 border-b border-line px-5 py-4">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-slate-950">Всі цілі</h2>
-              <p className="mt-1 text-sm text-slate-500">
+              <h2 className="font-display text-[19px] font-bold text-ink">Всі цілі</h2>
+              <p className="mt-1 text-sm text-muted">
                 Поточні значення і прогрес до річної цілі.
               </p>
             </div>
             <div className="grid gap-3 md:grid-cols-[minmax(240px,1fr)_auto]">
               <label className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                 <input
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder="Пошук по цілі"
-                  className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-[#4361ee] focus:ring-2 focus:ring-blue-100"
+                  className="h-10 w-full rounded-input border border-line bg-surface pl-9 pr-3 text-sm outline-none focus:border-accent focus:ring-[3px] focus:ring-accent-soft"
                 />
               </label>
               <button
                 type="button"
                 onClick={() => setCreateModalOpen(true)}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+                className="ui-button ui-button-primary"
               >
                 <Plus className="h-4 w-4" />
                 Створити ціль
@@ -240,7 +240,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="ui-toggle flex-wrap">
             {['Усі', ...DIRECTIONS].map((direction) => {
               const isActive = directionFilter === direction
               return (
@@ -248,16 +248,13 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                   key={direction}
                   type="button"
                   onClick={() => handleDirectionFilterChange(direction)}
-                  className={`inline-flex min-h-9 items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition ${
-                    isActive
-                      ? 'border-[#4361ee] bg-blue-50 text-[#3651d4]'
-                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                  }`}
+                  aria-pressed={isActive}
+                  className="ui-toggle-button inline-flex min-h-9 items-center gap-2"
                 >
                   <span>{direction}</span>
                   <span
-                    className={`rounded-full px-1.5 text-xs ${
-                      isActive ? 'bg-white text-[#3651d4]' : 'bg-slate-100 text-slate-500'
+                    className={`rounded-tag px-1.5 text-xs ${
+                      isActive ? 'bg-surface text-accent-d' : 'bg-line text-muted'
                     }`}
                   >
                     {directionCounts[direction] || 0}
@@ -278,76 +275,76 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
             />
           ) : null}
           {!loading && !error && visibleGoals.length ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+            <div className="ui-table-shell">
+              <table className="ui-table">
                 <thead>
-                  <tr className="text-xs uppercase tracking-wide text-slate-500">
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">Ціль</th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">
+                  <tr>
+                    <th className="whitespace-nowrap">Ціль</th>
+                    <th className="whitespace-nowrap">
                       Напрямок
                     </th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">Тип</th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">
+                    <th className="whitespace-nowrap">Тип</th>
+                    <th className="whitespace-nowrap">
                       Ціль 100%
                     </th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">
+                    <th className="whitespace-nowrap">
                       Поточне значення
                     </th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">
+                    <th className="whitespace-nowrap">
                       Прогрес
                     </th>
-                    <th className="whitespace-nowrap px-3 py-3 font-semibold">
+                    <th className="whitespace-nowrap">
                       Дії
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody>
                   {visibleGoals.map((goal) => (
                     <tr key={goal.id} className="align-middle">
-                      <td className="max-w-xs px-3 py-4 font-medium text-slate-950">
+                      <td className="max-w-xs font-medium text-ink">
                         {goal.title}
-                        <p className="mt-1 text-xs font-normal text-slate-500">
+                        <p className="mt-1 text-xs font-normal text-muted">
                           {goal.owner || 'Без власника'} · {goal.framework || 'AMEC'}
                           {goal.hasLocalEdit ? (
-                            <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+                            <span className="ui-tag ml-2 bg-warn-soft text-warn ring-1 ring-inset ring-line">
                               змінено тут
                             </span>
                           ) : null}
                         </p>
                       </td>
-                      <td className="px-3 py-4">
+                      <td>
                         <DirectionBadge direction={goal.direction} />
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                      <td className="whitespace-nowrap text-muted">
                         <div className="space-y-1">
                           <span>{goal.calculationLabel || goal.metricType}</span>
                           {goal.explanation ? (
-                            <p className="max-w-48 whitespace-normal text-xs leading-snug text-slate-400">
+                            <p className="max-w-48 whitespace-normal text-xs leading-snug text-muted">
                               {goal.explanation}
                             </p>
                           ) : null}
                         </div>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-slate-600">
+                      <td className="mono whitespace-nowrap text-muted">
                         {displayTarget(goal)}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-slate-950">
+                      <td className="mono whitespace-nowrap font-semibold text-ink">
                         {formatMetricValue(goal)}
                       </td>
-                      <td className="px-3 py-4">
+                      <td>
                         {goal.progressMode === 'none' ? (
                           <div className="space-y-1">
-                            <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+                            <span className="ui-tag bg-surface-2 text-muted">
                               {goal.progressLabel || 'Без прогрес-бару'}
                             </span>
                             {goal.statusLabel ? (
                               <p
                                 className={`text-xs font-medium ${
                                   goal.statusTone === 'danger'
-                                    ? 'text-red-600'
+                                    ? 'text-warn'
                                     : goal.statusTone === 'success'
-                                      ? 'text-emerald-600'
-                                      : 'text-slate-500'
+                                      ? 'text-good'
+                                      : 'text-muted'
                                 }`}
                               >
                                 {goal.statusLabel}
@@ -358,12 +355,12 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                           <ProgressBar value={getProgress(goal)} />
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4">
+                      <td className="whitespace-nowrap">
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
                             onClick={() => openEditGoalModal(goal)}
-                            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            className="ui-button ui-button-ghost min-h-9 px-3 py-2"
                           >
                             <Pencil className="h-4 w-4" />
                             Змінити
@@ -371,7 +368,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                           <button
                             type="button"
                             onClick={() => openUpdateValueModal(goal)}
-                            className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            className="ui-button ui-button-ghost min-h-9 px-3 py-2"
                           >
                             Оновити значення
                           </button>
@@ -396,7 +393,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
               <button
                 type="button"
                 onClick={() => setCreateModalOpen(false)}
-                className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="ui-button ui-button-ghost"
               >
                 Скасувати
               </button>
@@ -404,7 +401,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                 type="submit"
                 form="create-goal"
                 disabled={saving || !isGoalFormReady(form)}
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                className="ui-button ui-button-primary"
               >
                 <Plus className="h-4 w-4" />
                 Створити ціль
@@ -412,7 +409,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
             </>
           }
         >
-          <p className="mb-5 text-sm leading-6 text-slate-500">
+          <p className="mb-5 text-sm leading-6 text-muted">
             Створення KPI-цілі з AMEC класифікацією, напрямком і власником.
           </p>
           <form id="create-goal" onSubmit={handleCreateGoal}>
@@ -436,7 +433,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                 <button
                   type="button"
                   onClick={handleClearGoalDraft}
-                  className="mr-auto h-10 rounded-md border border-amber-200 bg-amber-50 px-4 text-sm font-medium text-amber-700 hover:bg-amber-100"
+                  className="ui-button ui-button-ghost mr-auto bg-warn-soft text-warn"
                 >
                   Скасувати локальні зміни
                 </button>
@@ -444,7 +441,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
               <button
                 type="button"
                 onClick={() => setEditGoal(null)}
-                className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="ui-button ui-button-ghost"
               >
                 Закрити
               </button>
@@ -452,7 +449,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                 type="submit"
                 form="edit-goal"
                 disabled={!isGoalFormReady(editForm)}
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                className="ui-button ui-button-primary"
               >
                 <Save className="h-4 w-4" />
                 Зберегти
@@ -460,7 +457,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
             </>
           }
         >
-          <p className="mb-5 rounded-md bg-blue-50 px-4 py-3 text-sm leading-6 text-slate-700 ring-1 ring-inset ring-blue-100">
+          <p className="mb-5 rounded-card bg-accent-soft px-4 py-3 text-sm leading-6 text-ink ring-1 ring-inset ring-line">
             Зміни збережуться тільки на сторінці Goals & Metrics і не оновлять
             Dashboard.
           </p>
@@ -485,7 +482,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
               <button
                 type="button"
                 onClick={() => setModalGoal(null)}
-                className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="ui-button ui-button-ghost"
               >
                 Скасувати
               </button>
@@ -493,7 +490,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
                 type="submit"
                 form="update-goal-value"
                 disabled={saving}
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                className="ui-button ui-button-primary"
               >
                 <Save className="h-4 w-4" />
                 Зберегти
@@ -501,7 +498,7 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
             </>
           }
         >
-          <div className="mb-5 rounded-md bg-blue-50 px-4 py-3 text-sm leading-6 text-slate-700 ring-1 ring-inset ring-blue-100">
+          <div className="mb-5 rounded-card bg-accent-soft px-4 py-3 text-sm leading-6 text-ink ring-1 ring-inset ring-line">
             Зафіксуйте фактичне значення, якого ціль досягла у вибраному
             місяці. Це не приріст до попереднього періоду: якщо було 34%, а
             стало 37%, внесіть 37, не +3.

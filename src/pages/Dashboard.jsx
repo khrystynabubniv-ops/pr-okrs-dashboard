@@ -444,13 +444,13 @@ export function DashboardPage({ selectedMonth }) {
               {hasSeriesData(mediaSeries) ? (
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={mediaSeries}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#efeeea" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
                     <XAxis dataKey="month" tickLine={false} axisLine={false} />
                     <YAxis tickLine={false} axisLine={false} width={44} />
                     <Tooltip content={<MonthlyTooltip metricLabel="Згадки" />} />
                     <Bar
                       dataKey="value"
-                      fill="#0bab7c"
+                      fill="var(--accent)"
                       radius={[4, 4, 0, 0]}
                       name="Згадки"
                     />
@@ -489,7 +489,7 @@ export function DashboardPage({ selectedMonth }) {
                     data={instagramSeries}
                     margin={{ top: 24, right: 20, left: 4 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#efeeea" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
                     <XAxis dataKey="month" tickLine={false} axisLine={false} />
                     <YAxis
                       tickLine={false}
@@ -504,7 +504,7 @@ export function DashboardPage({ selectedMonth }) {
                     <Line
                       type="monotone"
                       dataKey="value"
-                      stroke="#0bab7c"
+                      stroke="var(--accent)"
                       strokeWidth={3}
                       dot={{ r: 3 }}
                       connectNulls
@@ -529,13 +529,13 @@ export function DashboardPage({ selectedMonth }) {
               {hasSeriesData(trafficSeries) ? (
                 <ResponsiveContainer width="100%" height={260}>
                   <BarChart data={trafficSeries}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#efeeea" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
                     <XAxis dataKey="month" tickLine={false} axisLine={false} />
                     <YAxis tickLine={false} axisLine={false} width={56} />
                     <Tooltip content={<MonthlyTooltip metricLabel="Сесії" />} />
                     <Bar
                       dataKey="value"
-                      fill="#d08911"
+                      fill="var(--warn)"
                       radius={[4, 4, 0, 0]}
                       name="Сесії"
                     />
@@ -587,7 +587,7 @@ export function DashboardPage({ selectedMonth }) {
                   <button
                     type="button"
                     onClick={openCompetitorModal}
-                    className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink2 hover:bg-line2"
+                    className="ui-button ui-button-ghost min-h-9 px-3 py-2"
                   >
                     <Plus className="h-4 w-4" />
                     Конкурент
@@ -596,22 +596,22 @@ export function DashboardPage({ selectedMonth }) {
                 </div>
               </div>
               {coverageLoading ? (
-                <div className="mt-4 flex min-h-48 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm font-medium text-slate-500">
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin text-indigo-500" />
+                <div className="mt-4 flex min-h-48 items-center justify-center rounded-card border border-line bg-surface-2 text-sm font-medium text-muted">
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin text-accent" />
                   Завантажуємо Looqme coverage...
                 </div>
               ) : coverageUnavailable ? (
-                <div className="mt-4 flex min-h-48 flex-col items-center justify-center rounded-md border border-amber-200 bg-amber-50 px-4 text-center">
-                  <p className="text-sm font-semibold text-amber-900">
+                <div className="mt-4 flex min-h-48 flex-col items-center justify-center rounded-card border border-line bg-warn-soft px-4 text-center">
+                  <p className="text-sm font-semibold text-ink">
                     Looqme не встиг повернути дані.
                   </p>
-                  <p className="mt-1 max-w-md text-sm text-amber-800">
+                  <p className="mt-1 max-w-md text-sm text-muted">
                     Це не означає, що згадок немає. Запит можна повторити, а успішний результат закешується.
                   </p>
                   <button
                     type="button"
                     onClick={() => coverageQuery.retry()}
-                    className="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                    className="ui-button ui-button-ghost mt-4 min-h-9 px-3 py-2"
                   >
                     <RefreshCw className="h-4 w-4" />
                     Повторити
@@ -679,7 +679,7 @@ export function DashboardPage({ selectedMonth }) {
                           <button
                             type="button"
                             onClick={() => removeCompetitor(item.id)}
-                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-white hover:text-rose-600"
+                    className="ui-button-icon shrink-0 hover:text-warn"
                             aria-label="Видалити конкурента"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -763,7 +763,7 @@ export function DashboardPage({ selectedMonth }) {
                 type="button"
                 onClick={generateReport}
                 disabled={reportLoading}
-                className="mt-5 inline-flex h-10 items-center justify-center gap-2 rounded-md bg-accent px-4 text-sm font-semibold text-white hover:bg-accent2 disabled:opacity-60"
+                className="ui-button ui-button-primary mt-5"
               >
                 <FileText className="h-4 w-4" />
                 {reportLoading ? 'Генерація...' : 'Згенерувати Board Report'}
@@ -788,7 +788,7 @@ export function DashboardPage({ selectedMonth }) {
                     type="button"
                     onClick={copyReport}
                     disabled={!activeReport}
-                    className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink2 hover:bg-line2 disabled:opacity-50"
+                    className="ui-button ui-button-ghost min-h-9 px-3 py-2"
                   >
                     <ClipboardCopy className="h-4 w-4" />
                     Копіювати
@@ -797,7 +797,7 @@ export function DashboardPage({ selectedMonth }) {
                     type="button"
                     onClick={saveReportToNotion}
                     disabled={!activeReport}
-                    className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-white hover:bg-accent2 disabled:opacity-50"
+                    className="ui-button ui-button-primary min-h-9 px-3 py-2"
                   >
                     <Save className="h-4 w-4" />
                     Зберегти
@@ -810,7 +810,7 @@ export function DashboardPage({ selectedMonth }) {
                     {activeReport}
                   </pre>
                 ) : (
-                  <div className="grid min-h-48 place-items-center rounded-md border border-dashed border-line bg-[#fbfcfb] px-4 text-center text-sm text-ink3">
+                  <div className="grid min-h-48 place-items-center rounded-card border border-dashed border-line bg-surface-2 px-4 text-center text-sm text-muted">
                     {reportLoading ? (
                       <span className="inline-flex items-center gap-2 font-semibold text-ink2">
                         <RefreshCw className="h-4 w-4 animate-spin text-accent" />
@@ -834,7 +834,7 @@ export function DashboardPage({ selectedMonth }) {
                   <button
                     type="button"
                     onClick={() => setCompetitorModalOpen(false)}
-                    className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    className="ui-button ui-button-ghost"
                   >
                     Скасувати
                   </button>
@@ -842,7 +842,7 @@ export function DashboardPage({ selectedMonth }) {
                     type="submit"
                     form="competitor-form"
                     disabled={competitorSaving || !competitorForm.brand.trim()}
-                    className="inline-flex h-10 items-center gap-2 rounded-md bg-[#4361ee] px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                    className="ui-button ui-button-primary"
                   >
                     <Save className="h-4 w-4" />
                     Зберегти
@@ -997,25 +997,25 @@ function LooqmeMetricPanel({ title, metric, formatValue, href }) {
   const segmentTotal =
     segments.reduce((sum, item) => sum + Number(item.value || 0), 0) ||
     Number(metric?.value || 0)
-  const className = `block rounded-md border border-slate-200 bg-white px-4 py-4 shadow-sm ${
+  const className = `block rounded-card border border-line bg-surface px-4 py-4 shadow-soft ${
     href
-      ? 'transition hover:border-indigo-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200'
+      ? 'transition hover:border-accent hover:shadow-soft focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-accent-soft'
       : ''
   }`
 
   const panel = (
     <>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="text-sm font-semibold text-slate-950">{title}</p>
+        <p className="text-sm font-semibold text-ink">{title}</p>
         <span className="flex items-center gap-2">
           <DeltaPill value={metric?.delta} />
-          {href ? <ExternalLink className="h-4 w-4 text-slate-400" /> : null}
+          {href ? <ExternalLink className="h-4 w-4 text-muted" /> : null}
         </span>
       </div>
-      <p className="mt-4 text-4xl font-semibold leading-none text-slate-950">
+      <p className="mono mt-4 text-2xl font-bold leading-none text-ink">
         {formatValue(metric?.value || 0)}
       </p>
-      <div className="mt-5 flex h-3 overflow-hidden rounded-full bg-slate-100">
+      <div className="mt-5 flex h-3 overflow-hidden rounded-tag bg-line">
         {segments.length ? (
           segments.map((segment) => (
             <div
@@ -1028,27 +1028,27 @@ function LooqmeMetricPanel({ title, metric, formatValue, href }) {
                       (Number(segment.value || 0) / segmentTotal) * 100,
                     )}%`
                   : '0%',
-                backgroundColor: segment.color || '#6678ff',
+                backgroundColor: segment.color || 'var(--accent)',
               }}
             />
           ))
         ) : (
-          <div className="h-full w-full bg-slate-200" />
+          <div className="h-full w-full bg-line" />
         )}
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {segments.length ? (
           segments.map((segment) => (
             <div key={segment.label} className="min-w-0">
-              <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+              <div className="flex items-center gap-2 text-xs font-medium text-muted">
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: segment.color || '#6678ff' }}
+                  style={{ backgroundColor: segment.color || 'var(--accent)' }}
                 />
                 <span className="truncate">{segment.label}</span>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold text-slate-950">
+                <span className="mono text-sm font-semibold text-ink">
                   {formatValue(segment.value)}
                 </span>
                 <DeltaPill value={segment.delta} compact />
@@ -1056,7 +1056,7 @@ function LooqmeMetricPanel({ title, metric, formatValue, href }) {
             </div>
           ))
         ) : (
-          <p className="text-xs text-slate-500">даних немає</p>
+          <p className="text-xs text-muted">даних немає</p>
         )}
       </div>
     </>
@@ -1078,12 +1078,12 @@ function LooqmeMetricPanel({ title, metric, formatValue, href }) {
 function BrandCoverageRow({ label, value, reach, detail }) {
   return (
     <div className="min-w-0">
-      <p className="text-sm font-medium text-slate-950">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-slate-950">{value}</p>
-      <p className="text-xs font-medium text-slate-600">
+      <p className="text-sm font-medium text-ink">{label}</p>
+      <p className="mono mt-1 text-lg font-semibold text-ink">{value}</p>
+      <p className="text-xs font-medium text-muted">
         Охоплення: {formatReachValue(reach)}
       </p>
-      <p className="mt-1 text-xs text-slate-500">{detail || 'даних немає'}</p>
+      <p className="mt-1 text-xs text-muted">{detail || 'даних немає'}</p>
     </div>
   )
 }
@@ -1101,8 +1101,8 @@ function DeltaPill({ value, compact = false }) {
         compact ? 'text-xs' : 'text-sm'
       } ${
         isPositive
-          ? 'bg-emerald-50 text-emerald-700'
-          : 'bg-pink-50 text-pink-600'
+          ? 'bg-good-soft text-good'
+          : 'bg-warn-soft text-warn'
       }`}
     >
       <Icon className="h-3.5 w-3.5" />
@@ -1116,17 +1116,17 @@ function EventMonthRow({ event }) {
   const leads = eventLeadLabel(event)
 
   return (
-    <div className="flex flex-col gap-2 border-b border-slate-100 pb-3 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-2 border-b border-line pb-3 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="font-medium text-slate-950">{event.title}</p>
+          <p className="font-medium text-ink">{event.title}</p>
           <span
             className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${status.className}`}
           >
             {status.label}
           </span>
         </div>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-muted">
           {formatEventDate(event)} · {event.type || 'Івент'} ·{' '}
           {event.role === 'Owner' ? 'організуємо ми' : 'беремо участь'}
         </p>
@@ -1145,36 +1145,36 @@ function EventsMetricCard({
   tooltip,
 }) {
   return (
-    <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-4">
+    <div className="rounded-card border border-line bg-accent-soft p-3.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
           Івенти місяця
         </p>
         <InfoTooltip text={tooltip} />
       </div>
       <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <p className="text-3xl font-semibold leading-none text-slate-950">{total}</p>
-        <span className="text-3xl font-semibold leading-none text-blue-300">/</span>
-        <p className="text-3xl font-semibold leading-none text-emerald-700">
+        <p className="mono text-2xl font-bold leading-none text-ink">{total}</p>
+        <span className="mono text-2xl font-bold leading-none text-accent">/</span>
+        <p className="mono text-2xl font-bold leading-none text-good">
           {completed}
         </p>
-        <span className="text-sm font-semibold leading-5 text-slate-600">
+        <span className="text-sm font-semibold leading-5 text-muted">
           виконано
         </span>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-        <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-blue-100">
-          <p className="font-medium text-slate-500">Own</p>
-          <p className="mt-0.5 text-sm font-semibold text-slate-950">{owner}</p>
+        <div className="rounded-input bg-surface/70 px-2 py-2 ring-1 ring-inset ring-line">
+          <p className="font-medium text-muted">Own</p>
+          <p className="mono mt-0.5 text-sm font-semibold text-ink">{owner}</p>
         </div>
-        <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-blue-100">
-          <p className="font-medium text-slate-500">Participate</p>
-          <p className="mt-0.5 text-sm font-semibold text-slate-950">
+        <div className="rounded-input bg-surface/70 px-2 py-2 ring-1 ring-inset ring-line">
+          <p className="font-medium text-muted">Participate</p>
+          <p className="mono mt-0.5 text-sm font-semibold text-ink">
             {participating}
           </p>
         </div>
       </div>
-      <p className="mt-2 text-xs leading-4 text-slate-500">{leadSummary}</p>
+      <p className="mt-2 text-xs leading-4 text-muted">{leadSummary}</p>
     </div>
   )
 }
@@ -1186,18 +1186,18 @@ function EventAwarenessMetricCard({ awareness, tooltip }) {
   const overall = awareness?.overall
 
   return (
-    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-4">
+    <div className="rounded-card border border-line bg-good-soft p-3.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
           Awareness після івентів
         </p>
         <InfoTooltip text={tooltip} />
       </div>
       <div className="mt-3 flex items-baseline gap-2">
-        <p className="text-3xl font-semibold leading-none text-slate-950">
+        <p className="mono text-2xl font-bold leading-none text-ink">
           {formatPercent(overall?.awareness)}
         </p>
-        <span className="text-sm font-semibold leading-5 text-slate-600">
+        <span className="text-sm font-semibold leading-5 text-muted">
           загалом
         </span>
       </div>
@@ -1205,7 +1205,7 @@ function EventAwarenessMetricCard({ awareness, tooltip }) {
         <AwarenessAudiencePill audience={students} />
         <AwarenessAudiencePill audience={middle} />
       </div>
-      <p className="mt-2 text-xs leading-4 text-slate-500">
+      <p className="mt-2 text-xs leading-4 text-muted">
         {overall?.total
           ? `${formatChartNumber(overall.known)} з ${formatChartNumber(
               overall.total,
@@ -1228,30 +1228,30 @@ function CandidateAwarenessKpiCard({ kpi, tooltip }) {
     : 'KPI-рядок ще не знайдено'
 
   return (
-    <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-4">
+    <div className="rounded-card border border-line bg-accent-soft p-3.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
           Awareness кандидатів
         </p>
         <InfoTooltip text={tooltip} />
       </div>
       <div className="mt-3 flex items-baseline gap-2">
-        <p className="text-3xl font-semibold leading-none text-slate-950">
+        <p className="mono text-2xl font-bold leading-none text-ink">
           {formatPercentNumber(kpi?.awareness)}
         </p>
-        <span className="text-sm font-semibold leading-5 text-slate-600">
+        <span className="text-sm font-semibold leading-5 text-muted">
           знають
         </span>
       </div>
       <div className="mt-4 grid gap-2 text-xs">
-        <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-cyan-100">
-          <p className="font-medium text-slate-500">Річна ціль</p>
-          <p className="mt-0.5 text-sm font-semibold text-slate-950">
+        <div className="rounded-input bg-surface/70 px-2 py-2 ring-1 ring-inset ring-line">
+          <p className="font-medium text-muted">Річна ціль</p>
+          <p className="mono mt-0.5 text-sm font-semibold text-ink">
             {formatPercentNumber(kpi?.target)}
           </p>
         </div>
       </div>
-      <p className="mt-2 text-xs leading-4 text-slate-500">
+      <p className="mt-2 text-xs leading-4 text-muted">
         {detail || 'Додайте значення в KPI-спредшиті'}
       </p>
     </div>
@@ -1274,25 +1274,25 @@ function MailchimpMetricCard({ performance, loading, unavailable, onRetry, toolt
           : 'Кампаній за місяць немає'
 
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-4">
+    <div className="rounded-card border border-line bg-warn-soft p-3.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
           Email open rate
         </p>
         <InfoTooltip text={tooltip} />
       </div>
       <div className="mt-3 flex items-baseline gap-2">
-        <Mail className="h-6 w-6 text-amber-600" />
-        <p className="text-3xl font-semibold leading-none text-slate-950">
+        <Mail className="h-6 w-6 text-warn" />
+        <p className="mono text-2xl font-bold leading-none text-ink">
           {loading ? '...' : hasData ? formatRateValue(openRate) : '—'}
         </p>
       </div>
-      <p className="mt-3 text-sm leading-5 text-slate-600">{detail}</p>
+      <p className="mt-3 text-sm leading-5 text-muted">{detail}</p>
       {unavailable ? (
         <button
           type="button"
           onClick={onRetry}
-          className="mt-3 inline-flex h-8 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+          className="ui-button ui-button-ghost mt-3 min-h-8 px-3 py-2 text-xs"
         >
           <RefreshCw className="h-3.5 w-3.5" />
           Повторити
@@ -1311,8 +1311,8 @@ function MailchimpPerformancePanel({
 }) {
   if (loading) {
     return (
-      <div className="flex min-h-72 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm font-medium text-slate-500">
-        <RefreshCw className="mr-2 h-4 w-4 animate-spin text-amber-500" />
+      <div className="flex min-h-72 items-center justify-center rounded-card border border-line bg-surface-2 text-sm font-medium text-muted">
+        <RefreshCw className="mr-2 h-4 w-4 animate-spin text-warn" />
         Завантажуємо Mailchimp...
       </div>
     )
@@ -1320,17 +1320,17 @@ function MailchimpPerformancePanel({
 
   if (unavailable) {
     return (
-      <div className="flex min-h-72 flex-col items-center justify-center rounded-md border border-amber-200 bg-amber-50 px-4 text-center">
-        <p className="text-sm font-semibold text-amber-900">
+      <div className="flex min-h-72 flex-col items-center justify-center rounded-card border border-line bg-warn-soft px-4 text-center">
+        <p className="text-sm font-semibold text-ink">
           Mailchimp ще не підключений.
         </p>
-        <p className="mt-1 max-w-md text-sm text-amber-800">
+        <p className="mt-1 max-w-md text-sm text-muted">
           Додайте API key і server prefix у змінні середовища, щоб бачити email-метрики.
         </p>
         <button
           type="button"
           onClick={onRetry}
-          className="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+          className="ui-button ui-button-ghost mt-4 min-h-9 px-3 py-2"
         >
           <RefreshCw className="h-4 w-4" />
           Повторити
@@ -1412,7 +1412,7 @@ function MailchimpPerformancePanel({
           href ? (
             <a
               href={href}
-              className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-700 hover:text-indigo-900"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-accent hover:text-accent-d"
             >
               Відкрити
               <ExternalLink className="h-4 w-4" />
@@ -1432,9 +1432,9 @@ function MailchimpPerformancePanel({
 
 function MailchimpLevel({ title, action, children }) {
   return (
-    <section className="border-t border-slate-100 pt-4 first:border-t-0 first:pt-0">
+    <section className="border-t border-line pt-4 first:border-t-0 first:pt-0">
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+        <h3 className="text-sm font-semibold text-ink">{title}</h3>
         {action}
       </div>
       {children}
@@ -1463,21 +1463,21 @@ function MailchimpExecutiveMetricCard({
   children,
 }) {
   const tones = {
-    neutral: 'border-slate-200 bg-slate-50',
-    good: 'border-emerald-200 bg-emerald-50',
-    warning: 'border-amber-200 bg-amber-50',
-    critical: 'border-rose-300 bg-rose-50',
+    neutral: 'border-line bg-surface-2',
+    good: 'border-line bg-good-soft',
+    warning: 'border-line bg-warn-soft',
+    critical: 'border-line bg-warn-soft',
   }
 
   return (
-    <div className={`rounded-md border px-3 py-3 ${tones[tone] || tones.neutral}`}>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+    <div className={`rounded-card border p-3.5 ${tones[tone] || tones.neutral}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
         {label}
       </p>
-      <p className="mt-2 text-2xl font-semibold leading-none text-slate-950">
+      <p className="mono mt-2 text-2xl font-bold leading-none text-ink">
         {value}
       </p>
-      {detail ? <p className="mt-2 text-xs leading-5 text-slate-500">{detail}</p> : null}
+      {detail ? <p className="mt-2 text-xs leading-5 text-muted">{detail}</p> : null}
       {children}
     </div>
   )
@@ -1486,7 +1486,7 @@ function MailchimpExecutiveMetricCard({
 function MailchimpDeltaBadge({ value }) {
   if (value === null || value === undefined) {
     return (
-      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">
+      <span className="ui-tag bg-surface-2 text-muted">
         MoM —
       </span>
     )
@@ -1496,14 +1496,14 @@ function MailchimpDeltaBadge({ value }) {
   const isFlat = value === 0
   const Icon = isPositive || isFlat ? ArrowUp : ArrowDown
   const className = isFlat
-    ? 'bg-slate-100 text-slate-600'
+    ? 'bg-surface-2 text-muted'
     : isPositive
-      ? 'bg-emerald-100 text-emerald-700'
-      : 'bg-rose-100 text-rose-700'
+      ? 'bg-good-soft text-good'
+      : 'bg-warn-soft text-warn'
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}
+      className={`ui-tag gap-1 ${className}`}
     >
       <Icon className="h-3.5 w-3.5" />
       {formatDeltaPp(value)}
@@ -1514,24 +1514,24 @@ function MailchimpDeltaBadge({ value }) {
 function MailchimpCampaignRow({ campaign }) {
   return (
     <div
-      className={`flex flex-col gap-3 rounded-md border bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between ${
+      className={`flex flex-col gap-3 rounded-card border bg-surface px-3 py-3 sm:flex-row sm:items-center sm:justify-between ${
         campaign.isBest
-          ? 'border-indigo-200 border-l-4 border-l-[#4361ee] bg-blue-50/40'
-          : 'border-slate-200 border-l-4 border-l-transparent'
+          ? 'border-line border-l-4 border-l-accent bg-accent-soft/40'
+          : 'border-line border-l-4 border-l-transparent'
       }`}
     >
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="truncate text-sm font-medium text-slate-950">
+          <p className="truncate text-sm font-medium text-ink">
             {campaign.title || campaign.subject || 'Campaign'}
           </p>
           {campaign.isBest ? (
-            <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">
+            <span className="ui-tag ring-1 ring-inset ring-line">
               Найкраща за місяць
             </span>
           ) : null}
         </div>
-        <p className="mt-1 truncate text-xs text-slate-500">
+        <p className="mt-1 truncate text-xs text-muted">
           {[formatCampaignDate(campaign.sendTime), campaign.subject, campaign.listName]
             .filter(Boolean)
             .join(' · ')}
@@ -1553,7 +1553,7 @@ function MailchimpCampaignRateBadge({ label, value, weak = false }) {
   return (
     <span
       className={`rounded-full px-2.5 py-1 font-semibold ${
-        weak ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700'
+        weak ? 'bg-warn-soft text-warn' : 'bg-accent-soft text-accent-d'
       }`}
     >
       {label} {formatRateValue(value)}
@@ -1563,13 +1563,13 @@ function MailchimpCampaignRateBadge({ label, value, weak = false }) {
 
 function AwarenessAudiencePill({ audience }) {
   return (
-    <div className="rounded-md bg-white/70 px-2 py-2 ring-1 ring-inset ring-emerald-100">
-      <p className="font-medium text-slate-500">{audience?.label || '—'}</p>
-      <p className="mt-0.5 text-sm font-semibold text-slate-950">
+    <div className="rounded-input bg-surface/70 px-2 py-2 ring-1 ring-inset ring-line">
+      <p className="font-medium text-muted">{audience?.label || '—'}</p>
+      <p className="mono mt-0.5 text-sm font-semibold text-ink">
         {formatPercent(audience?.awareness)}
       </p>
       {audience?.total ? (
-        <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
+        <p className="mt-0.5 text-[11px] leading-4 text-muted">
           {formatChartNumber(audience.known)} / {formatChartNumber(audience.total)}
         </p>
       ) : null}
@@ -1585,7 +1585,7 @@ function DeltaLabel({ x, y, value }) {
       x={x}
       y={y - 12}
       textAnchor="middle"
-      fill={String(value).startsWith('-') ? '#be123c' : '#047857'}
+      fill={String(value).startsWith('-') ? 'var(--warn)' : 'var(--good)'}
       fontSize={12}
       fontWeight={600}
     >
@@ -1600,13 +1600,13 @@ function MonthlyTooltip({ active, payload, metricLabel, label }) {
   const point = payload[0]?.payload || {}
 
   return (
-    <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm">
-      <p className="font-medium text-slate-950">{label}</p>
-      <p className="mt-1 text-slate-600">
+    <div className="rounded-card border border-line bg-surface px-3 py-2 text-sm shadow-soft">
+      <p className="font-medium text-ink">{label}</p>
+      <p className="mt-1 text-muted">
         {metricLabel || payload[0].name}: {formatChartNumber(payload[0].value)}
       </p>
       {point.deltaLabel ? (
-        <p className={point.delta >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+        <p className={point.delta >= 0 ? 'text-good' : 'text-warn'}>
           Зміна: {point.deltaLabel}
         </p>
       ) : null}

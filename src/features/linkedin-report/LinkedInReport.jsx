@@ -5,20 +5,20 @@ import { apiRequest } from "../../lib/api";
 import "./LinkedInReport.css";
 
 const TOKENS = {
-  paper: "#eef4f1",
-  paperCard: "#ffffff",
-  ink: "#191b1a",
-  inkSoft: "#565b57",
-  indigo: "#0bab7c",
-  indigoSoft: "#088a66",
-  gold: "#cf8a1c",
-  goldBg: "#fdefd6",
-  sage: "#0f9d6b",
-  sageBg: "#d6f4e7",
-  clay: "#e0533d",
-  clayBg: "#fce7e2",
-  line: "#e7e6e1",
-  lineSoft: "#efeeea",
+  paper: "var(--bg)",
+  paperCard: "var(--surface)",
+  ink: "var(--ink)",
+  inkSoft: "var(--muted)",
+  indigo: "var(--accent)",
+  indigoSoft: "var(--accent-d)",
+  gold: "var(--warn)",
+  goldBg: "var(--warn-soft)",
+  sage: "var(--good)",
+  sageBg: "var(--good-soft)",
+  clay: "var(--warn)",
+  clayBg: "var(--warn-soft)",
+  line: "var(--line)",
+  lineSoft: "var(--line)",
 };
 
 const DEFAULT_PERSON_ID = "yaroslav-morozov";
@@ -447,6 +447,20 @@ export default function LinkedInReport() {
   const maxTotal = current?.postsList?.length ? Math.max(...current.postsList.map((p) => p.total)) : null;
   const minTotal = current?.postsList?.length > 1 ? Math.min(...current.postsList.map((p) => p.total)) : null;
 
+  useEffect(() => {
+    if (!showEntryModal) return undefined;
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setAddingPerson(false);
+        setShowEntryModal(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showEntryModal]);
+
   if (!loaded) {
     return <div className="linkedin-report-loading">Завантаження звіту…</div>;
   }
@@ -663,12 +677,13 @@ export default function LinkedInReport() {
       </div>
 
       {showEntryModal && (
-        <div className="li-modal-overlay" role="presentation">
+        <div className="li-modal-overlay" role="presentation" onMouseDown={closeEntryModal}>
           <div
             aria-labelledby="li-entry-modal-title"
             aria-modal="true"
             className="li-modal"
             role="dialog"
+            onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="li-modal-h">
               <div>
@@ -893,7 +908,7 @@ export default function LinkedInReport() {
                   <YAxis hide domain={["dataMin - 200", "dataMax + 200"]} />
                   <Tooltip formatter={(v) => fmt(v)} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 4, border: `1px solid ${TOKENS.line}` }} />
                   <Area type="monotone" dataKey="followers" stroke={TOKENS.indigo} strokeWidth={2} fill="url(#ymrGrad)" dot={false} />
-                  <ReferenceDot x={current.label.split(" ")[0].slice(0, 3)} y={current.followers} r={4} fill={TOKENS.gold} stroke="white" />
+                  <ReferenceDot x={current.label.split(" ")[0].slice(0, 3)} y={current.followers} r={4} fill={TOKENS.gold} stroke={TOKENS.paperCard} />
                 </AreaChart>
                   </ResponsiveContainer>
                 </div>

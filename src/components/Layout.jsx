@@ -90,21 +90,21 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
   }
 
   return (
-    <div className="min-h-screen bg-canvas text-ink">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-line bg-white md:flex md:flex-col">
+    <div className="min-h-screen bg-bg text-ink">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-line bg-surface md:flex md:flex-col">
         <div className="flex h-16 items-center gap-3 border-b border-line px-5">
-          <div className="grid h-9 w-9 place-items-center rounded-lg bg-accent text-white">
+          <div className="grid h-9 w-9 place-items-center rounded-button bg-accent text-white">
             <BarChart3 className="h-5 w-5" />
           </div>
           <div>
             <p className="text-sm font-semibold text-ink">Comms Tool</p>
-            <p className="text-xs text-ink3">Communications</p>
+            <p className="text-xs text-muted">Communications</p>
           </div>
         </div>
         <nav className="flex flex-1 flex-col gap-5 px-3 py-5">
           {navSections.map((section) => (
             <div key={section.label}>
-              <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink3">
+              <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
                 {section.label}
               </p>
               <div className="mt-2 flex flex-col gap-1">
@@ -115,10 +115,10 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
                       key={item.to}
                       to={item.to}
                       className={({ isActive }) =>
-                        `flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold transition ${
+                        `flex items-center gap-3 rounded-button px-3 py-2.5 text-sm font-semibold transition ${
                           isActive
-                            ? 'bg-soft text-accent2'
-                            : 'text-ink2 hover:bg-line2 hover:text-ink'
+                            ? 'bg-accent-soft text-accent-d'
+                            : 'text-muted hover:bg-hover-soft hover:text-ink'
                         }`
                       }
                     >
@@ -134,14 +134,14 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
       </aside>
 
       <div className="md:pl-64">
-        <header className="sticky top-0 z-20 border-b border-line bg-white/95 backdrop-blur">
+        <header className="sticky top-0 z-20 border-b border-line bg-surface/95 backdrop-blur">
           <div className="flex min-h-16 flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-8">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
                   {eyebrow}
                 </p>
-                <h1 className="text-xl font-semibold text-ink">{title}</h1>
+                <h1 className="font-display text-[19px] font-bold text-ink">{title}</h1>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -150,7 +150,7 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
                   <button
                     type="button"
                     onClick={handleLogout}
-                    className="inline-flex h-10 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink2 hover:bg-line2"
+                    className="ui-button ui-button-ghost min-h-10 px-3 py-2"
                   >
                     <LogOut className="h-4 w-4" />
                     {authInfo.user.name || authInfo.user.email || 'Вийти'}
@@ -158,7 +158,7 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
                 ) : (
                   <a
                     href="/api/auth/google/start"
-                    className="inline-flex h-10 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink2 hover:bg-line2"
+                    className="ui-button ui-button-ghost min-h-10 px-3 py-2"
                   >
                     <LogIn className="h-4 w-4" />
                     Увійти
@@ -167,14 +167,14 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
               ) : null}
               {showMonthSelector ? (
                 <>
-                  <label className="text-sm font-semibold text-ink2" htmlFor="month">
+                  <label className="text-sm font-semibold text-muted" htmlFor="month">
                     Місяць
                   </label>
                   <select
                     id="month"
                     value={selectedMonth}
                     onChange={(event) => onMonthChange(event.target.value)}
-                    className="h-10 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-soft"
+                    className="h-10 rounded-input border border-line bg-surface px-3 text-sm font-semibold text-ink outline-none transition focus:border-accent focus:ring-[3px] focus:ring-accent-soft"
                   >
                     {MONTHS.map((month) => (
                       <option key={month} value={month}>
@@ -186,7 +186,7 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
               ) : null}
             </div>
           </div>
-          <nav className="flex gap-1 overflow-x-auto border-t border-line2 px-3 py-2 md:hidden">
+          <nav className="flex gap-1 overflow-x-auto border-t border-line px-3 py-2 md:hidden">
             {navItems.map((item) => {
               const Icon = item.icon
               return (
@@ -194,10 +194,10 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
                   key={item.to}
                   to={item.to}
                   className={({ isActive }) =>
-                    `inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold ${
+                    `inline-flex shrink-0 items-center gap-2 rounded-button px-3 py-2 text-sm font-semibold ${
                       isActive
-                        ? 'bg-soft text-accent2'
-                        : 'text-ink2 hover:bg-line2'
+                        ? 'bg-accent-soft text-accent-d'
+                        : 'text-muted hover:bg-hover-soft'
                     }`
                   }
                 >
@@ -208,7 +208,7 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
             })}
           </nav>
         </header>
-        <main className="mx-auto w-full max-w-7xl px-4 py-6 md:px-8">
+        <main className="mx-auto w-full max-w-page px-4 py-6 md:px-8">
           {children}
         </main>
       </div>

@@ -58,8 +58,8 @@ export function TrendChart({ trend }) {
           >
             <defs>
               <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="#0bab7c" stopOpacity={0.22} />
-                <stop offset="100%" stopColor="#0bab7c" stopOpacity={0.02} />
+                <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.22} />
+                <stop offset="100%" stopColor="var(--accent)" stopOpacity={0.02} />
               </linearGradient>
             </defs>
             <XAxis dataKey="week" hide />
@@ -68,11 +68,11 @@ export function TrendChart({ trend }) {
             <Area
               type="monotone"
               dataKey="value"
-              stroke="#0bab7c"
+              stroke="var(--accent)"
               strokeWidth={2.5}
               fill={`url(#${gradientId})`}
               dot={false}
-              activeDot={{ r: 4, strokeWidth: 0, fill: '#088a66' }}
+              activeDot={{ r: 4, strokeWidth: 0, fill: 'var(--accent-d)' }}
             />
           </AreaChart>
         ) : (

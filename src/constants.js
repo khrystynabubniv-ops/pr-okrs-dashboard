@@ -24,24 +24,24 @@ export const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
 export const DIRECTION_STYLES = {
   'Employer Brand': {
-    badge: 'bg-blue-50 text-blue-700 ring-blue-200',
-    dot: 'bg-blue-500',
-    chart: '#4361ee',
+    badge: 'bg-accent-soft text-accent-d ring-line',
+    dot: 'bg-accent',
+    chart: 'var(--accent)',
   },
   SMM: {
-    badge: 'bg-pink-50 text-pink-700 ring-pink-200',
-    dot: 'bg-pink-500',
-    chart: '#ec4899',
+    badge: 'bg-tag-alt-bg text-tag-alt-fg ring-line',
+    dot: 'bg-tag-alt-fg',
+    chart: 'var(--tag-alt-fg)',
   },
   PR: {
-    badge: 'bg-orange-50 text-orange-700 ring-orange-200',
-    dot: 'bg-orange-500',
-    chart: '#f97316',
+    badge: 'bg-warn-soft text-warn ring-line',
+    dot: 'bg-warn',
+    chart: 'var(--warn)',
   },
   'Brand Design': {
-    badge: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-    dot: 'bg-emerald-500',
-    chart: '#10b981',
+    badge: 'bg-good-soft text-good ring-line',
+    dot: 'bg-good',
+    chart: 'var(--good)',
   },
 }
 
