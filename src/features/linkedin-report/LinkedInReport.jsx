@@ -648,7 +648,7 @@ export default function LinkedInReport() {
                 className={tab === t ? "on" : ""}
                 onClick={() => setTab(t)}
               >
-                {t === "linkedin" ? "LinkedIn" : "PR-публікації"}
+                {t === "linkedin" ? "Personal Brands" : "PR-публікації"}
               </button>
             ))}
           </div>

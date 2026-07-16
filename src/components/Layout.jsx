@@ -22,7 +22,7 @@ const navSections = [
     label: 'Channels',
     items: [
       { to: '/smm', label: 'Instagram / SMM', icon: InstagramIcon },
-      { to: '/reports/linkedin', label: 'LinkedIn', icon: BarChart3 },
+      { to: '/reports/linkedin', label: 'Personal Brands', icon: BarChart3 },
     ],
   },
   {
@@ -48,13 +48,13 @@ const pageTitles = {
   '/monthly': 'Monthly Focus',
   '/events': 'Events',
   '/reports/events': 'Звіти по івентах',
-  '/reports/linkedin': 'LinkedIn · особистий бренд',
-  '/linkedin-report': 'LinkedIn · особистий бренд',
+  '/reports/linkedin': 'Personal Brands',
+  '/linkedin-report': 'Personal Brands',
 }
 
 const pageEyebrows = {
-  '/reports/linkedin': 'Channels · LinkedIn',
-  '/linkedin-report': 'Channels · LinkedIn',
+  '/reports/linkedin': 'Channels · Personal Brands',
+  '/linkedin-report': 'Channels · Personal Brands',
 }
 
 export function Layout({ selectedMonth, onMonthChange, children }) {
@@ -64,6 +64,10 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
   const showMonthSelector =
     location.pathname !== '/reports/linkedin' && location.pathname !== '/linkedin-report'
   const [authInfo, setAuthInfo] = useState({ auth: { enabled: false }, user: null })
+
+  useEffect(() => {
+    document.title = title === 'Comms Tool' ? title : `${title} · Comms Tool`
+  }, [title])
 
   useEffect(() => {
     let isMounted = true
