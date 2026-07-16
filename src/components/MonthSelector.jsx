@@ -7,12 +7,12 @@ export function MonthSelector({ value, onChange, label = 'Місяць' }) {
   const nextMonth = MONTHS[currentIndex + 1]
 
   return (
-    <div className="inline-flex items-center rounded-md border border-line bg-white p-1">
+    <div className="inline-flex items-center rounded-button bg-toggle-bg p-[3px]">
       <button
         type="button"
         onClick={() => previousMonth && onChange(previousMonth)}
         disabled={!previousMonth}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink2 transition hover:bg-line2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-35"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted transition hover:bg-surface hover:text-ink disabled:cursor-default disabled:opacity-55"
         aria-label={`Попередній ${label.toLowerCase()}`}
       >
         <ChevronLeft className="h-4 w-4" />
@@ -20,7 +20,7 @@ export function MonthSelector({ value, onChange, label = 'Місяць' }) {
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-8 min-w-36 border-0 bg-transparent px-2 text-center text-sm font-semibold text-ink outline-none"
+        className="h-8 min-w-36 rounded-lg border-0 bg-transparent px-2 text-center text-[13px] font-semibold text-ink outline-none focus:bg-surface focus:ring-[3px] focus:ring-accent-soft"
         aria-label={label}
       >
         {MONTHS.map((month) => (
@@ -33,7 +33,7 @@ export function MonthSelector({ value, onChange, label = 'Місяць' }) {
         type="button"
         onClick={() => nextMonth && onChange(nextMonth)}
         disabled={!nextMonth}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink2 transition hover:bg-line2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-35"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted transition hover:bg-surface hover:text-ink disabled:cursor-default disabled:opacity-55"
         aria-label={`Наступний ${label.toLowerCase()}`}
       >
         <ChevronRight className="h-4 w-4" />
