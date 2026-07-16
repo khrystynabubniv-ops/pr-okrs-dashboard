@@ -20,7 +20,10 @@ const navSections = [
   },
   {
     label: 'Channels',
-    items: [{ to: '/smm', label: 'Instagram / SMM', icon: InstagramIcon }],
+    items: [
+      { to: '/smm', label: 'Instagram / SMM', icon: InstagramIcon },
+      { to: '/reports/linkedin', label: 'LinkedIn', icon: BarChart3 },
+    ],
   },
   {
     label: 'Planning',
@@ -45,11 +48,21 @@ const pageTitles = {
   '/monthly': 'Monthly Focus',
   '/events': 'Events',
   '/reports/events': 'Звіти по івентах',
+  '/reports/linkedin': 'LinkedIn · особистий бренд',
+  '/linkedin-report': 'LinkedIn · особистий бренд',
+}
+
+const pageEyebrows = {
+  '/reports/linkedin': 'Channels · LinkedIn',
+  '/linkedin-report': 'Channels · LinkedIn',
 }
 
 export function Layout({ selectedMonth, onMonthChange, children }) {
   const location = useLocation()
   const title = pageTitles[location.pathname] || 'Comms Tool'
+  const eyebrow = pageEyebrows[location.pathname] || 'Communications'
+  const showMonthSelector =
+    location.pathname !== '/reports/linkedin' && location.pathname !== '/linkedin-report'
   const [authInfo, setAuthInfo] = useState({ auth: { enabled: false }, user: null })
 
   useEffect(() => {
@@ -122,7 +135,7 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink3">
-                  Communications
+                  {eyebrow}
                 </p>
                 <h1 className="text-xl font-semibold text-ink">{title}</h1>
               </div>
@@ -148,21 +161,25 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
                   </a>
                 )
               ) : null}
-              <label className="text-sm font-semibold text-ink2" htmlFor="month">
-                Місяць
-              </label>
-              <select
-                id="month"
-                value={selectedMonth}
-                onChange={(event) => onMonthChange(event.target.value)}
-                className="h-10 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-soft"
-              >
-                {MONTHS.map((month) => (
-                  <option key={month} value={month}>
-                    {month}
-                  </option>
-                ))}
-              </select>
+              {showMonthSelector ? (
+                <>
+                  <label className="text-sm font-semibold text-ink2" htmlFor="month">
+                    Місяць
+                  </label>
+                  <select
+                    id="month"
+                    value={selectedMonth}
+                    onChange={(event) => onMonthChange(event.target.value)}
+                    className="h-10 rounded-md border border-line bg-white px-3 text-sm font-semibold text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-soft"
+                  >
+                    {MONTHS.map((month) => (
+                      <option key={month} value={month}>
+                        {month}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : null}
             </div>
           </div>
           <nav className="flex gap-1 overflow-x-auto border-t border-line2 px-3 py-2 md:hidden">

@@ -19,6 +19,7 @@ import {
   createCompetitorCoverage,
   createStoredEventReport,
   deleteCompetitorCoverage,
+  getStoredLinkedInReportData,
   getDatabaseStatus,
   insertStoredKpiGoal,
   isDatabaseConfigured,
@@ -26,6 +27,7 @@ import {
   listStoredEventReports,
   listStoredKpiGoals,
   listStoredMonthlyFocusEntries,
+  saveStoredLinkedInReportData,
   saveStoredMonthlyFocusEntry,
   updateBoardReportNotionPage,
   updateStoredKpiGoalValue,
@@ -36,6 +38,8 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const EVENT_REPORTS_FILE =
   process.env.EVENT_REPORTS_FILE || path.join(__dirname, 'data', 'event-reports.json')
+const LINKEDIN_REPORT_FILE =
+  process.env.LINKEDIN_REPORT_FILE || path.join(__dirname, 'data', 'linkedin-report.json')
 
 const app = express()
 const port = process.env.PORT || 3001
@@ -4049,6 +4053,78 @@ async function listEventReports() {
   return readLocalEventReports()
 }
 
+async function getLinkedInReportData() {
+  if (isDatabaseConfigured()) {
+    try {
+      return await getStoredLinkedInReportData()
+    } catch (error) {
+      if (!shouldUseLocalLinkedInReportFallback(error)) throw error
+      return readLocalLinkedInReportData()
+    }
+  }
+
+  return readLocalLinkedInReportData()
+}
+
+async function saveLinkedInReportData(data, userId) {
+  const normalized = normalizeLinkedInReportData(data)
+
+  if (isDatabaseConfigured()) {
+    try {
+      return await saveStoredLinkedInReportData(normalized, userId)
+    } catch (error) {
+      if (!shouldUseLocalLinkedInReportFallback(error)) throw error
+    }
+  }
+
+  const payload = {
+    ...normalized,
+    updatedAt: new Date().toISOString(),
+  }
+
+  await writeLocalLinkedInReportData(payload)
+  return payload
+}
+
+async function readLocalLinkedInReportData() {
+  try {
+    const content = await readFile(LINKEDIN_REPORT_FILE, 'utf8')
+    return normalizeLinkedInReportData(JSON.parse(content))
+  } catch (error) {
+    if (error.code === 'ENOENT') return null
+    throw error
+  }
+}
+
+function shouldUseLocalLinkedInReportFallback(error) {
+  if (process.env.NODE_ENV === 'production') return false
+
+  return isDatabaseConnectionError(error)
+}
+
+function isDatabaseConnectionError(error) {
+  const connectionCodes = new Set(['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT'])
+  if (connectionCodes.has(error?.code)) return true
+
+  return Array.isArray(error?.errors)
+    ? error.errors.some((item) => connectionCodes.has(item?.code))
+    : false
+}
+
+async function writeLocalLinkedInReportData(data) {
+  await mkdir(path.dirname(LINKEDIN_REPORT_FILE), { recursive: true })
+  await writeFile(LINKEDIN_REPORT_FILE, JSON.stringify(data, null, 2), 'utf8')
+}
+
+function normalizeLinkedInReportData(data = {}) {
+  return {
+    months: Array.isArray(data.months) ? data.months : [],
+    pr: Array.isArray(data.pr) ? data.pr : [],
+    people: Array.isArray(data.people) ? data.people : [],
+    updatedAt: textValue(data.updatedAt),
+  }
+}
+
 async function createEventReport(report, userId) {
   const normalized = normalizeEventReportPayload(report)
   if (!normalized.name) {
@@ -4756,6 +4832,39 @@ app.post('/api/smm/insights/generate', asyncHandler(async (request, response) =>
 
   smmInsightsCache.set(month, payload)
   response.json(payload)
+}))
+
+app.get('/api/linkedin-report', asyncHandler(async (_request, response) => {
+  const data = await getLinkedInReportData()
+
+  response.json({
+    months: data?.months || null,
+    pr: data?.pr || null,
+    people: data?.people || null,
+    updatedAt: data?.updatedAt || '',
+  })
+}))
+
+app.patch('/api/linkedin-report', requireAuth, asyncHandler(async (request, response) => {
+  const hasMonths = Array.isArray(request.body?.months)
+  const hasPr = Array.isArray(request.body?.pr)
+  const hasPeople = Array.isArray(request.body?.people)
+
+  if (!hasMonths && !hasPr && !hasPeople) {
+    throw createHttpError(400, 'Передайте months, pr або people як масив.')
+  }
+
+  const current = await getLinkedInReportData()
+  const saved = await saveLinkedInReportData(
+    {
+      months: hasMonths ? request.body.months : current?.months || [],
+      pr: hasPr ? request.body.pr : current?.pr || [],
+      people: hasPeople ? request.body.people : current?.people || [],
+    },
+    request.user?.id,
+  )
+
+  response.json(saved)
 }))
 
 app.get('/api/coverage/competitors', asyncHandler(async (request, response) => {

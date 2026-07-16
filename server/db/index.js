@@ -12,6 +12,7 @@ export const BACKUP_TABLES = [
   'competitor_coverage',
   'board_reports',
   'event_reports',
+  'linkedin_report_data',
   'integration_sync_runs',
 ]
 
@@ -630,6 +631,87 @@ export async function updateBoardReportNotionPage(reportId, notionPageId) {
 }
 
 let eventReportsTableReady = false
+
+let linkedinReportTableReady = false
+
+export async function getStoredLinkedInReportData() {
+  if (!isDatabaseConfigured()) return null
+  await ensureLinkedInReportTable()
+
+  const result = await query(`
+    select *
+    from linkedin_report_data
+    where id = 'default'
+    limit 1
+  `)
+
+  return result.rows[0] ? mapLinkedInReportDataRow(result.rows[0]) : null
+}
+
+export async function saveStoredLinkedInReportData(data, userId = null) {
+  await ensureLinkedInReportTable()
+
+  const result = await query(
+    `
+      insert into linkedin_report_data (
+        id,
+        months,
+        pr,
+        people,
+        updated_by
+      )
+      values ('default', $1, $2, $3, $4)
+      on conflict (id)
+      do update set
+        months = excluded.months,
+        pr = excluded.pr,
+        people = excluded.people,
+        updated_by = excluded.updated_by,
+        updated_at = now()
+      returning *
+    `,
+    [
+      JSON.stringify(Array.isArray(data.months) ? data.months : []),
+      JSON.stringify(Array.isArray(data.pr) ? data.pr : []),
+      JSON.stringify(Array.isArray(data.people) ? data.people : []),
+      userId,
+    ],
+  )
+
+  return mapLinkedInReportDataRow(result.rows[0])
+}
+
+async function ensureLinkedInReportTable() {
+  if (linkedinReportTableReady) return
+
+  await query(`
+    create table if not exists linkedin_report_data (
+      id text primary key default 'default',
+      months jsonb not null default '[]'::jsonb,
+      pr jsonb not null default '[]'::jsonb,
+      people jsonb not null default '[]'::jsonb,
+      updated_by uuid references app_users(id) on delete set null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      constraint linkedin_report_data_singleton check (id = 'default')
+    )
+  `)
+  await query(`
+    alter table linkedin_report_data
+    add column if not exists people jsonb not null default '[]'::jsonb
+  `)
+  linkedinReportTableReady = true
+}
+
+function mapLinkedInReportDataRow(row) {
+  return {
+    months: Array.isArray(row.months) ? row.months : [],
+    pr: Array.isArray(row.pr) ? row.pr : [],
+    people: Array.isArray(row.people) ? row.people : [],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
 
 export async function listStoredEventReports() {
   if (!isDatabaseConfigured()) return []

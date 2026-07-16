@@ -9,6 +9,7 @@ import { GoalsPage } from './pages/Goals'
 import { LoginPage } from './pages/Login'
 import { MonthlyFocusPage } from './pages/MonthlyFocus'
 import { SmmPage } from './pages/Smm'
+import LinkedInReport from './features/linkedin-report/LinkedInReport'
 
 export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH)
@@ -45,6 +46,11 @@ export default function App() {
                 element={<EventsPage selectedMonth={selectedMonth} />}
               />
               <Route path="reports/events" element={<EventReportsPage />} />
+              <Route path="reports/linkedin" element={<LinkedInReport />} />
+              <Route
+                path="linkedin-report"
+                element={<Navigate to="/reports/linkedin" replace />}
+              />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </Layout>
