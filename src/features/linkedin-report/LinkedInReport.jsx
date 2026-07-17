@@ -631,6 +631,9 @@ export default function LinkedInReport() {
   }
 
   const chartData = withGrowth.map((m) => ({ id: m.id, label: m.label.split(" ")[0].slice(0, 3), followers: m.followers }));
+  const viewsChartData = withGrowth
+    .filter((m) => m.views !== null && m.views !== undefined)
+    .map((m) => ({ id: m.id, label: m.label.split(" ")[0].slice(0, 3), views: m.views }));
   const monthRailMonths = orderMonthsForRail(withGrowth);
 
   return (
@@ -877,64 +880,105 @@ export default function LinkedInReport() {
           {current ? (
             <>
               <div className="li-hero-grid">
-            <div className="li-card li-followers-card">
-              <div className="li-card-h">
-                <div>
-                  <div className="li-card-t">{current.label} · підписники</div>
-                  <div className="li-card-sub">{personName(activePerson)} · динаміка за весь період ведення</div>
-                </div>
-              </div>
-              <div className="li-card-body">
-                <div className="li-foll ymr-mono">{fmt(current.followers)}</div>
-                {current.delta !== null && (
-                  <div className="li-delta-row">
-                    <span className={`li-follbadge ${current.delta >= 0 ? "lb-up" : "lb-dn"}`}>
-                      {current.delta >= 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />} {fmt(Math.abs(current.delta))} ({fmtPct(current.pct)})
-                    </span>
-                    <span className="li-muted">за місяць</span>
+                <div className="li-card li-followers-card">
+                  <div className="li-card-h">
+                    <div>
+                      <div className="li-card-t">{current.label} · підписники</div>
+                      <div className="li-card-sub">{personName(activePerson)} · обраний місяць</div>
+                    </div>
                   </div>
-                )}
-                <div className="li-chart-wrap">
-                  <ResponsiveContainer width="100%" height={150}>
-                <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="ymrGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={TOKENS.indigo} stopOpacity={0.25} />
-                      <stop offset="100%" stopColor={TOKENS.indigo} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke={TOKENS.lineSoft} vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: TOKENS.inkSoft }} axisLine={{ stroke: TOKENS.line }} tickLine={false} />
-                  <YAxis hide domain={["dataMin - 200", "dataMax + 200"]} />
-                  <Tooltip formatter={(v) => fmt(v)} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 4, border: `1px solid ${TOKENS.line}` }} />
-                  <Area type="monotone" dataKey="followers" stroke={TOKENS.indigo} strokeWidth={2} fill="url(#ymrGrad)" dot={false} />
-                  <ReferenceDot x={current.label.split(" ")[0].slice(0, 3)} y={current.followers} r={4} fill={TOKENS.gold} stroke={TOKENS.paperCard} />
-                </AreaChart>
-                  </ResponsiveContainer>
+                  <div className="li-card-body">
+                    <div className="li-foll ymr-mono">{fmt(current.followers)}</div>
+                    {current.delta !== null && (
+                      <div className="li-delta-row">
+                        <span className={`li-follbadge ${current.delta >= 0 ? "lb-up" : "lb-dn"}`}>
+                          {current.delta >= 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />} {fmt(Math.abs(current.delta))} ({fmtPct(current.pct)})
+                        </span>
+                        <span className="li-muted">за місяць</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="li-card li-chart-card">
+                  <div className="li-card-h">
+                    <div>
+                      <div className="li-card-t">Ріст фоловерів, увесь період</div>
+                      <div className="li-card-sub">{personName(activePerson)}</div>
+                    </div>
+                  </div>
+                  <div className="li-card-body">
+                    <div className="li-chart-wrap">
+                      <ResponsiveContainer width="100%" height={150}>
+                        <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="ymrGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={TOKENS.indigo} stopOpacity={0.25} />
+                              <stop offset="100%" stopColor={TOKENS.indigo} stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid stroke={TOKENS.lineSoft} vertical={false} />
+                          <XAxis dataKey="label" tick={{ fontSize: 10, fill: TOKENS.inkSoft }} axisLine={{ stroke: TOKENS.line }} tickLine={false} />
+                          <YAxis hide domain={["dataMin - 200", "dataMax + 200"]} />
+                          <Tooltip formatter={(v) => fmt(v)} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 4, border: `1px solid ${TOKENS.line}` }} />
+                          <Area type="monotone" dataKey="followers" stroke={TOKENS.indigo} strokeWidth={2} fill="url(#ymrGrad)" dot={false} />
+                          <ReferenceDot x={current.label.split(" ")[0].slice(0, 3)} y={current.followers} r={4} fill={TOKENS.gold} stroke={TOKENS.paperCard} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+                <div className="li-card li-chart-card">
+                  <div className="li-card-h">
+                    <div>
+                      <div className="li-card-t">Перегляди, увесь період</div>
+                      <div className="li-card-sub">{personName(activePerson)}</div>
+                    </div>
+                  </div>
+                  <div className="li-card-body">
+                    <div className="li-chart-wrap">
+                      <ResponsiveContainer width="100%" height={150}>
+                        <AreaChart data={viewsChartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="ymrViewsGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={TOKENS.sage} stopOpacity={0.25} />
+                              <stop offset="100%" stopColor={TOKENS.sage} stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid stroke={TOKENS.lineSoft} vertical={false} />
+                          <XAxis dataKey="label" tick={{ fontSize: 10, fill: TOKENS.inkSoft }} axisLine={{ stroke: TOKENS.line }} tickLine={false} />
+                          <YAxis hide domain={["dataMin - 200", "dataMax + 200"]} />
+                          <Tooltip formatter={(v) => fmt(v)} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 4, border: `1px solid ${TOKENS.line}` }} />
+                          <Area type="monotone" dataKey="views" stroke={TOKENS.sage} strokeWidth={2} fill="url(#ymrViewsGrad)" dot={false} />
+                          {current.views !== null && current.views !== undefined && (
+                            <ReferenceDot x={current.label.split(" ")[0].slice(0, 3)} y={current.views} r={4} fill={TOKENS.gold} stroke={TOKENS.paperCard} />
+                          )}
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="li-side-stats">
-              <div className="li-stat-card">
-                <div className="li-stat-label">Публікації за місяць</div>
-                <div className="li-stat-value ymr-mono">{current.posts}</div>
+
+              <div className="li-side-stats">
+                <div className="li-stat-card">
+                  <div className="li-stat-label">Публікації за місяць</div>
+                  <div className="li-stat-value ymr-mono">{current.posts}</div>
+                </div>
+                <div className="li-stat-card">
+                  <div className="li-stat-label">Перегляди (views)</div>
+                  <div className="li-stat-value ymr-mono">{fmt(current.views)}</div>
+                  {current.viewsDelta !== null && current.viewsDelta !== undefined && (
+                    <div className={`li-stat-delta ${current.viewsDelta >= 0 ? "up" : "dn"}`}>{fmtPct(current.viewsDelta)} до попер. місяця</div>
+                  )}
+                </div>
+                <div className="li-stat-card">
+                  <div className="li-stat-label">Покази (impressions)</div>
+                  <div className="li-stat-value ymr-mono">{fmt(currentImpressions)}</div>
+                  {current.impressionsDelta !== null && current.impressionsDelta !== undefined && (
+                    <div className={`li-stat-delta ${current.impressionsDelta >= 0 ? "up" : "dn"}`}>{fmtPct(current.impressionsDelta)} до попер. місяця</div>
+                  )}
+                </div>
               </div>
-              <div className="li-stat-card">
-                <div className="li-stat-label">Перегляди (views)</div>
-                <div className="li-stat-value ymr-mono">{fmt(current.views)}</div>
-                {current.viewsDelta !== null && current.viewsDelta !== undefined && (
-                  <div className={`li-stat-delta ${current.viewsDelta >= 0 ? "up" : "dn"}`}>{fmtPct(current.viewsDelta)} до попер. місяця</div>
-                )}
-              </div>
-              <div className="li-stat-card">
-                <div className="li-stat-label">Покази (impressions)</div>
-                <div className="li-stat-value ymr-mono">{fmt(currentImpressions)}</div>
-                {current.impressionsDelta !== null && current.impressionsDelta !== undefined && (
-                  <div className={`li-stat-delta ${current.impressionsDelta >= 0 ? "up" : "dn"}`}>{fmtPct(current.impressionsDelta)} до попер. місяця</div>
-                )}
-              </div>
-            </div>
-          </div>
 
           {sortedPosts.length > 0 ? (
             <div className="li-card li-table-card">

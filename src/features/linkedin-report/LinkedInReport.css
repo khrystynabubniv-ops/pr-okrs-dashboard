@@ -493,11 +493,16 @@
 
 .li-hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.9fr) minmax(240px, 0.8fr);
+  grid-template-columns: minmax(220px, 0.75fr) minmax(280px, 1fr) minmax(280px, 1fr);
   gap: 16px;
+  align-items: stretch;
 }
 
 .li-followers-card .li-card-body {
+  display: flex;
+  min-height: 174px;
+  flex-direction: column;
+  justify-content: center;
   padding-bottom: 10px;
 }
 
@@ -541,10 +546,20 @@
   margin-top: 8px;
 }
 
+.li-chart-card .li-card-body {
+  padding-bottom: 10px;
+}
+
+.li-chart-card .li-chart-wrap {
+  margin-top: 0;
+}
+
 .li-side-stats {
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   align-content: start;
+  margin-top: 16px;
 }
 
 .li-stat-card {
