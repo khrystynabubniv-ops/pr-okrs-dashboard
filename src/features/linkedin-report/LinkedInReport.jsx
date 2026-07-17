@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceDot } from "recharts";
-import { ChevronDown, ChevronUp, Plus, Trash2, Save, Pencil, ArrowUp, ArrowDown, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Trash2, Save, Pencil, ArrowUp, ArrowDown, X, ExternalLink } from "lucide-react";
 import { apiRequest } from "../../lib/api";
 import "./LinkedInReport.css";
 
@@ -380,6 +380,7 @@ export default function LinkedInReport() {
   const [entryType, setEntryType] = useState("linkedin");
   const [entryPersonId, setEntryPersonId] = useState(DEFAULT_PERSON_ID);
   const [addingPerson, setAddingPerson] = useState(false);
+  const [editingPrIndex, setEditingPrIndex] = useState(null);
   const [newPerson, setNewPerson] = useState(emptyPerson);
   const [newMonth, setNewMonth] = useState(() => ({ ...emptyMonth, label: currentMonthLabel() }));
   const [newPosts, setNewPosts] = useState([{ ...emptyPost }]);
@@ -442,8 +443,12 @@ export default function LinkedInReport() {
     () => sortMonthsChronologically(months.filter((month) => (month.personId || DEFAULT_PERSON_ID) === selectedPerson)),
     [months, selectedPerson],
   );
-  const filteredPr = useMemo(
-    () => pr.filter((item) => (item.personId || DEFAULT_PERSON_ID) === selectedPerson),
+  const prRows = useMemo(
+    () =>
+      pr
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => (item.personId || DEFAULT_PERSON_ID) === selectedPerson)
+        .sort((a, b) => new Date(a.item.date) - new Date(b.item.date)),
     [pr, selectedPerson],
   );
   const withGrowth = useMemo(() => computeGrowth(filteredMonths), [filteredMonths]);
@@ -504,17 +509,33 @@ export default function LinkedInReport() {
     setEntryType(type);
     setEntryPersonId(selectedPerson);
     setAddingPerson(false);
+    setEditingPrIndex(null);
     setNewMonth((current) => ({ ...current, label: current.label || currentMonthLabel() }));
-    setNewPrPublication((current) => ({
-      ...current,
-      date: current.date || currentDateInputValue(),
-    }));
+    setNewPrPublication({ ...emptyPrPublication, date: currentDateInputValue() });
     setShowEntryModal(true);
   }
 
   function closeEntryModal() {
     setAddingPerson(false);
+    setEditingPrIndex(null);
     setShowEntryModal(false);
+  }
+
+  function openEditPrPublication(record, index) {
+    setEntryType("pr");
+    setEntryPersonId(record.personId || selectedPerson || DEFAULT_PERSON_ID);
+    setAddingPerson(false);
+    setEditingPrIndex(index);
+    setNewPrPublication({
+      date: record.date || currentDateInputValue(),
+      source: record.source || "",
+      title: record.title || "",
+      url: record.url || "",
+      format: record.format || "",
+      views: record.views ?? "",
+      audience: record.audience ?? "",
+    });
+    setShowEntryModal(true);
   }
 
   function startEditNotes() {
@@ -615,26 +636,37 @@ export default function LinkedInReport() {
   async function savePrPublication() {
     if (!newPrPublication.date || !newPrPublication.source || !newPrPublication.title) return;
     const personId = entryPersonId || selectedPerson || DEFAULT_PERSON_ID;
-
-    const nextPr = [
-      ...pr,
-      {
-        personId,
-        date: newPrPublication.date,
-        source: newPrPublication.source,
-        title: newPrPublication.title,
-        url: normalizeUrl(newPrPublication.url),
-        format: newPrPublication.format,
-        views: newPrPublication.views ? Number(newPrPublication.views) : null,
-        audience: newPrPublication.audience ? Number(newPrPublication.audience) : null,
-      },
-    ];
+    const record = {
+      personId,
+      date: newPrPublication.date,
+      source: newPrPublication.source,
+      title: newPrPublication.title,
+      url: normalizeUrl(newPrPublication.url),
+      format: newPrPublication.format,
+      views: newPrPublication.views ? Number(newPrPublication.views) : null,
+      audience: newPrPublication.audience ? Number(newPrPublication.audience) : null,
+    };
+    const nextPr =
+      editingPrIndex === null
+        ? [...pr, record]
+        : pr.map((item, index) => (index === editingPrIndex ? record : item));
 
     await persistReportData(months, nextPr);
     setSelectedPerson(personId);
     setTab("pr");
+    setEditingPrIndex(null);
     setShowEntryModal(false);
     setNewPrPublication({ ...emptyPrPublication, date: currentDateInputValue() });
+  }
+
+  async function deletePrPublication(index) {
+    const shouldDelete = window.confirm("Видалити цю PR-публікацію?");
+    if (!shouldDelete) return;
+
+    const nextPr = pr.filter((_, itemIndex) => itemIndex !== index);
+    await persistReportData(months, nextPr);
+    setTab("pr");
+    if (editingPrIndex === index) closeEntryModal();
   }
 
   const chartData = withGrowth.map((m) => ({ id: m.id, label: m.label.split(" ")[0].slice(0, 3), followers: m.followers }));
@@ -697,7 +729,7 @@ export default function LinkedInReport() {
           >
             <div className="li-modal-h">
               <div>
-                <div id="li-entry-modal-title" className="li-card-t">Новий запис</div>
+                <div id="li-entry-modal-title" className="li-card-t">{editingPrIndex === null ? "Новий запис" : "Редагувати PR-публікацію"}</div>
                 <div className="li-card-sub">Оберіть тип і заповніть відповідні поля</div>
               </div>
               <button
@@ -865,7 +897,7 @@ export default function LinkedInReport() {
                 type="button"
                 onClick={entryType === "linkedin" ? saveNewMonth : savePrPublication}
               >
-                <Save size={13} /> зберегти
+                <Save size={13} /> {editingPrIndex === null ? "зберегти" : "оновити"}
               </button>
             </div>
           </div>
@@ -1130,11 +1162,12 @@ export default function LinkedInReport() {
                   <th className="l">Формат</th>
                   <th>Перегляди</th>
                   <th>Аудиторія джерела</th>
+                  <th aria-label="Дії" />
                 </tr>
               </thead>
               <tbody>
-                {[...filteredPr].sort((a, b) => new Date(a.date) - new Date(b.date)).map((r, i) => (
-                  <tr key={i}>
+                {prRows.map(({ item: r, index }) => (
+                  <tr key={index}>
                     <td className="l ymr-mono nowrap">{r.date}</td>
                     <td className="l source">{r.source}</td>
                     <td className="l normal-weight">
@@ -1147,12 +1180,50 @@ export default function LinkedInReport() {
                     <td className="l muted normal-weight">{r.format}</td>
                     <td className="ymr-mono">{fmt(r.views)}</td>
                     <td className="ymr-mono">{fmt(r.audience)}</td>
+                    <td className="li-row-actions">
+                      {r.url ? (
+                        <a
+                          aria-label="Відкрити статтю"
+                          className="ymr-btn li-open-article-btn"
+                          href={r.url}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          <ExternalLink size={13} /> відкрити
+                        </a>
+                      ) : (
+                        <button
+                          aria-label="Відкрити статтю"
+                          className="ymr-btn li-open-article-btn"
+                          disabled
+                          type="button"
+                        >
+                          <ExternalLink size={13} /> відкрити
+                        </button>
+                      )}
+                      <button
+                        aria-label="Редагувати PR-публікацію"
+                        className="li-icon-btn"
+                        type="button"
+                        onClick={() => openEditPrPublication(r, index)}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        aria-label="Видалити PR-публікацію"
+                        className="li-icon-btn"
+                        type="button"
+                        onClick={() => deletePrPublication(index)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {!filteredPr.length && (
+          {!prRows.length && (
             <div className="li-card-body li-empty">
               Для цієї C-level людини ще немає PR-публікацій.
             </div>

@@ -683,6 +683,22 @@
   white-space: nowrap;
 }
 
+.li-ptbl .li-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.li-open-article-btn {
+  padding: 6px 9px !important;
+}
+
+.li-open-article-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .ymr-th {
   cursor: pointer;
   user-select: none;
