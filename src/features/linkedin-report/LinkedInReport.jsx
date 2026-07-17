@@ -29,8 +29,8 @@ const DEFAULT_PERSON = {
 };
 
 const seedMonths = [
-  { id: "2025-08", label: "Серпень 2025", posts: 4, followers: 17270, views: null, viewsDelta: null, impressionsOverview: null, impressionsDelta: null, postsList: [], conclusions: [], todos: [] },
-  { id: "2025-09", label: "Вересень 2025", posts: 9, followers: 17545, views: null, viewsDelta: null, impressionsOverview: null, impressionsDelta: null, postsList: [], conclusions: [], todos: [] },
+  { id: "2025-08", label: "Серпень 2025", posts: 4, followers: 17270, views: null, viewsDelta: null, impressionsOverview: null, impressionsDelta: null, postsList: [], conclusions: [] },
+  { id: "2025-09", label: "Вересень 2025", posts: 9, followers: 17545, views: null, viewsDelta: null, impressionsOverview: null, impressionsDelta: null, postsList: [], conclusions: [] },
   { id: "2025-10", label: "Жовтень 2025", posts: 9, followers: 17715, views: 66392, viewsDelta: -21, impressionsOverview: 18184, impressionsDelta: -28.52,
     postsList: [
       { title: "Допис про візит Google", impressions: 3036, clicks: 0, likes: 115, comments: 2, reposts: 0, saves: 0, shares: 0, total: 117, er: 3.85 },
@@ -49,7 +49,6 @@ const seedMonths = [
       "Не спрацював допис-горталка — можливо, заскладний контент або візуальний стиль",
       "Класно працюють підбірки книг, особистий досвід і сторітелінг через власну призму — лишаємо",
     ],
-    todos: ["Оновити візуальний підхід до графічних віжуалів", "Фокус на темах, які працюють: АІ, бізнес-майндсет, керування командами, лідерство", "Збільшити % публікацій, що приводять нову ЦА"],
   },
   { id: "2025-11", label: "Листопад 2025", posts: 7, followers: 17973, views: 155538, viewsDelta: 134, impressionsOverview: 58301, impressionsDelta: 220.62,
     postsList: [
@@ -66,7 +65,6 @@ const seedMonths = [
       "Круто працюють фото з галереї — нативність і різноманітність стрічки",
       "Корисний контент + актуальність теми дають комбо-ефект",
     ],
-    todos: ["Додати візуальний підхід до графічних віжуалів", "Публікації про впровадження АІ у бізнес (на запит ЦА)", "Збільшити % публікацій, що приводять нову ЦА"],
   },
   { id: "2025-12", label: "Грудень 2025", posts: 8, followers: 18142, views: 64459, viewsDelta: -59, impressionsOverview: 19825, impressionsDelta: -66.00,
     postsList: [
@@ -80,7 +78,6 @@ const seedMonths = [
       { title: "400 млн користувачів", impressions: 9470, clicks: 0, likes: 258, comments: 13, reposts: 1, saves: 3, shares: 0, total: 275, er: 2.90 },
     ],
     conclusions: ["Не спрацював віжуал у мемі — дуже мало охоплень. Більше меми не беремо"],
-    todos: ["Провести ретро контенту 2025, розпланувати цілі і фокуси по кварталам 2026", "Оновити підхід до аналітики / збору даних", "Створити майже ідеальний Digital Twin"],
   },
   { id: "2026-01", label: "Січень 2026", posts: 9, followers: 18369, views: 90005, viewsDelta: 40, impressionsOverview: null, impressionsDelta: null,
     postsList: [
@@ -100,7 +97,6 @@ const seedMonths = [
       "Дописи з нереалістичними / графічними фото — найнижчі охоплення",
       "Настав час переносити контент substack у LinkedIn",
     ],
-    todos: [],
   },
   { id: "2026-02", label: "Лютий 2026", posts: 5, followers: 18531, views: 52863, viewsDelta: -41, impressionsOverview: null, impressionsDelta: null,
     postsList: [
@@ -111,7 +107,6 @@ const seedMonths = [
       { title: "Анонс ЗР", impressions: 4523, clicks: 64, likes: 67, comments: 3, reposts: 1, saves: 1, shares: 1, total: 137, er: 3.03 },
     ],
     conclusions: ["Стабільно всі пости показали +- однакові результати, антитопу немає"],
-    todos: ["Розробити візуальний стиль для впізнаваності бренду", "Розбавляти АІ-фокусні публікації темами менеджменту / найму", "Промо статей з substack у LinkedIn"],
   },
   { id: "2026-03", label: "Березень 2026", posts: 9, followers: 18673, views: 69785, viewsDelta: 7, impressionsOverview: null, impressionsDelta: null,
     postsList: [
@@ -129,7 +124,6 @@ const seedMonths = [
       "Розробили айдентику для впізнаваності постів — продовжуємо тестувати дизайн",
       "Треба активніший діалог з аудиторією — розкручуємо тему АІ та онлайн-івент",
     ],
-    todos: ["Промо треку фаундерів", "Інтегрувати Substack контент", "АІ та власні хуки"],
   },
   { id: "2026-04", label: "Квітень 2026", posts: 7, followers: 18833, views: 51208, viewsDelta: null, impressionsOverview: null, impressionsDelta: null,
     postsList: [
@@ -144,7 +138,6 @@ const seedMonths = [
     conclusions: [
       "Антитоп — пости про менторство менеджерів. Люди реагують на конкретику й кейси, які можна повторити самотужки",
     ],
-    todos: ["Більше контенту з Substack у різних форматах", "Більше кейсів з АІ про АІ (як Клавдія)", "Більше візіонерства й тем для дискусій"],
   },
   { id: "2026-05", label: "Травень 2026", posts: 9, followers: 19048, views: 63933, viewsDelta: null, impressionsOverview: null, impressionsDelta: null,
     postsList: [
@@ -158,7 +151,7 @@ const seedMonths = [
       { title: "Риси сильних особистостей", impressions: 7937, clicks: 0, likes: 116, comments: 10, reposts: 3, saves: 19, shares: 2, total: 150, er: 1.89 },
       { title: "«Роботодавець року 2026» Форбс", impressions: 8648, clicks: 0, likes: 165, comments: 5, reposts: 5, saves: 1, shares: 0, total: 176, er: 2.04 },
     ],
-    conclusions: [], todos: [],
+    conclusions: [],
   },
   { id: "2026-06", label: "Червень 2026", posts: 3, followers: 19151, views: 31470, viewsDelta: null, impressionsOverview: null, impressionsDelta: null,
     postsList: [
@@ -166,7 +159,7 @@ const seedMonths = [
       { title: "Рефлексія 35 років", impressions: 8716, clicks: 0, likes: 299, comments: 27, reposts: 1, saves: 11, shares: 5, total: 343, er: 3.94 },
       { title: "АІ хайп", impressions: 5771, clicks: 0, likes: 83, comments: 11, reposts: 0, saves: 8, shares: 0, total: 102, er: 1.77 },
     ],
-    conclusions: [], todos: [],
+    conclusions: [],
   },
 ];
 
@@ -204,6 +197,27 @@ function monthImpressions(month) {
   if (month.impressionsOverview !== null && month.impressionsOverview !== undefined) return month.impressionsOverview;
   const total = sumPostMetric(month.postsList, "impressions");
   return total || null;
+}
+function normalizePostTag(value) {
+  const tag = String(value || "").trim().toLowerCase();
+  if (tag === "top" || tag === "топ") return "top";
+  if (tag === "antitop" || tag === "anti-top" || tag === "антитоп") return "antitop";
+  return "";
+}
+function effectivePostTag(post, maxTotal, minTotal) {
+  const manualTag = normalizePostTag(post?.tag);
+  if (manualTag) return manualTag;
+  if (maxTotal !== null && maxTotal !== undefined && post?.total === maxTotal) return "top";
+  if (minTotal !== null && minTotal !== undefined && post?.total === minTotal && post?.total !== maxTotal) return "antitop";
+  return "";
+}
+function postTagLabel(tag) {
+  return tag === "top" ? "топ" : tag === "antitop" ? "антитоп" : "";
+}
+function normalizeUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return null;
+  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
 }
 function computeGrowth(months) {
   return months.map((m, i) => {
@@ -344,9 +358,9 @@ function recordIdForPerson(personId, label) {
   return `${personId}-${monthIdFromLabel(label)}`;
 }
 
-const emptyPost = { title: "", impressions: "", clicks: "", likes: "", comments: "", reposts: "", saves: "", shares: "" };
+const emptyPost = { title: "", impressions: "", clicks: "", likes: "", comments: "", reposts: "", saves: "", shares: "", tag: "" };
 const emptyMonth = { label: "", followers: "", posts: "", views: "", impressionsOverview: "" };
-const emptyPrPublication = { date: "", source: "", title: "", format: "", views: "", audience: "" };
+const emptyPrPublication = { date: "", source: "", title: "", url: "", format: "", views: "", audience: "" };
 const emptyPerson = { name: "", role: "" };
 
 export default function LinkedInReport() {
@@ -358,10 +372,10 @@ export default function LinkedInReport() {
   const [pr, setPr] = useState([]);
   const [sortKey, setSortKey] = useState("total");
   const [sortDir, setSortDir] = useState("desc");
+  const [postTagFilter, setPostTagFilter] = useState("all");
   const [loaded, setLoaded] = useState(false);
   const [editingNotes, setEditingNotes] = useState(false);
   const [draftConclusions, setDraftConclusions] = useState("");
-  const [draftTodos, setDraftTodos] = useState([]);
   const [showEntryModal, setShowEntryModal] = useState(false);
   const [entryType, setEntryType] = useState("linkedin");
   const [entryPersonId, setEntryPersonId] = useState(DEFAULT_PERSON_ID);
@@ -435,17 +449,26 @@ export default function LinkedInReport() {
   const withGrowth = useMemo(() => computeGrowth(filteredMonths), [filteredMonths]);
   const effectiveSelected = withGrowth.some((m) => m.id === selected) ? selected : closestMonthId(withGrowth);
   const current = withGrowth.find((m) => m.id === effectiveSelected);
+  const postTotals = current?.postsList?.map((p) => Number(p.total) || 0) || [];
+  const maxTotal = postTotals.length ? Math.max(...postTotals) : null;
+  const minTotal = postTotals.length > 1 ? Math.min(...postTotals) : null;
 
   const sortedPosts = useMemo(() => {
     if (!current || !current.postsList?.length) return [];
-    const arr = [...current.postsList];
-    arr.sort((a, b) => (sortDir === "desc" ? b[sortKey] - a[sortKey] : a[sortKey] - b[sortKey]));
+    const arr = current.postsList.filter((post) => {
+      if (postTagFilter === "all") return true;
+      return effectivePostTag(post, maxTotal, minTotal) === postTagFilter;
+    });
+    arr.sort((a, b) => {
+      const aValue = Number(a[sortKey]) || 0;
+      const bValue = Number(b[sortKey]) || 0;
+      return sortDir === "desc" ? bValue - aValue : aValue - bValue;
+    });
     return arr;
-  }, [current, sortKey, sortDir]);
+  }, [current, sortKey, sortDir, postTagFilter, maxTotal, minTotal]);
 
   const currentImpressions = monthImpressions(current);
-  const maxTotal = current?.postsList?.length ? Math.max(...current.postsList.map((p) => p.total)) : null;
-  const minTotal = current?.postsList?.length > 1 ? Math.min(...current.postsList.map((p) => p.total)) : null;
+  const hasCurrentPosts = Boolean(current?.postsList?.length);
 
   useEffect(() => {
     if (!showEntryModal) return undefined;
@@ -497,15 +520,13 @@ export default function LinkedInReport() {
   function startEditNotes() {
     if (!current) return;
     setDraftConclusions((current.conclusions || []).join("\n"));
-    const todos = current.todos || [];
-    setDraftTodos(todos.length ? todos : [""]);
     setEditingNotes(true);
   }
   async function saveNotes() {
     if (!current) return;
     const next = withGrowth.map((m) =>
       m.id === current.id
-        ? { ...m, conclusions: draftConclusions.split("\n").map((s) => s.trim()).filter(Boolean), todos: draftTodos.map((s) => s.trim()).filter(Boolean) }
+        ? { ...m, conclusions: draftConclusions.split("\n").map((s) => s.trim()).filter(Boolean) }
         : m
     );
     const mergedMonths = months.map((month) => {
@@ -514,21 +535,6 @@ export default function LinkedInReport() {
     });
     await persistMonths(mergedMonths);
     setEditingNotes(false);
-  }
-
-  function updateDraftTodo(index, value) {
-    setDraftTodos((items) => items.map((item, itemIndex) => (itemIndex === index ? value : item)));
-  }
-
-  function addDraftTodo() {
-    setDraftTodos((items) => [...items, ""]);
-  }
-
-  function removeDraftTodo(index) {
-    setDraftTodos((items) => {
-      const next = items.filter((_, itemIndex) => itemIndex !== index);
-      return next.length ? next : [""];
-    });
   }
 
   function updateNewPost(idx, field, val) {
@@ -573,7 +579,8 @@ export default function LinkedInReport() {
         const impressions = Number(p.impressions) || 0;
         const total = likes + comments + reposts + saves + shares;
         const er = impressions ? (total / impressions) * 100 : 0;
-        return { title: p.title, impressions, clicks, likes, comments, reposts, saves, shares, total, er: Number(er.toFixed(2)) };
+        const tag = normalizePostTag(p.tag);
+        return { title: p.title, impressions, clicks, likes, comments, reposts, saves, shares, total, er: Number(er.toFixed(2)), ...(tag ? { tag } : {}) };
       });
     const postsImpressions = sumPostMetric(cleanPosts, "impressions");
     const id = recordIdForPerson(personId, newMonth.label);
@@ -589,7 +596,6 @@ export default function LinkedInReport() {
       impressionsDelta: null,
       postsList: cleanPosts,
       conclusions: [],
-      todos: [],
     };
     const nextMonthValue = monthValue(month);
     const next = sortMonthsChronologically(
@@ -617,6 +623,7 @@ export default function LinkedInReport() {
         date: newPrPublication.date,
         source: newPrPublication.source,
         title: newPrPublication.title,
+        url: normalizeUrl(newPrPublication.url),
         format: newPrPublication.format,
         views: newPrPublication.views ? Number(newPrPublication.views) : null,
         audience: newPrPublication.audience ? Number(newPrPublication.audience) : null,
@@ -665,7 +672,7 @@ export default function LinkedInReport() {
                 className={tab === t ? "on" : ""}
                 onClick={() => setTab(t)}
               >
-                {t === "linkedin" ? "Personal Brands" : "PR-публікації"}
+                {t === "linkedin" ? "LinkedIn" : "PR-публікації"}
               </button>
             ))}
           </div>
@@ -800,6 +807,11 @@ export default function LinkedInReport() {
                         <input className="ymr-input" placeholder="репости" type="number" value={p.reposts} onChange={(e) => updateNewPost(i, "reposts", e.target.value)} />
                         <input className="ymr-input" placeholder="збереж." type="number" value={p.saves} onChange={(e) => updateNewPost(i, "saves", e.target.value)} />
                         <input className="ymr-input" placeholder="поширення" type="number" value={p.shares} onChange={(e) => updateNewPost(i, "shares", e.target.value)} />
+                        <select className="ymr-input" value={p.tag} onChange={(e) => updateNewPost(i, "tag", e.target.value)}>
+                          <option value="">без тегу</option>
+                          <option value="top">топ</option>
+                          <option value="antitop">антитоп</option>
+                        </select>
                         <button
                           aria-label="Видалити рядок допису"
                           className="li-icon-btn"
@@ -825,6 +837,9 @@ export default function LinkedInReport() {
                   </label>
                   <label className="li-field">Джерело
                     <input className="ymr-input" placeholder="Forbes" value={newPrPublication.source} onChange={(e) => updateNewPrPublication("source", e.target.value)} />
+                  </label>
+                  <label className="li-field">Лінк
+                    <input className="ymr-input" placeholder="https://..." value={newPrPublication.url} onChange={(e) => updateNewPrPublication("url", e.target.value)} />
                   </label>
                   <label className="li-field li-field-wide">Матеріал
                     <input className="ymr-input" placeholder="Назва матеріалу" value={newPrPublication.title} onChange={(e) => updateNewPrPublication("title", e.target.value)} />
@@ -980,11 +995,21 @@ export default function LinkedInReport() {
                 </div>
               </div>
 
-          {sortedPosts.length > 0 ? (
+          {hasCurrentPosts ? (
             <div className="li-card li-table-card">
               <div className="li-card-h">
-                <div className="li-card-t">Дописи місяця</div>
-                <div className="li-card-sub">{personName(activePerson)} · відсортовано за сумарним залученням</div>
+                <div>
+                  <div className="li-card-t">Дописи місяця</div>
+                  <div className="li-card-sub">{personName(activePerson)} · відсортовано за сумарним залученням</div>
+                </div>
+                <label className="li-tag-filter">
+                  <span>Фільтр</span>
+                  <select value={postTagFilter} onChange={(event) => setPostTagFilter(event.target.value)}>
+                    <option value="all">усі</option>
+                    <option value="top">топ</option>
+                    <option value="antitop">антитоп</option>
+                  </select>
+                </label>
               </div>
               <div className="li-table-scroll">
                 <table className="li-ptbl">
@@ -999,27 +1024,31 @@ export default function LinkedInReport() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedPosts.map((p, i) => (
-                    <tr key={i}>
-                      <td className="l">
-                        {p.title}
-                        {maxTotal !== null && p.total === maxTotal && (
-                          <span className="li-ptag li-ptop">топ</span>
-                        )}
-                        {minTotal !== null && p.total === minTotal && p.total !== maxTotal && (
-                          <span className="li-ptag li-pbot">антитоп</span>
-                        )}
-                      </td>
-                      <td className="ymr-mono">{fmt(p.impressions)}</td>
-                      <td className="ymr-mono">{fmt(p.likes)}</td>
-                      <td className="ymr-mono">{fmt(p.comments)}</td>
-                      <td className="ymr-mono">{fmt(p.reposts)}</td>
-                      <td className="ymr-mono">{fmt(p.saves)}</td>
-                      <td className="ymr-mono">{fmt(p.shares)}</td>
-                      <td className="ymr-mono tot">{fmt(p.total)}</td>
-                      <td className="ymr-mono">{p.er.toFixed(2)}%</td>
-                    </tr>
-                  ))}
+                    {sortedPosts.length ? sortedPosts.map((p, i) => {
+                      const tag = effectivePostTag(p, maxTotal, minTotal);
+                      return (
+                        <tr key={i}>
+                          <td className="l">
+                            {p.title}
+                            {tag && (
+                              <span className={`li-ptag ${tag === "top" ? "li-ptop" : "li-pbot"}`}>{postTagLabel(tag)}</span>
+                            )}
+                          </td>
+                          <td className="ymr-mono">{fmt(p.impressions)}</td>
+                          <td className="ymr-mono">{fmt(p.likes)}</td>
+                          <td className="ymr-mono">{fmt(p.comments)}</td>
+                          <td className="ymr-mono">{fmt(p.reposts)}</td>
+                          <td className="ymr-mono">{fmt(p.saves)}</td>
+                          <td className="ymr-mono">{fmt(p.shares)}</td>
+                          <td className="ymr-mono tot">{fmt(p.total)}</td>
+                          <td className="ymr-mono">{p.er.toFixed(2)}%</td>
+                        </tr>
+                      );
+                    }) : (
+                      <tr>
+                        <td className="li-empty" colSpan={9}>Немає дописів за цим фільтром.</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1036,7 +1065,7 @@ export default function LinkedInReport() {
                 <div className="li-card-t">Висновки</div>
                 {!editingNotes && (
                   <button
-                    aria-label="Редагувати висновки і to-do"
+                    aria-label="Редагувати висновки"
                     className="ymr-btn li-small-btn"
                     type="button"
                     onClick={startEditNotes}
@@ -1052,66 +1081,6 @@ export default function LinkedInReport() {
                   <ul className="li-notes-list">
                     {current.conclusions.map((c, i) => <li key={i}>{c}</li>)}
                   </ul>
-                ) : (
-                  <div className="li-empty">Немає записів за цей місяць</div>
-                )}
-              </div>
-            </div>
-            <div className="li-card">
-              <div className="li-card-h">
-                <div className="li-card-t">To-do наступного місяця</div>
-                {editingNotes ? (
-                  <button
-                    aria-label="Додати чекпоінт"
-                    className="ymr-btn li-small-btn"
-                    type="button"
-                    onClick={addDraftTodo}
-                  >
-                    <Plus size={12} /> чекпоінт
-                  </button>
-                ) : (
-                  <button
-                    aria-label="Редагувати to-do"
-                    className="ymr-btn li-small-btn"
-                    type="button"
-                    onClick={startEditNotes}
-                  >
-                    <Pencil size={12} /> редагувати
-                  </button>
-                )}
-              </div>
-              <div className="li-card-body">
-                {editingNotes ? (
-                  <div className="li-checkpoint-list">
-                    {draftTodos.map((todo, i) => (
-                      <div key={i} className="li-checkpoint-row">
-                        <span className="li-checkpoint-box" aria-hidden="true" />
-                        <input
-                          className="ymr-input"
-                          placeholder="Новий чекпоінт"
-                          value={todo}
-                          onChange={(e) => updateDraftTodo(i, e.target.value)}
-                        />
-                        <button
-                          aria-label="Видалити чекпоінт"
-                          className="li-icon-btn"
-                          type="button"
-                          onClick={() => removeDraftTodo(i)}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (current.todos || []).length ? (
-                  <div className="li-checkpoint-view">
-                    {current.todos.map((c, i) => (
-                      <div key={i} className="li-checkpoint-view-row">
-                        <span className="li-checkpoint-box" aria-hidden="true" />
-                        <span>{c}</span>
-                      </div>
-                    ))}
-                  </div>
                 ) : (
                   <div className="li-empty">Немає записів за цей місяць</div>
                 )}
@@ -1168,7 +1137,13 @@ export default function LinkedInReport() {
                   <tr key={i}>
                     <td className="l ymr-mono nowrap">{r.date}</td>
                     <td className="l source">{r.source}</td>
-                    <td className="l normal-weight">{r.title}</td>
+                    <td className="l normal-weight">
+                      {r.url ? (
+                        <a className="li-material-link" href={r.url} rel="noreferrer" target="_blank">{r.title}</a>
+                      ) : (
+                        r.title
+                      )}
+                    </td>
                     <td className="l muted normal-weight">{r.format}</td>
                     <td className="ymr-mono">{fmt(r.views)}</td>
                     <td className="ymr-mono">{fmt(r.audience)}</td>
