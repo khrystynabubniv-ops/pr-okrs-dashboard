@@ -59,8 +59,19 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
         source="Meta Business Suite"
       >
         <section className="panel px-6 py-8">
-          <p className="text-sm font-semibold text-neg">Не вдалося завантажити SMM дані</p>
-          <p className="mt-2 text-sm text-ink2">{error.message}</p>
+          <div className="flex max-w-3xl items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warn" />
+            <div>
+              <p className="text-sm font-semibold text-ink">
+                Live-дані Meta не завантажились
+              </p>
+              <p className="mt-2 text-sm leading-6 text-ink2">{error.message}</p>
+              <p className="mt-2 text-sm leading-6 text-ink3">
+                Demo-цифри тут більше не показуємо, щоб не плутати їх з реальними
+                показниками акаунта.
+              </p>
+            </div>
+          </div>
         </section>
       </SmmShell>
     )
@@ -113,7 +124,7 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
             <div>
               <p className="text-sm font-semibold text-ink">
-                Live-дані Meta не завантажились, показуємо demo fallback.
+                Live-дані Meta не завантажились.
               </p>
               <p className="mt-1 text-sm leading-5 text-ink2">{data.integrationError}</p>
             </div>

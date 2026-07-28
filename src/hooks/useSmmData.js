@@ -69,18 +69,12 @@ export function useSmmData(month, previewState = '') {
 
           const message =
             requestError.name === 'AbortError'
-              ? 'Meta API відповідає задовго. Показуємо demo fallback.'
+              ? 'Meta API відповідає задовго. Спробуйте оновити сторінку за кілька секунд.'
               : requestError.message
-          const fallback = getSmmMonthData(month)
           setState({
-            data: {
-              ...fallback,
-              source: 'Meta Business Suite · demo fallback',
-              sourceMode: 'mock-fallback',
-              integrationError: message,
-            },
+            data: null,
             loading: false,
-            error: null,
+            error: new Error(message),
           })
         } finally {
           window.clearTimeout(requestTimeout)

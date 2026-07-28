@@ -4499,7 +4499,7 @@ async function fetchMetaJsonUrl(config, url, message) {
   const body = await response.text()
 
   if (!response.ok) {
-    throw createHttpError(502, metaHttpErrorMessage(message, body, config), sanitizeExternalError(body))
+    throw createHttpError(502, metaHttpErrorMessage(message, body, config))
   }
 
   return parseMetaJsonBody(body)
@@ -4507,6 +4507,10 @@ async function fetchMetaJsonUrl(config, url, message) {
 
 function metaHttpErrorMessage(fallbackMessage, body, config) {
   const errorMessage = metaResponseErrorMessage(body)
+
+  if (/session has expired|error validating access token|access token.*expired|code.?190/i.test(errorMessage)) {
+    return 'Meta access token протермінований або недійсний. Згенеруйте новий Facebook User/Page access token у Graph API Explorer і оновіть META_ACCESS_TOKEN у Railway Variables.'
+  }
 
   if (/cannot parse access token/i.test(errorMessage)) {
     if (String(config.accessToken || '').startsWith('IG')) {
