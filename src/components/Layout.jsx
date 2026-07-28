@@ -62,6 +62,7 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
   const location = useLocation()
   const title = pageTitles[location.pathname] || 'Comms Tool'
   const eyebrow = pageEyebrows[location.pathname] || 'Communications'
+  const isWidePage = location.pathname === '/smm'
   const showMonthSelector =
     location.pathname !== '/reports/linkedin' && location.pathname !== '/linkedin-report'
   const [authInfo, setAuthInfo] = useState({ auth: { enabled: false }, user: null })
@@ -216,7 +217,11 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
             })}
           </nav>
         </header>
-        <main className="mx-auto w-full max-w-page px-4 py-6 md:px-8">
+        <main
+          className={`mx-auto w-full px-4 py-6 md:px-8 ${
+            isWidePage ? 'max-w-[1680px]' : 'max-w-page'
+          }`}
+        >
           {children}
         </main>
       </div>
