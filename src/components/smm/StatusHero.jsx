@@ -51,7 +51,7 @@ export function StatusHero({ status, signals = [] }) {
 
   return (
     <section className={`rounded-[10px] border px-5 py-5 ${styles.shell}`}>
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(560px,0.95fr)] xl:items-center">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(704px,1fr)] xl:items-center">
         <div className="flex min-w-0 items-start gap-4">
           <div className={`grid h-14 w-14 shrink-0 place-items-center rounded-full ${styles.icon}`}>
             <Icon className="h-7 w-7" />
@@ -67,24 +67,24 @@ export function StatusHero({ status, signals = [] }) {
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="flex flex-wrap gap-4">
           {signals.map((signal) => (
             <div
               key={signal.label}
-              className="min-w-0 rounded-md border border-white/70 bg-white/70 px-3 py-3 shadow-sm shadow-black/[0.03]"
+              className="min-h-[132px] min-w-[220px] flex-[1_1_0] rounded-md border border-white/70 bg-white/70 p-5 shadow-sm shadow-black/[0.03]"
             >
-              <div className="flex min-w-0 flex-col gap-2">
-                <p className="min-w-0 text-xs font-semibold uppercase tracking-[0.08em] text-ink3">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <p className="min-w-0 flex-1 text-xs font-semibold uppercase leading-4 tracking-[0.08em] text-ink3">
                   {signal.label}
                 </p>
-                <div className="flex min-w-0 items-center gap-1">
-                  <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-ink2 ring-1 ring-line2">
+                <div className="flex flex-none shrink-0 items-center gap-1.5">
+                  <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[7px] bg-white px-2.5 py-1 text-[11px] font-semibold text-ink2 ring-1 ring-line2">
                     <span
                       className={`h-2 w-2 shrink-0 rounded-full ${
                         signalDots[signal.tone] || styles.dot
                       }`}
                     />
-                    <span className="truncate">{signalLabels[signal.tone] || 'Статус'}</span>
+                    {signalLabels[signal.tone] || 'Статус'}
                   </span>
                   <InfoTooltip text={`${signalTooltip} Поточний статус: ${signalLabels[signal.tone] || 'статус'}.`} />
                 </div>
