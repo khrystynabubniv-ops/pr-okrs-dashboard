@@ -88,8 +88,7 @@ export function AiInsightsCard({ monthKey, monthLabel, payload }) {
             Висновки та рекомендації
           </h2>
           <p className="mt-1 text-sm text-ink3">
-            Згенеровано AI · Comms Copilot · оновлено{' '}
-            {insight?.generatedAt ? formatDateTime(insight.generatedAt) : '—'}
+            Оновлено {insight?.generatedAt ? formatDateTime(insight.generatedAt) : '—'}
           </p>
         </div>
         <button

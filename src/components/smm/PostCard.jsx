@@ -1,4 +1,4 @@
-import { CalendarDays, Eye, Heart, Send, UserPlus } from 'lucide-react'
+import { CalendarDays, ExternalLink, Eye, Heart, UserPlus } from 'lucide-react'
 import { formatDecimal, formatNumber } from '../../lib/smmData'
 
 const typeLabels = {
@@ -20,8 +20,8 @@ const tagStyles = {
 }
 
 export function PostCard({ post }) {
-  return (
-    <article className="panel min-w-0 overflow-hidden">
+  const card = (
+    <article className="panel min-w-0 overflow-hidden transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="relative aspect-[16/10] overflow-hidden bg-surface-2 [background-image:repeating-linear-gradient(135deg,var(--surface-2)_0,var(--surface-2)_10px,var(--line)_10px,var(--line)_20px)]">
         {post.thumbnailUrl ? (
           <img
@@ -44,6 +44,11 @@ export function PostCard({ post }) {
               {post.tag}
             </span>
           ) : null}
+          {post.variantTag ? (
+            <span className="rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">
+              {post.variantTag}
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -53,6 +58,7 @@ export function PostCard({ post }) {
             <p className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink3">
               <CalendarDays className="h-3.5 w-3.5" />
               {formatPostDate(post.publishedAt)}
+              {post.permalink ? <ExternalLink className="h-3.5 w-3.5" /> : null}
             </p>
             <div className="mt-3 flex items-end gap-2">
               <Eye className="mb-1 h-4 w-4 text-accent" />
@@ -85,10 +91,18 @@ export function PostCard({ post }) {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <PostStat icon={UserPlus} label="Нові підписники" value={`+${post.newFollowers}`} />
           <PostStat
-            icon={Send}
-            label="Непідписники"
+            icon={UserPlus}
+            label="Підписки з поста"
+            value={
+              post.newFollowers === null || post.newFollowers === undefined
+                ? '—'
+                : `+${post.newFollowers}`
+            }
+          />
+          <PostStat
+            icon={Eye}
+            label="Охоплення"
             value={formatNumber(post.nonFollowerReach)}
           />
           <PostStat label="ER" value={`${formatDecimal(post.er)}%`} />
@@ -99,12 +113,26 @@ export function PostCard({ post }) {
                 label="Сер. перегляд"
                 value={`${formatDecimal(post.avgWatchTimeSeconds)} c`}
               />
-              <PostStat label="Ціль" value="15 000" />
+              <PostStat label="Ціль переглядів" value="15 000" variant="goal" />
             </>
           ) : null}
         </div>
       </div>
     </article>
+  )
+
+  if (!post.permalink) return card
+
+  return (
+    <a
+      href={post.permalink}
+      target="_blank"
+      rel="noreferrer"
+      className="block min-w-0 text-inherit no-underline"
+      aria-label="Відкрити пост в Instagram"
+    >
+      {card}
+    </a>
   )
 }
 
@@ -120,10 +148,20 @@ function BenchmarkBadge({ benchmark }) {
   )
 }
 
-function PostStat({ icon: Icon, label, value }) {
+function PostStat({ icon: Icon, label, value, variant = 'default' }) {
   return (
-    <div className="min-w-0 rounded-md border border-line2 bg-white px-3 py-2">
-      <p className="flex items-center gap-1.5 truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-ink3">
+    <div
+      className={`min-w-0 rounded-md border px-3 py-2 ${
+        variant === 'goal'
+          ? 'border-accent/30 bg-soft'
+          : 'border-line2 bg-white'
+      }`}
+    >
+      <p
+        className={`flex items-center gap-1.5 truncate text-[11px] font-semibold uppercase tracking-[0.06em] ${
+          variant === 'goal' ? 'text-accent2' : 'text-ink3'
+        }`}
+      >
         {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
         {label}
       </p>

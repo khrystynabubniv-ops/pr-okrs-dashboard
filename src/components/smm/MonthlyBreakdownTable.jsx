@@ -13,7 +13,7 @@ export function MonthlyBreakdownTable({ rows = [] }) {
             <tr>
               <th>Місяць</th>
               <th className="text-right">Пости</th>
-              <th className="text-right">Net</th>
+              <th className="text-right">Приріст</th>
               <th className="text-right">ER</th>
             </tr>
           </thead>
@@ -27,10 +27,12 @@ export function MonthlyBreakdownTable({ rows = [] }) {
                   {row.posts}
                 </td>
                 <td className="mono text-right font-semibold text-pos">
-                  +{formatNumber(row.netFollowers)}
+                  {row.netFollowers === null || row.netFollowers === undefined
+                    ? '—'
+                    : `${row.netFollowers > 0 ? '+' : ''}${formatNumber(row.netFollowers)}`}
                 </td>
                 <td className="mono text-right font-semibold text-ink">
-                  {formatDecimal(row.er)}%
+                  {row.er === null || row.er === undefined ? '—' : `${formatDecimal(row.er)}%`}
                 </td>
               </tr>
             ))}

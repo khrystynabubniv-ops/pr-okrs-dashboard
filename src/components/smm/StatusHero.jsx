@@ -27,6 +27,12 @@ const signalDots = {
   red: 'bg-neg',
 }
 
+const signalLabels = {
+  green: 'Добре',
+  yellow: 'Увага',
+  red: 'Низько',
+}
+
 export function StatusHero({ status, signals = [] }) {
   const styles = toneStyles[status?.tone] || toneStyles.green
   const Icon = styles.Icon
@@ -59,13 +65,19 @@ export function StatusHero({ status, signals = [] }) {
                 <p className="text-xs font-semibold uppercase tracking-[0.08em] text-ink3">
                   {signal.label}
                 </p>
-                <span
-                  className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                    signalDots[signal.tone] || styles.dot
-                  }`}
-                />
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-ink2 ring-1 ring-line2">
+                  <span
+                    className={`h-2 w-2 shrink-0 rounded-full ${
+                      signalDots[signal.tone] || styles.dot
+                    }`}
+                  />
+                  {signalLabels[signal.tone] || 'Статус'}
+                </span>
               </div>
               <p className="mono mt-3 text-xl font-semibold text-ink">{signal.value}</p>
+              {signal.detail ? (
+                <p className="mt-1 text-xs leading-4 text-ink3">{signal.detail}</p>
+              ) : null}
             </div>
           ))}
         </div>

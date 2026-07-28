@@ -28,8 +28,11 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
   const previewState = searchParams.get('previewState') || ''
   const { data, loading, error } = useSmmData(selectedMonth, previewState)
   const [connectionNotice, setConnectionNotice] = useState('')
+  const [postFilter, setPostFilter] = useState('latest')
   const monthKey = monthToIsoMonth(selectedMonth)
   const insightsPayload = useMemo(() => buildSmmInsightsPayload(data), [data])
+  const postTabs = useMemo(() => buildPostTabs(data?.posts || []), [data])
+  const activePostTab = postTabs.find((tab) => tab.key === postFilter) || postTabs[0]
 
   if (loading) {
     return (
@@ -173,14 +176,31 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="section-label">Content performance</p>
-            <h2 className="mt-1 text-lg font-semibold text-ink">
-              Топ / гірші / останні пости
-            </h2>
+            <h2 className="mt-1 text-lg font-semibold text-ink">Пости</h2>
           </div>
-          <p className="text-sm font-medium text-ink3">{data.posts.length} публікацій</p>
+          <p className="text-sm font-medium text-ink3">
+            {activePostTab.posts.length} з {data.posts.length} публікацій
+          </p>
+        </div>
+        <div className="flex gap-2 overflow-x-auto">
+          {postTabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setPostFilter(tab.key)}
+              className={`shrink-0 rounded-md px-3 py-2 text-sm font-semibold transition ${
+                activePostTab.key === tab.key
+                  ? 'bg-accent text-white'
+                  : 'border border-line bg-white text-ink2 hover:bg-hover-soft hover:text-ink'
+              }`}
+            >
+              {tab.label}
+              <span className="ml-2 text-xs opacity-75">{tab.posts.length}</span>
+            </button>
+          ))}
         </div>
         <div className="grid gap-4 lg:grid-cols-3">
-          {data.posts.map((post) => (
+          {activePostTab.posts.map((post) => (
             <PostCard key={post.id} post={post} />
           ))}
         </div>
@@ -215,7 +235,9 @@ function SmmShell({ selectedMonth, onMonthChange, source, children }) {
 }
 
 function SmmKpiCard({ label, value, delta, deltaPercent, detail, progress }) {
-  const hasDelta = delta !== undefined || deltaPercent !== undefined
+  const hasDelta =
+    (delta !== undefined && delta !== null) ||
+    (deltaPercent !== undefined && deltaPercent !== null)
   const deltaValue = delta ?? deltaPercent
   const isPositive = Number(deltaValue) >= 0
   const DeltaIcon = isPositive ? TrendingUp : TrendingDown
@@ -290,4 +312,20 @@ function formatDelta(value, isPercent) {
   const number = Number(value || 0)
   const prefix = number > 0 ? '+' : ''
   return `${prefix}${number}${isPercent ? '%' : ''}`
+}
+
+function buildPostTabs(posts) {
+  const sortedByViews = [...posts].sort((left, right) => Number(right.views || 0) - Number(left.views || 0))
+  const topPosts = posts.filter((post) => post.tag === 'Найкращий' || post.benchmark?.status === 'green')
+  const belowTargetPosts = posts.filter(
+    (post) => post.type === 'reel' && post.benchmark && post.benchmark.status !== 'green',
+  )
+  const trialPosts = posts.filter((post) => post.variantTag === 'Пробний')
+
+  return [
+    { key: 'latest', label: 'Останні', posts },
+    { key: 'top', label: 'Топ', posts: topPosts.length ? topPosts : sortedByViews.slice(0, 6) },
+    { key: 'below', label: 'Нижче цілі', posts: belowTargetPosts },
+    { key: 'trial', label: 'Пробні', posts: trialPosts },
+  ]
 }

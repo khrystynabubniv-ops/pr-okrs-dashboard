@@ -228,16 +228,19 @@ export function getSmmMonthData(month) {
       {
         label: 'Приріст підписників',
         value: formatSigned(stats.netFollowers),
+        detail: 'за вибраний місяць',
         tone: stats.netFollowers >= 450 ? 'green' : 'yellow',
       },
       {
         label: 'ER',
         value: `${formatDecimal(stats.er)}%`,
+        detail: 'середній ER за місяць',
         tone: stats.er >= 5 ? 'green' : stats.er >= 4 ? 'yellow' : 'red',
       },
       {
-        label: 'Перегляди vs ціль',
+        label: 'Перегляди рілз',
         value: `${goalProgress}%`,
+        detail: `${formatNumber(stats.goalCurrent)} / ${formatNumber(stats.goalTarget)} до цілі`,
         tone: goalProgress >= 85 ? 'green' : goalProgress >= 65 ? 'yellow' : 'red',
       },
     ],
@@ -272,8 +275,9 @@ export function getSmmMonthData(month) {
       {
         key: 'followers',
         title: 'Підписники',
-        metricLabel: 'Net growth',
+        metricLabel: 'Приріст за тиждень',
         unit: '',
+        periodLabel: 'Останні 12 тижнів',
         data: weeklyTrends.followers.map((value, index) => ({
           week: `W${index + 1}`,
           value,
@@ -284,6 +288,7 @@ export function getSmmMonthData(month) {
         title: 'Перегляди рілз',
         metricLabel: 'Середні перегляди',
         unit: '',
+        periodLabel: 'Останні 12 тижнів',
         data: weeklyTrends.reelViews.map((value, index) => ({
           week: `W${index + 1}`,
           value,
@@ -294,6 +299,7 @@ export function getSmmMonthData(month) {
         title: 'Engagement rate',
         metricLabel: 'ER',
         unit: '%',
+        periodLabel: 'Останні 12 тижнів',
         data: weeklyTrends.er.map((value, index) => ({
           week: `W${index + 1}`,
           value,

@@ -112,8 +112,7 @@ const META_REEL_INSIGHT_BATCHES = [
   ['ig_reels_avg_watch_time', 'ig_reels_video_view_total_time'],
 ]
 const META_ACCOUNT_INSIGHT_BATCHES = [
-  ['follower_count', 'reach', 'profile_views'],
-  ['accounts_engaged', 'total_interactions', 'views'],
+  ['follower_count'],
 ]
 
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
@@ -4210,11 +4209,21 @@ async function fetchInstagramMedia(config, range) {
 }
 
 async function fetchInstagramAccountInsights(config, range) {
-  const insights = await fetchMetaInsights(config, config.accountId, META_ACCOUNT_INSIGHT_BATCHES, {
-    period: 'day',
-    since: smmUnixTime(range.from),
-    until: smmUnixTime(range.to),
-  })
+  const chunks = smmInsightRangeChunks(range)
+  const chunkInsights = await mapWithConcurrency(
+    chunks,
+    boundedInteger(process.env.META_ACCOUNT_INSIGHTS_CONCURRENCY, 3, 1, 6),
+    async (chunk) =>
+      fetchMetaInsights(config, config.accountId, META_ACCOUNT_INSIGHT_BATCHES, {
+        period: 'day',
+        since: smmUnixTime(chunk.from),
+        until: smmUnixTime(chunk.to),
+      }),
+  )
+  const insights = chunkInsights.reduce((accumulator, item) => {
+    mergeMetaInsights(accumulator, item)
+    return accumulator
+  }, {})
 
   return { insights }
 }
@@ -4284,7 +4293,18 @@ function mergeMetaInsights(target, payload) {
       : Object.values(payload || {})
 
   rows.forEach((row) => {
-    if (row?.name) target[row.name] = row
+    if (!row?.name) return
+
+    if (target[row.name]?.values && row.values) {
+      target[row.name] = {
+        ...target[row.name],
+        ...row,
+        values: [...target[row.name].values, ...row.values],
+      }
+      return
+    }
+
+    target[row.name] = row
   })
 }
 
@@ -4409,16 +4429,26 @@ function buildLiveSmmPayload({
       {
         label: 'Приріст підписників',
         value: formatSmmSigned(currentStats.netFollowers),
-        tone: currentStats.netFollowers >= 100 ? 'green' : currentStats.netFollowers > 0 ? 'yellow' : 'red',
+        detail: currentStats.netFollowers === null ? 'Meta не віддала історію' : 'за вибраний місяць',
+        tone:
+          currentStats.netFollowers === null
+            ? 'yellow'
+            : currentStats.netFollowers >= 100
+              ? 'green'
+              : currentStats.netFollowers > 0
+                ? 'yellow'
+                : 'red',
       },
       {
         label: 'ER',
         value: `${formatSmmDecimal(currentStats.er)}%`,
+        detail: 'середній ER за місяць',
         tone: currentStats.er >= 5 ? 'green' : currentStats.er >= 3.5 ? 'yellow' : 'red',
       },
       {
-        label: 'Перегляди vs ціль',
+        label: 'Перегляди рілз',
         value: `${goalProgress}%`,
+        detail: `${formatSmmNumber(currentStats.avgReelViews)} / ${formatSmmNumber(SMM_REEL_VIEW_TARGET)} до цілі`,
         tone: goalProgress >= 85 ? 'green' : goalProgress >= 60 ? 'yellow' : 'red',
       },
     ],
@@ -4469,11 +4499,14 @@ function calculateSmmStats(media, accountInsights, range, profile) {
   const reach = sumNumbers(media.map((item) => item.reach || item.nonFollowerReach || item.views))
   const engagement = sumNumbers(media.map((item) => item.engagement?.total))
   const er = roundSmmDecimal(reach ? (engagement / reach) * 100 : averageNumbers(media.map((item) => item.er)) || 0)
-  const newFollowers = Math.round(sumInsightValues(accountInsights, ['follower_count'], range))
+  const hasFollowerHistory = hasInsightValues(accountInsights, ['follower_count'], range)
+  const newFollowers = hasFollowerHistory
+    ? Math.round(sumInsightValues(accountInsights, ['follower_count'], range))
+    : null
   const followers = Math.round(firstPositiveNumber([profile.followers_count, profile.followersCount]))
-  const followersDetail = newFollowers
-    ? `${formatSmmNumber(newFollowers)} нових · відписки недоступні в Meta API`
-    : 'історичний приріст недоступний у Meta API'
+  const followersDetail = newFollowers !== null
+    ? `${formatSmmNumber(newFollowers)} нових за період · відписки Meta не віддає`
+    : 'поточна кількість; історія приросту недоступна'
 
   return {
     avgReelViews,
@@ -4507,6 +4540,7 @@ function normalizeInstagramMedia(rawMedia = {}, insights = {}, profile = {}) {
   const post = {
     id: textValue(rawMedia.id),
     type,
+    caption: textValue(rawMedia.caption),
     publishedAt: textValue(rawMedia.timestamp).slice(0, 10),
     thumbnailUrl: instagramThumbnailUrl(rawMedia, type),
     permalink: textValue(rawMedia.permalink),
@@ -4519,7 +4553,9 @@ function normalizeInstagramMedia(rawMedia = {}, insights = {}, profile = {}) {
       saves,
       total: totalInteractions,
     },
-    newFollowers: Math.round(firstInsightNumber(insights, ['follows']) || 0),
+    newFollowers: hasInsightValues(insights, ['follows'])
+      ? Math.round(firstInsightNumber(insights, ['follows']) || 0)
+      : null,
     er: roundSmmDecimal(baseReach ? (totalInteractions / baseReach) * 100 : 0),
     err: roundSmmDecimal(errBase ? (totalInteractions / errBase) * 100 : 0),
     nonFollowerReach: reach,
@@ -4585,16 +4621,22 @@ function normalizeWatchTimeSeconds(value) {
 
 function buildLiveSmmTrends(media, accountInsights, monthKey) {
   const buckets = smmWeekBuckets(monthKey)
+  const periodLabel = `${smmShortDateLabel(buckets[0]?.from)} - ${smmShortDateLabel(
+    buckets.at(-1)?.to,
+  )}`
 
   return [
     {
       key: 'followers',
       title: 'Підписники',
-      metricLabel: 'Net growth',
+      metricLabel: 'Приріст за тиждень',
       unit: '',
-      data: buckets.map((bucket, index) => ({
-        week: `W${index + 1}`,
-        value: Math.round(sumInsightValues(accountInsights, ['follower_count'], bucket)),
+      periodLabel,
+      data: buckets.map((bucket) => ({
+        week: smmWeekRangeLabel(bucket),
+        value: hasInsightValues(accountInsights, ['follower_count'], bucket)
+          ? Math.round(sumInsightValues(accountInsights, ['follower_count'], bucket))
+          : null,
       })),
     },
     {
@@ -4602,8 +4644,9 @@ function buildLiveSmmTrends(media, accountInsights, monthKey) {
       title: 'Перегляди рілз',
       metricLabel: 'Середні перегляди',
       unit: '',
-      data: buckets.map((bucket, index) => ({
-        week: `W${index + 1}`,
+      periodLabel,
+      data: buckets.map((bucket) => ({
+        week: smmWeekRangeLabel(bucket),
         value: Math.round(
           averageNumbers(
             media
@@ -4618,8 +4661,9 @@ function buildLiveSmmTrends(media, accountInsights, monthKey) {
       title: 'Engagement rate',
       metricLabel: 'ER',
       unit: '%',
-      data: buckets.map((bucket, index) => ({
-        week: `W${index + 1}`,
+      periodLabel,
+      data: buckets.map((bucket) => ({
+        week: smmWeekRangeLabel(bucket),
         value: weightedSmmEr(media.filter((item) => smmDateInRange(item.publishedAt, bucket))),
       })),
     },
@@ -4635,8 +4679,10 @@ function buildLiveMonthlyBreakdown(media, accountInsights, monthKey) {
       return {
         month: smmShortMonthLabel(key),
         posts: monthMedia.length,
-        netFollowers: Math.round(sumInsightValues(accountInsights, ['follower_count'], range)),
-        er: weightedSmmEr(monthMedia),
+        netFollowers: hasInsightValues(accountInsights, ['follower_count'], range)
+          ? Math.round(sumInsightValues(accountInsights, ['follower_count'], range))
+          : null,
+        er: weightedSmmEr(monthMedia, { unavailableAsNull: true }),
       }
     },
   )
@@ -4680,10 +4726,12 @@ function tagLiveSmmPosts(media) {
     .sort((left, right) => right.views - left.views)
   const best = ranked[0]
   const weakest = ranked.length > 1 ? ranked[ranked.length - 1] : null
+  const duplicateCaptionKeys = duplicateSmmCaptionKeys(posts)
 
   return posts
     .map((post) => ({
       ...post,
+      variantTag: isSmmTrialPost(post, duplicateCaptionKeys) ? 'Пробний' : null,
       tag:
         post.id === best?.id
           ? 'Найкращий'
@@ -4692,6 +4740,35 @@ function tagLiveSmmPosts(media) {
             : post.tag,
     }))
     .sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt))
+}
+
+function duplicateSmmCaptionKeys(posts) {
+  const counts = posts.reduce((accumulator, post) => {
+    const key = normalizeSmmCaption(post.caption)
+    if (key) accumulator.set(key, (accumulator.get(key) || 0) + 1)
+    return accumulator
+  }, new Map())
+
+  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key))
+}
+
+function isSmmTrialPost(post, duplicateCaptionKeys) {
+  const caption = normalizeSmmCaption(post.caption)
+  const rawCaption = textValue(post.caption).toLowerCase()
+
+  return (
+    duplicateCaptionKeys.has(caption) ||
+    /\b(test|trial|draft|ab test|a\/b)\b/i.test(rawCaption) ||
+    /тест|пробн|чернетк/.test(rawCaption)
+  )
+}
+
+function normalizeSmmCaption(value) {
+  return textValue(value)
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
 }
 
 function liveSmmStatus(stats, goalProgress) {
@@ -4755,6 +4832,14 @@ function firstInsightNumber(insights, names) {
   return 0
 }
 
+function hasInsightValues(insights, names, range) {
+  return names.some((name) => {
+    const metric = insights?.[name]
+    const values = Array.isArray(metric?.values) ? metric.values : []
+    return values.some((item) => !range || smmInsightDateInRange(item, range))
+  })
+}
+
 function sumInsightValues(insights, names, range) {
   return names.reduce((sum, name) => {
     const metric = insights?.[name]
@@ -4781,16 +4866,23 @@ function insightValueNumber(value) {
 }
 
 function smmInsightDateInRange(item, range) {
-  const date = textValue(item.end_time || item.endTime)
-  if (!date) return true
-  return smmDateInRange(date, range)
+  const endTime = textValue(item.end_time || item.endTime)
+  if (!endTime) return true
+
+  const date = new Date(isoDateBoundary(endTime))
+  if (Number.isNaN(date.getTime())) return true
+  date.setUTCDate(date.getUTCDate() - 1)
+
+  return smmDateInRange(`${formatIsoDate(date)}T12:00:00`, range)
 }
 
-function weightedSmmEr(media) {
+function weightedSmmEr(media, options = {}) {
   const reach = sumNumbers(media.map((item) => item.reach || item.nonFollowerReach || item.views))
   const engagement = sumNumbers(media.map((item) => item.engagement?.total))
   if (reach) return roundSmmDecimal((engagement / reach) * 100)
-  return roundSmmDecimal(averageNumbers(media.map((item) => item.er)) || 0)
+  const averageEr = averageNumbers(media.map((item) => item.er))
+  if (!averageEr && options.unavailableAsNull) return null
+  return roundSmmDecimal(averageEr || 0)
 }
 
 function smmMonthKey(value) {
@@ -4851,6 +4943,47 @@ function smmWeekBuckets(monthKey) {
       from: `${formatIsoDate(from)}T00:00:00`,
       to: `${formatIsoDate(to)}T23:59:59`,
     }
+  })
+}
+
+function smmInsightRangeChunks(range) {
+  const chunks = []
+  const maxDays = 29
+  let current = new Date(`${range.from}Z`)
+  const end = new Date(`${range.to}Z`)
+
+  while (current <= end) {
+    const chunkStart = new Date(current)
+    const chunkEnd = new Date(current)
+    chunkEnd.setUTCDate(chunkEnd.getUTCDate() + maxDays)
+    chunkEnd.setUTCHours(23, 59, 59, 0)
+    if (chunkEnd > end) chunkEnd.setTime(end.getTime())
+
+    chunks.push({
+      from: `${formatIsoDate(chunkStart)}T00:00:00`,
+      to: `${formatIsoDate(chunkEnd)}T23:59:59`,
+    })
+
+    current = new Date(chunkEnd)
+    current.setUTCDate(current.getUTCDate() + 1)
+    current.setUTCHours(0, 0, 0, 0)
+  }
+
+  return chunks
+}
+
+function smmWeekRangeLabel(range) {
+  return `${smmShortDateLabel(range.from)} - ${smmShortDateLabel(range.to)}`
+}
+
+function smmShortDateLabel(value) {
+  const date = new Date(isoDateBoundary(value))
+  if (Number.isNaN(date.getTime())) return ''
+
+  return date.toLocaleDateString('uk-UA', {
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'UTC',
   })
 }
 
@@ -4942,6 +5075,7 @@ function formatSmmDecimal(value) {
 }
 
 function formatSmmSigned(value) {
+  if (value === null || value === undefined) return '—'
   const number = Number(value || 0)
   return `${number > 0 ? '+' : ''}${formatSmmNumber(number)}`
 }
