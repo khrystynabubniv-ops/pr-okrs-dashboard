@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { PlugZap, TrendingDown, TrendingUp } from 'lucide-react'
+import { AlertTriangle, PlugZap, TrendingDown, TrendingUp } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { InstagramIcon } from '../components/icons/InstagramIcon'
 import { MonthSelector } from '../components/MonthSelector'
@@ -99,6 +99,20 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
       onMonthChange={onMonthChange}
       source={data.source}
     >
+      {data.integrationError ? (
+        <section className="rounded-[10px] border border-warn/30 bg-warmsoft px-4 py-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
+            <div>
+              <p className="text-sm font-semibold text-ink">
+                Live-дані Meta не завантажились, показуємо demo fallback.
+              </p>
+              <p className="mt-1 text-sm leading-5 text-ink2">{data.integrationError}</p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <section id="glance" className="scroll-mt-28 space-y-5">
         <StatusHero status={data.status} signals={data.signals} />
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { getSmmMonthData } from '../lib/smmData'
+import { apiRequest } from '../lib/api'
+import { getSmmMonthData, monthToIsoMonth } from '../lib/smmData'
 
 export function useSmmData(month, previewState = '') {
   const [state, setState] = useState({
@@ -33,16 +34,56 @@ export function useSmmData(month, previewState = '') {
         return
       }
 
-      try {
-        setState({
-          data: getSmmMonthData(month),
-          loading: false,
-          error: null,
-        })
-      } catch (error) {
-        setState({ data: null, loading: false, error })
+      async function loadData() {
+        if (normalizedPreviewState === 'mock') {
+          setState({
+            data: getSmmMonthData(month),
+            loading: false,
+            error: null,
+          })
+          return
+        }
+
+        const monthKey = monthToIsoMonth(month)
+
+        try {
+          const data = await apiRequest(
+            `/api/smm/data?month=${encodeURIComponent(monthKey || month)}`,
+          )
+          if (!isMounted) return
+
+          setState({
+            data,
+            loading: false,
+            error: null,
+          })
+        } catch (requestError) {
+          if (!isMounted) return
+
+          const fallback = getSmmMonthData(month)
+          setState({
+            data: {
+              ...fallback,
+              source: 'Meta Business Suite · demo fallback',
+              sourceMode: 'mock-fallback',
+              integrationError: requestError.message,
+            },
+            loading: false,
+            error: null,
+          })
+        }
       }
-    }, 520)
+
+      try {
+        void loadData()
+      } catch (error) {
+        setState({
+          data: null,
+          loading: false,
+          error,
+        })
+      }
+    }, 320)
 
     return () => {
       isMounted = false

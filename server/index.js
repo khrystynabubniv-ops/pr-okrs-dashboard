@@ -97,7 +97,22 @@ const LOOQME_SENTIMENT_COLORS = {
 }
 const LOOQME_COVERAGE_CACHE_TTL_MS = 10 * 60 * 1000
 const MAILCHIMP_REPORTS_CACHE_TTL_MS = 10 * 60 * 1000
+const SMM_DATA_CACHE_TTL_MS = 10 * 60 * 1000
 const SMM_EMPLOYEE_COUNT = parsePositiveNumber(process.env.SMM_EMPLOYEE_COUNT) || 310
+const SMM_REEL_VIEW_TARGET = parsePositiveNumber(process.env.SMM_REEL_VIEW_TARGET) || 20000
+const SMM_POST_REEL_VIEW_TARGET =
+  parsePositiveNumber(process.env.SMM_POST_REEL_VIEW_TARGET) || 15000
+const META_GRAPH_DEFAULT_VERSION = 'v25.0'
+const META_MEDIA_INSIGHT_BATCHES = [
+  ['reach', 'impressions', 'saved', 'shares', 'total_interactions', 'views'],
+  ['plays', 'likes', 'comments'],
+  ['follows', 'profile_visits'],
+  ['ig_reels_avg_watch_time', 'ig_reels_video_view_total_time'],
+]
+const META_ACCOUNT_INSIGHT_BATCHES = [
+  ['follower_count', 'reach', 'profile_views'],
+  ['accounts_engaged', 'total_interactions', 'views'],
+]
 
 const FOCUS_TEAMS = ['EB', 'PR', 'Brand Design', 'Operations', 'SMM']
 
@@ -110,6 +125,7 @@ const NOTION_DATABASE_QUERY_CACHE_TTL_MS = 60 * 1000
 const NOTION_DATABASE_QUERY_STALE_TTL_MS = 10 * 60 * 1000
 const looqmeCoverageCache = new Map()
 const mailchimpReportsCache = new Map()
+const smmDataCache = new Map()
 const smmInsightsCache = new Map()
 let googleTokenCache = null
 
@@ -4048,6 +4064,827 @@ function boundedInteger(value, fallback, min, max) {
   return Math.min(max, Math.max(min, Math.floor(number)))
 }
 
+async function fetchInstagramSmmData(monthInput) {
+  const monthKey = smmMonthKey(monthInput)
+
+  if (!monthKey) {
+    throw createHttpError(400, 'Передайте month у форматі YYYY-MM або назву місяця.')
+  }
+
+  const config = getMetaInstagramConfig()
+  const cacheKey = [
+    config.accountId,
+    config.version,
+    monthKey,
+    SMM_REEL_VIEW_TARGET,
+    SMM_POST_REEL_VIEW_TARGET,
+  ].join('|')
+  const cached = readSmmDataCache(cacheKey)
+  if (cached) return cached
+
+  const monthRange = smmMonthRange(monthKey)
+  const historyRange = smmHistoryRange(monthKey)
+  const trendRange = smmTrendRange(monthKey)
+  const fetchRange = mergeSmmRanges(historyRange, trendRange)
+
+  const [profile, rawMedia, accountInsightsResult] = await Promise.all([
+    fetchInstagramProfile(config),
+    fetchInstagramMedia(config, fetchRange),
+    fetchInstagramAccountInsights(config, fetchRange).catch((error) => ({
+      error: error.message,
+      insights: {},
+    })),
+  ])
+  const accountInsights = accountInsightsResult.insights || accountInsightsResult
+  const accountInsightsError = accountInsightsResult.error || ''
+  const mediaInsights = await mapWithConcurrency(
+    rawMedia,
+    boundedInteger(process.env.META_MEDIA_INSIGHTS_CONCURRENCY, 4, 1, 8),
+    async (media) => fetchInstagramMediaInsights(config, media.id),
+  )
+  const media = rawMedia
+    .map((item, index) => normalizeInstagramMedia(item, mediaInsights[index], profile))
+    .filter((item) => item.id && item.publishedAt)
+    .sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt))
+
+  const payload = buildLiveSmmPayload({
+    accountInsights,
+    accountInsightsError,
+    media,
+    monthKey,
+    monthRange,
+    profile,
+  })
+
+  writeSmmDataCache(cacheKey, payload)
+  return payload
+}
+
+function getMetaInstagramConfig() {
+  const accessToken = textValue(
+    process.env.META_ACCESS_TOKEN ||
+      process.env.INSTAGRAM_ACCESS_TOKEN ||
+      process.env.META_GRAPH_ACCESS_TOKEN ||
+      process.env.FACEBOOK_ACCESS_TOKEN,
+  )
+  const accountId = textValue(
+    process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID ||
+      process.env.META_INSTAGRAM_BUSINESS_ACCOUNT_ID ||
+      process.env.IG_BUSINESS_ACCOUNT_ID,
+  )
+
+  if (!accessToken) {
+    throw createHttpError(
+      503,
+      'META_ACCESS_TOKEN не налаштований. Додайте Meta access token у Railway Variables або локальний .env.',
+    )
+  }
+
+  if (!accountId) {
+    throw createHttpError(
+      503,
+      'INSTAGRAM_BUSINESS_ACCOUNT_ID не налаштований. Додайте Instagram Business Account ID у Railway Variables або локальний .env.',
+    )
+  }
+
+  const version = normalizeMetaGraphVersion(
+    process.env.META_GRAPH_VERSION ||
+      process.env.GRAPH_API_VERSION ||
+      META_GRAPH_DEFAULT_VERSION,
+  )
+
+  return {
+    accessToken,
+    accountId,
+    version,
+    baseUrl: `https://graph.facebook.com/${version}`,
+    timeoutMs: boundedInteger(process.env.META_GRAPH_TIMEOUT_MS, 20000, 1000, 120000),
+  }
+}
+
+function normalizeMetaGraphVersion(value) {
+  const text = textValue(value) || META_GRAPH_DEFAULT_VERSION
+  return text.startsWith('v') ? text : `v${text}`
+}
+
+async function fetchInstagramProfile(config) {
+  return fetchMetaJson(
+    config,
+    config.accountId,
+    {
+      fields: 'id,username,name,profile_picture_url,followers_count,media_count',
+    },
+    'Meta API не повернув Instagram profile.',
+  )
+}
+
+async function fetchInstagramMedia(config, range) {
+  const fields = [
+    'id',
+    'caption',
+    'media_type',
+    'media_product_type',
+    'media_url',
+    'permalink',
+    'thumbnail_url',
+    'timestamp',
+    'like_count',
+    'comments_count',
+  ].join(',')
+
+  const url = metaUrl(config, `${config.accountId}/media`, {
+    fields,
+    limit: 100,
+    since: smmUnixTime(range.from),
+    until: smmUnixTime(range.to),
+  })
+
+  return fetchMetaPaged(config, url, 'Meta API не повернув Instagram media.')
+}
+
+async function fetchInstagramAccountInsights(config, range) {
+  const insights = await fetchMetaInsights(config, config.accountId, META_ACCOUNT_INSIGHT_BATCHES, {
+    period: 'day',
+    since: smmUnixTime(range.from),
+    until: smmUnixTime(range.to),
+  })
+
+  return { insights }
+}
+
+async function fetchInstagramMediaInsights(config, mediaId) {
+  if (!mediaId) return {}
+  return fetchMetaInsights(config, mediaId, META_MEDIA_INSIGHT_BATCHES)
+}
+
+async function fetchMetaInsights(config, nodeId, metricBatches, params = {}) {
+  const insights = {}
+
+  for (const batch of metricBatches) {
+    const merged = await fetchMetaInsightBatch(config, nodeId, batch, params)
+    mergeMetaInsights(insights, merged)
+  }
+
+  return insights
+}
+
+async function fetchMetaInsightBatch(config, nodeId, batch, params) {
+  try {
+    return await fetchMetaInsightMetrics(config, nodeId, batch, params)
+  } catch {
+    if (batch.length <= 1) return {}
+
+    const settled = await Promise.allSettled(
+      batch.map((metric) => fetchMetaInsightMetrics(config, nodeId, [metric], params)),
+    )
+
+    return settled.reduce((accumulator, item) => {
+      if (item.status === 'fulfilled') mergeMetaInsights(accumulator, item.value)
+      return accumulator
+    }, {})
+  }
+}
+
+async function fetchMetaInsightMetrics(config, nodeId, metrics, params) {
+  const payload = await fetchMetaJson(
+    config,
+    `${nodeId}/insights`,
+    {
+      ...params,
+      metric: metrics.join(','),
+    },
+    'Meta API не повернув Instagram insights.',
+  )
+
+  const insights = {}
+  mergeMetaInsights(insights, payload)
+  return insights
+}
+
+function mergeMetaInsights(target, payload) {
+  const rows = Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload)
+      ? payload
+      : Object.values(payload || {})
+
+  rows.forEach((row) => {
+    if (row?.name) target[row.name] = row
+  })
+}
+
+async function fetchMetaPaged(config, firstUrl, message) {
+  const rows = []
+  let url = firstUrl
+  let page = 0
+  const maxPages = boundedInteger(process.env.META_GRAPH_MAX_PAGES, 8, 1, 30)
+
+  while (url && page < maxPages) {
+    page += 1
+    const payload = await fetchMetaJsonUrl(config, url, message)
+    if (Array.isArray(payload.data)) rows.push(...payload.data)
+    url = payload.paging?.next ? new URL(payload.paging.next) : null
+  }
+
+  return rows
+}
+
+async function fetchMetaJson(config, pathValue, params, message) {
+  return fetchMetaJsonUrl(config, metaUrl(config, pathValue, params), message)
+}
+
+async function fetchMetaJsonUrl(config, url, message) {
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(config.timeoutMs),
+  })
+  const body = await response.text()
+
+  if (!response.ok) {
+    throw createHttpError(502, message, sanitizeExternalError(body))
+  }
+
+  return parseMetaJsonBody(body)
+}
+
+function metaUrl(config, pathValue, params = {}) {
+  const url = new URL(`${config.baseUrl}/${String(pathValue).replace(/^\/+/, '')}`)
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== '') {
+      url.searchParams.set(key, String(value))
+    }
+  })
+  url.searchParams.set('access_token', config.accessToken)
+
+  return url
+}
+
+function parseMetaJsonBody(body) {
+  const text = String(body || '').trim()
+  if (!text) return {}
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw createHttpError(502, 'Meta API повернув невалідний JSON.')
+  }
+}
+
+function buildLiveSmmPayload({
+  accountInsights,
+  accountInsightsError,
+  media,
+  monthKey,
+  monthRange,
+  profile,
+}) {
+  const selectedMedia = media.filter((item) => smmDateInRange(item.publishedAt, monthRange))
+  const previousMonthKey = shiftSmmMonth(monthKey, -1)
+  const previousMonthRange = smmMonthRange(previousMonthKey)
+  const previousMedia = media.filter((item) => smmDateInRange(item.publishedAt, previousMonthRange))
+  const currentStats = calculateSmmStats(selectedMedia, accountInsights, monthRange, profile)
+  const previousStats = calculateSmmStats(
+    previousMedia,
+    accountInsights,
+    previousMonthRange,
+    profile,
+  )
+  const reelViewsDelta = percentChange(currentStats.avgReelViews, previousStats.avgReelViews)
+  const sharesDelta = percentChange(currentStats.shares, previousStats.shares)
+  const goalProgress = SMM_REEL_VIEW_TARGET
+    ? clampPercent(Math.round((currentStats.avgReelViews / SMM_REEL_VIEW_TARGET) * 100))
+    : 0
+  const status = liveSmmStatus(currentStats, goalProgress)
+
+  return {
+    month: smmMonthLabel(monthKey),
+    monthKey,
+    source: 'Meta Business Suite',
+    sourceMode: 'live',
+    status,
+    signals: [
+      {
+        label: 'Приріст підписників',
+        value: formatSmmSigned(currentStats.netFollowers),
+        tone: currentStats.netFollowers >= 100 ? 'green' : currentStats.netFollowers > 0 ? 'yellow' : 'red',
+      },
+      {
+        label: 'ER',
+        value: `${formatSmmDecimal(currentStats.er)}%`,
+        tone: currentStats.er >= 5 ? 'green' : currentStats.er >= 3.5 ? 'yellow' : 'red',
+      },
+      {
+        label: 'Перегляди vs ціль',
+        value: `${goalProgress}%`,
+        tone: goalProgress >= 85 ? 'green' : goalProgress >= 60 ? 'yellow' : 'red',
+      },
+    ],
+    kpis: {
+      followers: {
+        label: 'Підписники',
+        value: currentStats.followers,
+        delta: currentStats.netFollowers,
+        detail: currentStats.followersDetail,
+      },
+      averageReelViews: {
+        label: 'Середні перегляди рілз',
+        value: currentStats.avgReelViews,
+        deltaPercent: reelViewsDelta,
+        detail: 'до минулого місяця',
+      },
+      shares: {
+        label: 'Шери за місяць',
+        value: currentStats.shares,
+        deltaPercent: sharesDelta,
+        detail: 'до минулого місяця',
+      },
+      goalProgress: {
+        label: 'Прогрес до цілі місяця',
+        value: goalProgress,
+        current: currentStats.avgReelViews,
+        target: SMM_REEL_VIEW_TARGET,
+        detail: `${formatSmmNumber(currentStats.avgReelViews)} / ${formatSmmNumber(SMM_REEL_VIEW_TARGET)} сер. переглядів рілз`,
+      },
+    },
+    trends: buildLiveSmmTrends(media, accountInsights, monthKey),
+    monthlyBreakdown: buildLiveMonthlyBreakdown(media, accountInsights, monthKey),
+    contentTypeBreakdown: buildLiveContentTypeBreakdown(selectedMedia),
+    posts: tagLiveSmmPosts(selectedMedia).slice(0, 12),
+    meta: {
+      accountId: textValue(profile.id),
+      username: textValue(profile.username),
+      fetchedAt: new Date().toISOString(),
+      accountInsightsError,
+    },
+  }
+}
+
+function calculateSmmStats(media, accountInsights, range, profile) {
+  const reels = media.filter((item) => item.type === 'reel')
+  const avgReelViews = Math.round(averageNumbers(reels.map((item) => item.views)) || 0)
+  const shares = sumNumbers(media.map((item) => item.engagement?.shares))
+  const reach = sumNumbers(media.map((item) => item.reach || item.nonFollowerReach || item.views))
+  const engagement = sumNumbers(media.map((item) => item.engagement?.total))
+  const er = roundSmmDecimal(reach ? (engagement / reach) * 100 : averageNumbers(media.map((item) => item.er)) || 0)
+  const newFollowers = Math.round(sumInsightValues(accountInsights, ['follower_count'], range))
+  const followers = Math.round(firstPositiveNumber([profile.followers_count, profile.followersCount]))
+  const followersDetail = newFollowers
+    ? `${formatSmmNumber(newFollowers)} нових · відписки недоступні в Meta API`
+    : 'історичний приріст недоступний у Meta API'
+
+  return {
+    avgReelViews,
+    er,
+    followers,
+    followersDetail,
+    netFollowers: newFollowers,
+    posts: media.length,
+    shares,
+  }
+}
+
+function normalizeInstagramMedia(rawMedia = {}, insights = {}, profile = {}) {
+  const type = normalizeInstagramMediaType(rawMedia)
+  const reach = Math.round(firstInsightNumber(insights, ['reach']) || 0)
+  const impressions = Math.round(firstInsightNumber(insights, ['impressions']) || 0)
+  const views = Math.round(
+    firstInsightNumber(insights, ['views', 'plays', 'impressions', 'reach']) || 0,
+  )
+  const likes = Math.round(numberValue(rawMedia.like_count) || firstInsightNumber(insights, ['likes']) || 0)
+  const comments = Math.round(
+    numberValue(rawMedia.comments_count) || firstInsightNumber(insights, ['comments']) || 0,
+  )
+  const shares = Math.round(firstInsightNumber(insights, ['shares']) || 0)
+  const saves = Math.round(firstInsightNumber(insights, ['saved']) || 0)
+  const totalInteractions = Math.round(
+    firstInsightNumber(insights, ['total_interactions']) || likes + comments + shares + saves,
+  )
+  const baseReach = reach || impressions || views
+  const errBase = views || baseReach
+  const post = {
+    id: textValue(rawMedia.id),
+    type,
+    publishedAt: textValue(rawMedia.timestamp).slice(0, 10),
+    thumbnailUrl: instagramThumbnailUrl(rawMedia, type),
+    permalink: textValue(rawMedia.permalink),
+    views,
+    reach,
+    engagement: {
+      likes,
+      comments,
+      shares,
+      saves,
+      total: totalInteractions,
+    },
+    newFollowers: Math.round(firstInsightNumber(insights, ['follows']) || 0),
+    er: roundSmmDecimal(baseReach ? (totalInteractions / baseReach) * 100 : 0),
+    err: roundSmmDecimal(errBase ? (totalInteractions / errBase) * 100 : 0),
+    nonFollowerReach: reach,
+    avgWatchTimeSeconds: normalizeWatchTimeSeconds(
+      firstInsightNumber(insights, [
+        'ig_reels_avg_watch_time',
+        'ig_reels_video_view_total_time',
+      ]),
+    ),
+    tag: null,
+  }
+
+  return {
+    ...post,
+    benchmark: type === 'reel' ? getSmmViewsBenchmark(post.views) : null,
+    followersAtFetch: numberValue(profile.followers_count),
+  }
+}
+
+function normalizeInstagramMediaType(rawMedia = {}) {
+  const mediaType = textValue(rawMedia.media_type).toUpperCase()
+  const productType = textValue(rawMedia.media_product_type).toUpperCase()
+
+  if (productType === 'REELS') return 'reel'
+  if (productType === 'STORY' || mediaType === 'STORY') return 'story'
+  if (mediaType === 'CAROUSEL_ALBUM') return 'carousel'
+  if (mediaType === 'VIDEO') return 'reel'
+  return 'static'
+}
+
+function instagramThumbnailUrl(rawMedia, type) {
+  if (rawMedia.thumbnail_url) return textValue(rawMedia.thumbnail_url)
+  if (type === 'static' || type === 'carousel') return textValue(rawMedia.media_url)
+  return null
+}
+
+function normalizeWatchTimeSeconds(value) {
+  const number = Number(value || 0)
+  if (!Number.isFinite(number) || number <= 0) return 0
+  const seconds = number > 600 ? number / 1000 : number
+  return roundSmmDecimal(seconds)
+}
+
+function buildLiveSmmTrends(media, accountInsights, monthKey) {
+  const buckets = smmWeekBuckets(monthKey)
+
+  return [
+    {
+      key: 'followers',
+      title: 'Підписники',
+      metricLabel: 'Net growth',
+      unit: '',
+      data: buckets.map((bucket, index) => ({
+        week: `W${index + 1}`,
+        value: Math.round(sumInsightValues(accountInsights, ['follower_count'], bucket)),
+      })),
+    },
+    {
+      key: 'reelViews',
+      title: 'Перегляди рілз',
+      metricLabel: 'Середні перегляди',
+      unit: '',
+      data: buckets.map((bucket, index) => ({
+        week: `W${index + 1}`,
+        value: Math.round(
+          averageNumbers(
+            media
+              .filter((item) => item.type === 'reel' && smmDateInRange(item.publishedAt, bucket))
+              .map((item) => item.views),
+          ) || 0,
+        ),
+      })),
+    },
+    {
+      key: 'er',
+      title: 'Engagement rate',
+      metricLabel: 'ER',
+      unit: '%',
+      data: buckets.map((bucket, index) => ({
+        week: `W${index + 1}`,
+        value: weightedSmmEr(media.filter((item) => smmDateInRange(item.publishedAt, bucket))),
+      })),
+    },
+  ]
+}
+
+function buildLiveMonthlyBreakdown(media, accountInsights, monthKey) {
+  return Array.from({ length: 6 }, (_, index) => shiftSmmMonth(monthKey, index - 5)).map(
+    (key) => {
+      const range = smmMonthRange(key)
+      const monthMedia = media.filter((item) => smmDateInRange(item.publishedAt, range))
+
+      return {
+        month: smmShortMonthLabel(key),
+        posts: monthMedia.length,
+        netFollowers: Math.round(sumInsightValues(accountInsights, ['follower_count'], range)),
+        er: weightedSmmEr(monthMedia),
+      }
+    },
+  )
+}
+
+function buildLiveContentTypeBreakdown(media) {
+  const order = ['reel', 'carousel', 'static', 'story']
+  const labels = {
+    reel: 'Reels',
+    carousel: 'Carousel',
+    static: 'Static',
+    story: 'Stories',
+  }
+  const notes = {
+    reel: 'Відео / Reels із Meta insights',
+    carousel: 'Каруселі з Instagram media',
+    static: 'Feed posts без відео',
+    story: 'Stories, якщо Meta повернула їх у media',
+  }
+
+  return order
+    .map((type) => {
+      const items = media.filter((item) => item.type === type)
+      if (!items.length) return null
+
+      return {
+        format: labels[type],
+        posts: items.length,
+        avgViews: Math.round(averageNumbers(items.map((item) => item.views)) || 0),
+        er: weightedSmmEr(items),
+        note: notes[type],
+      }
+    })
+    .filter(Boolean)
+}
+
+function tagLiveSmmPosts(media) {
+  const posts = media.map((post) => ({ ...post, tag: null }))
+  const ranked = posts
+    .filter((post) => post.views > 0)
+    .sort((left, right) => right.views - left.views)
+  const best = ranked[0]
+  const weakest = ranked.length > 1 ? ranked[ranked.length - 1] : null
+
+  return posts
+    .map((post) => ({
+      ...post,
+      tag:
+        post.id === best?.id
+          ? 'Найкращий'
+          : post.id === weakest?.id
+            ? 'Найгірший'
+            : post.tag,
+    }))
+    .sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt))
+}
+
+function liveSmmStatus(stats, goalProgress) {
+  if (!stats.posts) {
+    return {
+      tone: 'yellow',
+      title: 'Все ок',
+      description: 'Meta підключена, але за цей місяць ще немає публікацій у відповіді API.',
+    }
+  }
+
+  if (goalProgress >= 85 && stats.er >= 4.5) {
+    return {
+      tone: 'green',
+      title: 'Є що подивитись',
+      description: 'Рілз тримають темп до місячної цілі, а ER у робочому діапазоні.',
+    }
+  }
+
+  if (goalProgress < 50 || stats.er < 2.5) {
+    return {
+      tone: 'red',
+      title: 'Потрібна увага',
+      description: 'Ключові SMM метрики нижче темпу, варто переглянути форматний мікс.',
+    }
+  }
+
+  return {
+    tone: 'yellow',
+    title: 'Все ок',
+    description: 'Дані стабільні, але частина KPI ще не дотягує до місячного темпу.',
+  }
+}
+
+function getSmmViewsBenchmark(views) {
+  if (views >= SMM_POST_REEL_VIEW_TARGET) {
+    return { status: 'green', label: 'Ціль виконано' }
+  }
+
+  if (views >= SMM_POST_REEL_VIEW_TARGET * 0.67) {
+    const shortfallPercent = Math.round((1 - views / SMM_POST_REEL_VIEW_TARGET) * 100)
+    return {
+      status: 'yellow',
+      label: `Недобрали ${shortfallPercent}%`,
+      shortfallPercent,
+    }
+  }
+
+  return { status: 'red', label: 'Суттєво нижче цілі' }
+}
+
+function firstInsightNumber(insights, names) {
+  for (const name of names) {
+    const metric = insights?.[name]
+    const values = Array.isArray(metric?.values) ? metric.values : []
+    const number = firstPositiveNumber(values.map((item) => insightValueNumber(item.value)))
+
+    if (number || number === 0) return number
+  }
+
+  return 0
+}
+
+function sumInsightValues(insights, names, range) {
+  return names.reduce((sum, name) => {
+    const metric = insights?.[name]
+    const values = Array.isArray(metric?.values) ? metric.values : []
+
+    return (
+      sum +
+      values.reduce((metricSum, item) => {
+        if (range && !smmInsightDateInRange(item, range)) return metricSum
+        return metricSum + insightValueNumber(item.value)
+      }, 0)
+    )
+  }, 0)
+}
+
+function insightValueNumber(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  if (value && typeof value === 'object') {
+    return Object.values(value).reduce((sum, item) => sum + insightValueNumber(item), 0)
+  }
+
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
+}
+
+function smmInsightDateInRange(item, range) {
+  const date = textValue(item.end_time || item.endTime)
+  if (!date) return true
+  return smmDateInRange(date, range)
+}
+
+function weightedSmmEr(media) {
+  const reach = sumNumbers(media.map((item) => item.reach || item.nonFollowerReach || item.views))
+  const engagement = sumNumbers(media.map((item) => item.engagement?.total))
+  if (reach) return roundSmmDecimal((engagement / reach) * 100)
+  return roundSmmDecimal(averageNumbers(media.map((item) => item.er)) || 0)
+}
+
+function smmMonthKey(value) {
+  const text = textValue(value)
+  const isoMatch = text.match(/^(\d{4})-(\d{2})$/)
+  if (isoMatch) {
+    const month = Number(isoMatch[2])
+    return month >= 1 && month <= 12 ? `${isoMatch[1]}-${isoMatch[2]}` : ''
+  }
+
+  const range = coverageMonthDateRange(text)
+  return range ? range.from.slice(0, 7) : ''
+}
+
+function smmMonthRange(monthKey) {
+  const [year, month] = monthKey.split('-').map(Number)
+  return dateRangeForMonthIndex(year, month - 1)
+}
+
+function smmHistoryRange(monthKey) {
+  const startKey = shiftSmmMonth(monthKey, -5)
+  return {
+    from: smmMonthRange(startKey).from,
+    to: smmMonthRange(monthKey).to,
+  }
+}
+
+function smmTrendRange(monthKey) {
+  const end = new Date(`${smmMonthRange(monthKey).to}Z`)
+  const start = new Date(end)
+  start.setUTCDate(start.getUTCDate() - 7 * 12 + 1)
+
+  return {
+    from: `${formatIsoDate(start)}T00:00:00`,
+    to: smmMonthRange(monthKey).to,
+  }
+}
+
+function mergeSmmRanges(left, right) {
+  return {
+    from: Date.parse(`${left.from}Z`) <= Date.parse(`${right.from}Z`) ? left.from : right.from,
+    to: Date.parse(`${left.to}Z`) >= Date.parse(`${right.to}Z`) ? left.to : right.to,
+  }
+}
+
+function smmWeekBuckets(monthKey) {
+  const range = smmTrendRange(monthKey)
+  const start = new Date(`${range.from}Z`)
+
+  return Array.from({ length: 12 }, (_, index) => {
+    const from = new Date(start)
+    from.setUTCDate(from.getUTCDate() + index * 7)
+    const to = new Date(from)
+    to.setUTCDate(to.getUTCDate() + 6)
+    to.setUTCHours(23, 59, 59, 0)
+
+    return {
+      from: `${formatIsoDate(from)}T00:00:00`,
+      to: `${formatIsoDate(to)}T23:59:59`,
+    }
+  })
+}
+
+function shiftSmmMonth(monthKey, offset) {
+  const [year, month] = monthKey.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1 + offset, 1))
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+function smmMonthLabel(monthKey) {
+  const [year, month] = monthKey.split('-')
+  const monthName = MONTHS[Number(month) - 1]?.split(' ')[0] || monthKey
+  return `${monthName} ${year}`
+}
+
+function smmShortMonthLabel(monthKey) {
+  return smmMonthLabel(monthKey).split(' ')[0]
+}
+
+function smmUnixTime(value) {
+  return Math.floor(Date.parse(`${value}Z`) / 1000)
+}
+
+function smmDateInRange(value, range) {
+  const timestamp = Date.parse(isoDateBoundary(value))
+  if (Number.isNaN(timestamp)) return false
+
+  return (
+    timestamp >= Date.parse(isoDateBoundary(range.from)) &&
+    timestamp <= Date.parse(isoDateBoundary(range.to))
+  )
+}
+
+function readSmmDataCache(cacheKey) {
+  const cached = smmDataCache.get(cacheKey)
+  if (!cached) return null
+
+  if (Date.now() - cached.cachedAt > SMM_DATA_CACHE_TTL_MS) {
+    smmDataCache.delete(cacheKey)
+    return null
+  }
+
+  return cached.payload
+}
+
+function writeSmmDataCache(cacheKey, payload) {
+  smmDataCache.set(cacheKey, {
+    cachedAt: Date.now(),
+    payload,
+  })
+}
+
+function averageNumbers(values) {
+  const numbers = values.map(Number).filter((value) => Number.isFinite(value) && value > 0)
+  if (!numbers.length) return 0
+  return numbers.reduce((sum, value) => sum + value, 0) / numbers.length
+}
+
+function sumNumbers(values) {
+  return values.reduce((sum, value) => {
+    const number = Number(value || 0)
+    return Number.isFinite(number) ? sum + number : sum
+  }, 0)
+}
+
+function firstPositiveNumber(values) {
+  return values.map(Number).find((value) => Number.isFinite(value) && value > 0) || 0
+}
+
+function percentChange(current, previous) {
+  const currentNumber = Number(current || 0)
+  const previousNumber = Number(previous || 0)
+  if (!previousNumber) return 0
+  return Math.round(((currentNumber - previousNumber) / previousNumber) * 100)
+}
+
+function roundSmmDecimal(value) {
+  const number = Number(value || 0)
+  if (!Number.isFinite(number)) return 0
+  return Math.round(number * 10) / 10
+}
+
+function formatSmmNumber(value) {
+  return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(value || 0)
+}
+
+function formatSmmDecimal(value) {
+  return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 1 }).format(value || 0)
+}
+
+function formatSmmSigned(value) {
+  const number = Number(value || 0)
+  return `${number > 0 ? '+' : ''}${formatSmmNumber(number)}`
+}
+
 async function listEventReports() {
   if (isDatabaseConfigured()) return listStoredEventReports()
   return readLocalEventReports()
@@ -4789,6 +5626,10 @@ app.get('/api/looqme/coverage', asyncHandler(async (request, response) => {
 
 app.get('/api/mailchimp/campaigns', asyncHandler(async (request, response) => {
   response.json(await fetchMailchimpCampaignReports(request.query.month))
+}))
+
+app.get('/api/smm/data', asyncHandler(async (request, response) => {
+  response.json(await fetchInstagramSmmData(request.query.month))
 }))
 
 app.get('/api/smm/insights', asyncHandler(async (request, response) => {
