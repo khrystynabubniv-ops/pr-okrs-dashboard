@@ -4302,10 +4302,36 @@ async function fetchMetaJsonUrl(config, url, message) {
   const body = await response.text()
 
   if (!response.ok) {
-    throw createHttpError(502, message, sanitizeExternalError(body))
+    throw createHttpError(502, metaHttpErrorMessage(message, body, config), sanitizeExternalError(body))
   }
 
   return parseMetaJsonBody(body)
+}
+
+function metaHttpErrorMessage(fallbackMessage, body, config) {
+  const errorMessage = metaResponseErrorMessage(body)
+
+  if (/cannot parse access token/i.test(errorMessage)) {
+    if (String(config.accessToken || '').startsWith('IG')) {
+      return 'META_ACCESS_TOKEN схожий на Instagram-login token (IG...), а SMM інтеграція використовує Facebook Graph API. Згенеруйте Facebook User/Page access token у Graph API Explorer.'
+    }
+
+    return 'META_ACCESS_TOKEN не приймається Meta Graph API. Згенеруйте новий User/Page access token у Graph API Explorer.'
+  }
+
+  if (/does not exist|missing permissions|does not support this operation/i.test(errorMessage)) {
+    return 'Meta не бачить цей Instagram Business Account ID або бракує permissions. Перевірте INSTAGRAM_BUSINESS_ACCOUNT_ID і доступи токена.'
+  }
+
+  return fallbackMessage
+}
+
+function metaResponseErrorMessage(body) {
+  try {
+    return textValue(JSON.parse(body)?.error?.message)
+  } catch {
+    return ''
+  }
 }
 
 function metaUrl(config, pathValue, params = {}) {
