@@ -4840,8 +4840,8 @@ function buildLiveSmmTrends(media, accountInsights, followActions, monthKey) {
     },
     {
       key: 'er',
-      title: 'Engagement rate',
-      metricLabel: 'ER',
+      title: 'Середній ER',
+      metricLabel: 'Взаємодії / охоплення за 7 днів',
       unit: '%',
       periodLabel,
       data: buckets.map((bucket, index) => ({
@@ -5183,8 +5183,8 @@ function smmWeekRangeLabel(range) {
   return `${smmShortDateLabel(range.from)} - ${smmShortDateLabel(range.to)}`
 }
 
-function smmWeekTooltipLabel(range, index) {
-  return `Тиждень ${index + 1} · ${smmWeekRangeLabel(range)}`
+function smmWeekTooltipLabel(range) {
+  return smmWeekRangeLabel(range)
 }
 
 function smmWeekAxisLabel(range) {

@@ -43,7 +43,7 @@ export function StatusHero({ status, signals = [] }) {
 
   return (
     <section className={`rounded-[10px] border px-5 py-5 ${styles.shell}`}>
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(360px,0.9fr)] lg:items-center">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(560px,0.95fr)] xl:items-center">
         <div className="flex min-w-0 items-start gap-4">
           <div className={`grid h-14 w-14 shrink-0 place-items-center rounded-full ${styles.icon}`}>
             <Icon className="h-7 w-7" />
@@ -65,11 +65,11 @@ export function StatusHero({ status, signals = [] }) {
               key={signal.label}
               className="rounded-md border border-white/70 bg-white/70 px-3 py-3 shadow-sm shadow-black/[0.03]"
             >
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-ink3">
+              <div className="flex flex-wrap items-start gap-2">
+                <p className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-[0.08em] text-ink3">
                   {signal.label}
                 </p>
-                <div className="flex shrink-0 items-center gap-1">
+                <div className="ml-auto flex shrink-0 items-center gap-1">
                   <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-ink2 ring-1 ring-line2">
                     <span
                       className={`h-2 w-2 shrink-0 rounded-full ${

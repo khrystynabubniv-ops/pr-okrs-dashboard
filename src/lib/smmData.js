@@ -279,8 +279,8 @@ export function getSmmMonthData(month) {
         unit: '',
         periodLabel: 'Останні 12 тижнів',
         data: weeklyTrends.followers.map((value, index) => ({
-          week: `Тиждень ${index + 1}`,
-          axisLabel: `Т${index + 1}`,
+          week: mockWeekRangeLabel(index),
+          axisLabel: mockWeekAxisLabel(index),
           value,
         })),
       },
@@ -291,20 +291,20 @@ export function getSmmMonthData(month) {
         unit: '',
         periodLabel: 'Останні 12 тижнів',
         data: weeklyTrends.reelViews.map((value, index) => ({
-          week: `Тиждень ${index + 1}`,
-          axisLabel: `Т${index + 1}`,
+          week: mockWeekRangeLabel(index),
+          axisLabel: mockWeekAxisLabel(index),
           value,
         })),
       },
       {
         key: 'er',
-        title: 'Engagement rate',
-        metricLabel: 'ER',
+        title: 'Середній ER',
+        metricLabel: 'Взаємодії / охоплення за 7 днів',
         unit: '%',
         periodLabel: 'Останні 12 тижнів',
         data: weeklyTrends.er.map((value, index) => ({
-          week: `Тиждень ${index + 1}`,
-          axisLabel: `Т${index + 1}`,
+          week: mockWeekRangeLabel(index),
+          axisLabel: mockWeekAxisLabel(index),
           value,
         })),
       },
@@ -399,6 +399,26 @@ function statusForStats(stats) {
     description:
       'Зростання стабільне, але перегляди рілз ще не дотягують до цілі місяця.',
   }
+}
+
+function mockWeekRangeLabel(index) {
+  const start = new Date(Date.UTC(2026, 4, 9 + index * 7))
+  const end = new Date(start)
+  end.setUTCDate(end.getUTCDate() + 6)
+
+  return `${formatShortDate(start)} - ${formatShortDate(end)}`
+}
+
+function mockWeekAxisLabel(index) {
+  return formatShortDate(new Date(Date.UTC(2026, 4, 9 + index * 7)))
+}
+
+function formatShortDate(date) {
+  return date.toLocaleDateString('uk-UA', {
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'UTC',
+  })
 }
 
 function compactPostForAi(post) {

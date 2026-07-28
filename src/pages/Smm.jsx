@@ -23,6 +23,8 @@ const anchors = [
   { href: '#posts', label: 'Пости' },
 ]
 
+const REEL_POST_VIEW_TARGET = 15000
+
 export function SmmPage({ selectedMonth, onMonthChange }) {
   const [searchParams] = useSearchParams()
   const previewState = searchParams.get('previewState') || ''
@@ -315,22 +317,36 @@ function formatDelta(value, isPercent) {
 }
 
 function buildPostTabs(posts) {
-  const regularPosts = posts.filter((post) => post.variantTag !== 'Пробний')
-  const trialPosts = posts.filter((post) => post.variantTag === 'Пробний')
+  const regularPosts = sortPostsByDateDesc(
+    posts.filter((post) => post.variantTag !== 'Пробний'),
+  )
+  const trialPosts = sortPostsByDateDesc(
+    posts.filter((post) => post.variantTag === 'Пробний'),
+  )
   const sortedByViews = [...regularPosts].sort(
     (left, right) => Number(right.views || 0) - Number(left.views || 0),
   )
-  const topPosts = regularPosts.filter(
-    (post) => post.tag === 'Найкращий' || post.benchmark?.status === 'green',
-  )
   const belowTargetPosts = regularPosts.filter(
-    (post) => post.type === 'reel' && post.benchmark && post.benchmark.status !== 'green',
+    (post) => post.type === 'reel' && Number(post.views || 0) < REEL_POST_VIEW_TARGET,
   )
 
   return [
     { key: 'latest', label: 'Останні', posts: regularPosts },
-    { key: 'top', label: 'Топ', posts: topPosts.length ? topPosts : sortedByViews.slice(0, 6) },
-    { key: 'below', label: 'Нижче цілі', posts: belowTargetPosts },
+    { key: 'top', label: 'Топ за переглядами', posts: sortedByViews.slice(0, 6) },
+    { key: 'below', label: 'Reels нижче цілі', posts: belowTargetPosts },
     { key: 'trial', label: 'Пробні', posts: trialPosts },
   ]
+}
+
+function sortPostsByDateDesc(posts) {
+  return [...posts].sort((left, right) => {
+    const leftTime = Date.parse(left.publishedAt || '')
+    const rightTime = Date.parse(right.publishedAt || '')
+
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+      return rightTime - leftTime
+    }
+
+    return Number(right.views || 0) - Number(left.views || 0)
+  })
 }

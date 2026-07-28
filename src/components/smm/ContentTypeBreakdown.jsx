@@ -1,3 +1,4 @@
+import { InfoTooltip } from '../InfoTooltip'
 import { formatDecimal, formatNumber } from '../../lib/smmData'
 
 export function ContentTypeBreakdown({ items = [] }) {
@@ -13,7 +14,12 @@ export function ContentTypeBreakdown({ items = [] }) {
               <th>Формат</th>
               <th className="text-right">Пости</th>
               <th className="text-right">Сер. перегляди</th>
-              <th>ER</th>
+              <th>
+                <span className="inline-flex items-center gap-1">
+                  Сер. ER
+                  <InfoTooltip text="Зважений engagement rate: сумарні взаємодії / сумарне охоплення для цього формату." />
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody>
