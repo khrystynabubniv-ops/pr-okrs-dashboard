@@ -13,7 +13,13 @@ import { Modal } from '../components/Modal'
 import { ProgressBar } from '../components/ProgressBar'
 import { EmptyState, ErrorState, LoadingState } from '../components/Status'
 import { useAsyncData } from '../hooks/useAsyncData'
-import { apiRequest, displayTarget, formatMetricValue, getProgress } from '../lib/api'
+import {
+  API_REFRESH_INTERVAL_MS,
+  apiRequest,
+  displayTarget,
+  formatMetricValue,
+  getProgress,
+} from '../lib/api'
 
 const LOCAL_GOAL_EDITS_KEY = 'goals-and-metrics.local-edits'
 
@@ -56,6 +62,11 @@ export function GoalsPage({ selectedMonth = MONTHS[4] }) {
   const { data, loading, error, retry } = useAsyncData(
     () => apiRequest('/api/notion/kpi-goals'),
     [],
+    {
+      backgroundRefresh: true,
+      keepPreviousData: true,
+      refreshIntervalMs: API_REFRESH_INTERVAL_MS,
+    },
   )
 
   const directionFilter = validDirectionFilter(searchParams.get('direction'))

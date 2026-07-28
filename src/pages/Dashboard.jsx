@@ -35,7 +35,7 @@ import { Modal } from '../components/Modal'
 import { EmptyState, ErrorState, LoadingState } from '../components/Status'
 import { MONTHS } from '../constants'
 import { useAsyncData } from '../hooks/useAsyncData'
-import { apiRequest } from '../lib/api'
+import { API_REFRESH_INTERVAL_MS, apiRequest } from '../lib/api'
 import {
   buildMonthlySeries,
   candidateAwarenessKpi,
@@ -57,8 +57,8 @@ import {
 } from '../lib/mailchimpPerformance'
 
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
-const COVERAGE_CACHE_TTL_MS = 10 * 60 * 1000
-const MAILCHIMP_CACHE_TTL_MS = 10 * 60 * 1000
+const COVERAGE_CACHE_TTL_MS = API_REFRESH_INTERVAL_MS
+const MAILCHIMP_CACHE_TTL_MS = API_REFRESH_INTERVAL_MS
 const DASHBOARD_NOTION_TIMEOUT_MS = 15000
 const COVERAGE_FALLBACK_SOURCES = new Set([
   'looqme-timeout',
@@ -100,6 +100,8 @@ export function DashboardPage({ selectedMonth }) {
       initialData: () =>
         readCachedPayload(dashboardPayloadCache, selectedMonth, DASHBOARD_CACHE_TTL_MS),
       keepPreviousData: true,
+      backgroundRefresh: true,
+      refreshIntervalMs: API_REFRESH_INTERVAL_MS,
     },
   )
   const coverageQuery = useAsyncData(
@@ -109,6 +111,8 @@ export function DashboardPage({ selectedMonth }) {
       initialData: () =>
         readCachedPayload(coveragePayloadCache, selectedMonth, COVERAGE_CACHE_TTL_MS),
       keepPreviousData: true,
+      backgroundRefresh: true,
+      refreshIntervalMs: API_REFRESH_INTERVAL_MS,
     },
   )
   const mailchimpQuery = useAsyncData(
@@ -118,6 +122,8 @@ export function DashboardPage({ selectedMonth }) {
       initialData: () =>
         readCachedPayload(mailchimpPayloadCache, selectedMonth, MAILCHIMP_CACHE_TTL_MS),
       keepPreviousData: true,
+      backgroundRefresh: true,
+      refreshIntervalMs: API_REFRESH_INTERVAL_MS,
     },
   )
   const activeDashboardData =

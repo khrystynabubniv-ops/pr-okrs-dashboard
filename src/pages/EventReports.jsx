@@ -11,7 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import { InfoTooltip } from '../components/InfoTooltip'
-import { apiRequest } from '../lib/api'
+import { API_REFRESH_INTERVAL_MS, apiRequest } from '../lib/api'
 import {
   buildReportFacts,
   compute,
@@ -113,24 +113,32 @@ export function EventReportsPage() {
   useEffect(() => {
     let active = true
 
-    async function loadReports() {
+    async function loadReports(options = {}) {
+      if (!options.background) setLoading(true)
+
       try {
-        const payload = await apiRequest('/api/event-reports')
+        const payload = await apiRequest('/api/event-reports', {
+          forceRefresh: Boolean(options.background),
+        })
         if (active) {
           setReports(Array.isArray(payload) ? payload : [])
           setError(null)
         }
       } catch (requestError) {
-        if (active) setError(requestError)
+        if (active && !options.background) setError(requestError)
       } finally {
-        if (active) setLoading(false)
+        if (active && !options.background) setLoading(false)
       }
     }
 
     loadReports()
+    const interval = window.setInterval(() => {
+      void loadReports({ background: true })
+    }, API_REFRESH_INTERVAL_MS)
 
     return () => {
       active = false
+      window.clearInterval(interval)
     }
   }, [])
 
@@ -139,7 +147,7 @@ export function EventReportsPage() {
     setError(null)
 
     try {
-      const payload = await apiRequest('/api/event-reports')
+      const payload = await apiRequest('/api/event-reports', { forceRefresh: true })
       setReports(Array.isArray(payload) ? payload : [])
     } catch (requestError) {
       setError(requestError)

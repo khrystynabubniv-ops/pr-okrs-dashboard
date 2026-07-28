@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { InstagramIcon } from './icons/InstagramIcon'
 import { MONTHS } from '../constants'
+import { usePageDataWarmup } from '../hooks/usePageDataWarmup'
 
 const navSections = [
   {
@@ -64,6 +65,10 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
   const showMonthSelector =
     location.pathname !== '/reports/linkedin' && location.pathname !== '/linkedin-report'
   const [authInfo, setAuthInfo] = useState({ auth: { enabled: false }, user: null })
+  const [authReady, setAuthReady] = useState(false)
+  const warmupEnabled = authReady && (!authInfo.auth?.enabled || authInfo.user)
+
+  usePageDataWarmup(selectedMonth, warmupEnabled)
 
   useEffect(() => {
     document.title = title === 'Comms Tool' ? title : `${title} · Comms Tool`
@@ -78,6 +83,9 @@ export function Layout({ selectedMonth, onMonthChange, children }) {
         if (isMounted) setAuthInfo(payload)
       })
       .catch(() => {})
+      .finally(() => {
+        if (isMounted) setAuthReady(true)
+      })
 
     return () => {
       isMounted = false

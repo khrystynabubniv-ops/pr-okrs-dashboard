@@ -4,7 +4,7 @@ import { FOCUS_TEAMS, METRIC_TYPES, MONTHS } from '../constants'
 import { Modal } from '../components/Modal'
 import { EmptyState, ErrorState, LoadingState } from '../components/Status'
 import { useAsyncData } from '../hooks/useAsyncData'
-import { apiRequest } from '../lib/api'
+import { API_REFRESH_INTERVAL_MS, apiRequest } from '../lib/api'
 
 export function MonthlyFocusPage({ selectedMonth }) {
   const [teamFilter, setTeamFilter] = useState('Усі')
@@ -20,6 +20,11 @@ export function MonthlyFocusPage({ selectedMonth }) {
         `/api/notion/monthly-focus?month=${encodeURIComponent(selectedMonth)}`,
       ),
     [selectedMonth],
+    {
+      backgroundRefresh: true,
+      keepPreviousData: true,
+      refreshIntervalMs: API_REFRESH_INTERVAL_MS,
+    },
   )
 
   const entries = useMemo(() => focusQuery.data?.entries || [], [focusQuery.data])

@@ -17,12 +17,13 @@ export function useAsyncData(loader, dependencies = [], options = {}) {
     setStateData(dataRef.current)
   }
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (loadOptions = {}) => {
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
     const hasData = dataRef.current !== null && dataRef.current !== undefined
+    const isBackgroundRefresh = options.backgroundRefresh || loadOptions.background
 
-    setLoading(!options.backgroundRefresh || !hasData)
+    setLoading(!isBackgroundRefresh || !hasData)
     setError(null)
     if (!options.keepPreviousData) setData(null)
 
@@ -47,6 +48,16 @@ export function useAsyncData(loader, dependencies = [], options = {}) {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    if (!options.refreshIntervalMs) return undefined
+
+    const interval = window.setInterval(() => {
+      void load({ background: true })
+    }, options.refreshIntervalMs)
+
+    return () => window.clearInterval(interval)
+  }, [load, options.refreshIntervalMs])
 
   return { data, loading, error, retry: load, setData }
 }

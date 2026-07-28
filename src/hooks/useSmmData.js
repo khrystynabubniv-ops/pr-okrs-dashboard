@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { apiRequest } from '../lib/api'
+import { API_REFRESH_INTERVAL_MS, apiRequest } from '../lib/api'
 import { getSmmMonthData, monthToIsoMonth } from '../lib/smmData'
 
 export function useSmmData(month, previewState = '') {
@@ -34,7 +34,7 @@ export function useSmmData(month, previewState = '') {
         return
       }
 
-      async function loadData() {
+      async function loadData(options = {}) {
         if (normalizedPreviewState === 'mock') {
           setState({
             data: getSmmMonthData(month),
@@ -51,7 +51,10 @@ export function useSmmData(month, previewState = '') {
         try {
           const data = await apiRequest(
             `/api/smm/data?month=${encodeURIComponent(monthKey || month)}`,
-            { signal: controller.signal },
+            {
+              signal: controller.signal,
+              forceRefresh: Boolean(options.background),
+            },
           )
           if (!isMounted) return
 
@@ -62,6 +65,7 @@ export function useSmmData(month, previewState = '') {
           })
         } catch (requestError) {
           if (!isMounted) return
+          if (options.background) return
 
           const message =
             requestError.name === 'AbortError'
@@ -93,11 +97,31 @@ export function useSmmData(month, previewState = '') {
         })
       }
     }, 320)
+    const interval = window.setInterval(() => {
+      if (!['', 'data'].includes(normalizedPreviewState)) return
+      const monthKey = monthToIsoMonth(month)
+      const controller = new AbortController()
+      const requestTimeout = window.setTimeout(() => controller.abort(), 35000)
+
+      apiRequest(`/api/smm/data?month=${encodeURIComponent(monthKey || month)}`, {
+        signal: controller.signal,
+        forceRefresh: true,
+      })
+        .then((data) => {
+          if (!isMounted) return
+          setState({ data, loading: false, error: null })
+        })
+        .catch(() => {})
+        .finally(() => {
+          window.clearTimeout(requestTimeout)
+        })
+    }, API_REFRESH_INTERVAL_MS)
 
     return () => {
       isMounted = false
       window.clearTimeout(loadingTimeout)
       window.clearTimeout(timeout)
+      window.clearInterval(interval)
     }
   }, [month, previewState])
 

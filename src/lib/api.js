@@ -1,26 +1,158 @@
+export const API_REFRESH_INTERVAL_MS = 5 * 60 * 1000
+
+const apiResponseCache = new Map()
+const apiInFlightRequests = new Map()
+
 export async function apiRequest(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  })
+  const {
+    cacheTtlMs = API_REFRESH_INTERVAL_MS,
+    forceRefresh = false,
+    skipQueryCache = false,
+    ...fetchOptions
+  } = options
+  const method = String(fetchOptions.method || 'GET').toUpperCase()
+  const cacheable = method === 'GET' && !skipQueryCache
+  const cacheKey = cacheable ? apiCacheKey(path) : ''
 
-  const payload = await response.json().catch(() => ({}))
+  if (cacheable && !forceRefresh) {
+    const cached = readApiCache(path, { ttlMs: cacheTtlMs })
+    if (cached !== undefined) return cached
 
-  if (!response.ok) {
-    const message =
-      payload.message ||
-      payload.error ||
-      'Не вдалося отримати дані. Перевірте інтеграцію і спробуйте ще раз.'
-    const error = new Error(message)
-    error.status = response.status
-    error.details = payload.details
-    throw error
+    if (!fetchOptions.signal && apiInFlightRequests.has(cacheKey)) {
+      return apiInFlightRequests.get(cacheKey)
+    }
   }
 
-  return payload
+  const requestPromise = fetch(path, {
+    ...fetchOptions,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(fetchOptions.headers || {}),
+    },
+  })
+    .then(async (response) => {
+      const payload = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        const message =
+          payload.message ||
+          payload.error ||
+          'Не вдалося отримати дані. Перевірте інтеграцію і спробуйте ще раз.'
+        const error = new Error(message)
+        error.status = response.status
+        error.details = payload.details
+        throw error
+      }
+
+      if (cacheable) writeApiCache(path, payload)
+      if (!cacheable) invalidateApiCacheForMutation(path)
+
+      return payload
+    })
+    .finally(() => {
+      if (cacheable && !fetchOptions.signal) apiInFlightRequests.delete(cacheKey)
+    })
+
+  if (cacheable && !fetchOptions.signal) {
+    apiInFlightRequests.set(cacheKey, requestPromise)
+  }
+
+  return requestPromise
+}
+
+export function readApiCache(path, options = {}) {
+  const ttlMs = options.ttlMs ?? API_REFRESH_INTERVAL_MS
+  const cacheKey = apiCacheKey(path)
+  const cached = apiResponseCache.get(cacheKey)
+  if (!cached) return undefined
+
+  if (Date.now() - cached.cachedAt > ttlMs) {
+    apiResponseCache.delete(cacheKey)
+    return undefined
+  }
+
+  return cached.payload
+}
+
+export function writeApiCache(path, payload) {
+  apiResponseCache.set(apiCacheKey(path), {
+    cachedAt: Date.now(),
+    payload,
+  })
+}
+
+export function prefetchApiRequest(path, options = {}) {
+  return apiRequest(path, options).catch(() => null)
+}
+
+export function invalidateApiCache(match) {
+  if (!match) {
+    apiResponseCache.clear()
+    apiInFlightRequests.clear()
+    return
+  }
+
+  const shouldDelete =
+    typeof match === 'function'
+      ? match
+      : (key) =>
+          Array.isArray(match)
+            ? match.some((item) => apiCacheMatches(key, item))
+            : apiCacheMatches(key, match)
+
+  ;[...apiResponseCache.keys()].forEach((key) => {
+    if (shouldDelete(key)) apiResponseCache.delete(key)
+  })
+  ;[...apiInFlightRequests.keys()].forEach((key) => {
+    if (shouldDelete(key)) apiInFlightRequests.delete(key)
+  })
+}
+
+function invalidateApiCacheForMutation(path) {
+  const key = apiCacheKey(path)
+
+  if (key.startsWith('/api/notion/goals')) {
+    invalidateApiCache(['/api/kpi-goals', '/api/notion/kpi-goals'])
+    return
+  }
+
+  if (key.startsWith('/api/notion/monthly-focus')) {
+    invalidateApiCache('/api/notion/monthly-focus')
+    return
+  }
+
+  if (key.startsWith('/api/notion/events')) {
+    invalidateApiCache('/api/notion/events')
+    return
+  }
+
+  if (key.startsWith('/api/coverage/competitors')) {
+    invalidateApiCache(['/api/looqme/coverage', '/api/coverage/competitors'])
+    return
+  }
+
+  if (key.startsWith('/api/event-reports')) {
+    invalidateApiCache('/api/event-reports')
+    return
+  }
+
+  if (key.startsWith('/api/linkedin-report')) {
+    invalidateApiCache('/api/linkedin-report')
+    return
+  }
+
+  if (key.startsWith('/api/smm/insights/generate')) {
+    invalidateApiCache('/api/smm/insights')
+  }
+}
+
+function apiCacheMatches(key, match) {
+  if (match instanceof RegExp) return match.test(key)
+  return key.startsWith(String(match))
+}
+
+function apiCacheKey(path) {
+  return typeof path === 'string' ? path : String(path)
 }
 
 export function getProgress(goal) {

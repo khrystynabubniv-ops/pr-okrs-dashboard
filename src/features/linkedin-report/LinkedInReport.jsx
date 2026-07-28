@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceDot } from "recharts";
 import { ChevronDown, ChevronUp, Plus, Trash2, Save, Pencil, ArrowUp, ArrowDown, X, ExternalLink } from "lucide-react";
-import { apiRequest } from "../../lib/api";
+import { API_REFRESH_INTERVAL_MS, apiRequest } from "../../lib/api";
 import "./LinkedInReport.css";
 
 const TOKENS = {
@@ -419,6 +419,33 @@ export default function LinkedInReport() {
       setLoaded(true);
     })();
   }, []);
+
+  useEffect(() => {
+    if (!loaded) return undefined;
+
+    let active = true;
+    const interval = window.setInterval(async () => {
+      try {
+        const payload = await apiRequest("/api/linkedin-report", { forceRefresh: true });
+        if (!active) return;
+
+        const m = sortMonthsChronologically(
+          (Array.isArray(payload.months) && payload.months.length ? payload.months : seedMonths).map((item) => withPersonId(item))
+        );
+        const p = (Array.isArray(payload.pr) && payload.pr.length ? payload.pr : seedPR).map((item) => withPersonId(item));
+        setMonths(m);
+        setPr(p);
+        setPeople(normalizePeople(payload.people, m, p));
+      } catch (error) {
+        console.warn("Failed to refresh LinkedIn report data", error);
+      }
+    }, API_REFRESH_INTERVAL_MS);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [loaded]);
 
   async function persistReportData(nextMonths, nextPr, nextPeople = people) {
     setMonths(nextMonths);

@@ -3,7 +3,7 @@ import { InfoTooltip } from '../components/InfoTooltip'
 import { EmptyState, ErrorState, LoadingState } from '../components/Status'
 import { MetricCard } from '../components/MetricCard'
 import { useAsyncData } from '../hooks/useAsyncData'
-import { apiRequest } from '../lib/api'
+import { API_REFRESH_INTERVAL_MS, apiRequest } from '../lib/api'
 import { eventLeadLabel, eventStatusMeta, sortEventsByDate } from '../lib/events'
 
 const CALENDAR_EVENTS_HELP =
@@ -14,6 +14,11 @@ export function EventsPage({ selectedMonth }) {
     () =>
       apiRequest(`/api/notion/events?month=${encodeURIComponent(selectedMonth)}`),
     [selectedMonth],
+    {
+      backgroundRefresh: true,
+      keepPreviousData: true,
+      refreshIntervalMs: API_REFRESH_INTERVAL_MS,
+    },
   )
 
   const events = sortEventsByDate(data?.events || [])
