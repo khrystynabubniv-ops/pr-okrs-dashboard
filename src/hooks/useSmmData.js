@@ -45,10 +45,13 @@ export function useSmmData(month, previewState = '') {
         }
 
         const monthKey = monthToIsoMonth(month)
+        const controller = new AbortController()
+        const requestTimeout = window.setTimeout(() => controller.abort(), 18000)
 
         try {
           const data = await apiRequest(
             `/api/smm/data?month=${encodeURIComponent(monthKey || month)}`,
+            { signal: controller.signal },
           )
           if (!isMounted) return
 
@@ -60,17 +63,23 @@ export function useSmmData(month, previewState = '') {
         } catch (requestError) {
           if (!isMounted) return
 
+          const message =
+            requestError.name === 'AbortError'
+              ? 'Meta API відповідає задовго. Показуємо demo fallback.'
+              : requestError.message
           const fallback = getSmmMonthData(month)
           setState({
             data: {
               ...fallback,
               source: 'Meta Business Suite · demo fallback',
               sourceMode: 'mock-fallback',
-              integrationError: requestError.message,
+              integrationError: message,
             },
             loading: false,
             error: null,
           })
+        } finally {
+          window.clearTimeout(requestTimeout)
         }
       }
 

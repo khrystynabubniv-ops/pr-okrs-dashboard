@@ -102,11 +102,13 @@ const SMM_EMPLOYEE_COUNT = parsePositiveNumber(process.env.SMM_EMPLOYEE_COUNT) |
 const SMM_REEL_VIEW_TARGET = parsePositiveNumber(process.env.SMM_REEL_VIEW_TARGET) || 20000
 const SMM_POST_REEL_VIEW_TARGET =
   parsePositiveNumber(process.env.SMM_POST_REEL_VIEW_TARGET) || 15000
+const SMM_MEDIA_INSIGHTS_LIMIT =
+  parsePositiveNumber(process.env.SMM_MEDIA_INSIGHTS_LIMIT) || 8
 const META_GRAPH_DEFAULT_VERSION = 'v25.0'
 const META_MEDIA_INSIGHT_BATCHES = [
-  ['reach', 'impressions', 'saved', 'shares', 'total_interactions', 'views'],
-  ['plays', 'likes', 'comments'],
-  ['follows', 'profile_visits'],
+  ['views', 'reach', 'likes', 'comments', 'shares', 'saved', 'total_interactions'],
+]
+const META_REEL_INSIGHT_BATCHES = [
   ['ig_reels_avg_watch_time', 'ig_reels_video_view_total_time'],
 ]
 const META_ACCOUNT_INSIGHT_BATCHES = [
@@ -4097,13 +4099,18 @@ async function fetchInstagramSmmData(monthInput) {
   ])
   const accountInsights = accountInsightsResult.insights || accountInsightsResult
   const accountInsightsError = accountInsightsResult.error || ''
-  const mediaInsights = await mapWithConcurrency(
-    rawMedia,
-    boundedInteger(process.env.META_MEDIA_INSIGHTS_CONCURRENCY, 4, 1, 8),
-    async (media) => fetchInstagramMediaInsights(config, media.id),
+  const insightMedia = prioritizeSmmMediaForInsights(rawMedia, monthRange).slice(
+    0,
+    SMM_MEDIA_INSIGHTS_LIMIT,
   )
+  const mediaInsightEntries = await mapWithConcurrency(
+    insightMedia,
+    boundedInteger(process.env.META_MEDIA_INSIGHTS_CONCURRENCY, 4, 1, 8),
+    async (media) => [media.id, await fetchInstagramMediaInsights(config, media)],
+  )
+  const mediaInsightsById = new Map(mediaInsightEntries.filter(([id]) => id))
   const media = rawMedia
-    .map((item, index) => normalizeInstagramMedia(item, mediaInsights[index], profile))
+    .map((item) => normalizeInstagramMedia(item, mediaInsightsById.get(item.id) || {}, profile))
     .filter((item) => item.id && item.publishedAt)
     .sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt))
 
@@ -4212,9 +4219,17 @@ async function fetchInstagramAccountInsights(config, range) {
   return { insights }
 }
 
-async function fetchInstagramMediaInsights(config, mediaId) {
-  if (!mediaId) return {}
-  return fetchMetaInsights(config, mediaId, META_MEDIA_INSIGHT_BATCHES)
+async function fetchInstagramMediaInsights(config, media) {
+  if (!media?.id) return {}
+  const mediaConfig = {
+    ...config,
+    timeoutMs: boundedInteger(process.env.META_INSIGHTS_TIMEOUT_MS, 6000, 1000, 30000),
+  }
+  const batches = normalizeInstagramMediaType(media) === 'reel'
+    ? [...META_MEDIA_INSIGHT_BATCHES, ...META_REEL_INSIGHT_BATCHES]
+    : META_MEDIA_INSIGHT_BATCHES
+
+  return fetchMetaInsights(mediaConfig, media.id, batches)
 }
 
 async function fetchMetaInsights(config, nodeId, metricBatches, params = {}) {
@@ -4533,6 +4548,26 @@ function normalizeInstagramMediaType(rawMedia = {}) {
   if (mediaType === 'CAROUSEL_ALBUM') return 'carousel'
   if (mediaType === 'VIDEO') return 'reel'
   return 'static'
+}
+
+function prioritizeSmmMediaForInsights(media, monthRange) {
+  const withIndex = media.map((item, index) => ({ item, index }))
+
+  return withIndex
+    .sort((left, right) => {
+      const leftInMonth = smmDateInRange(left.item.timestamp, monthRange) ? 1 : 0
+      const rightInMonth = smmDateInRange(right.item.timestamp, monthRange) ? 1 : 0
+      if (leftInMonth !== rightInMonth) return rightInMonth - leftInMonth
+
+      const leftTime = Date.parse(isoDateBoundary(left.item.timestamp))
+      const rightTime = Date.parse(isoDateBoundary(right.item.timestamp))
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+        return rightTime - leftTime
+      }
+
+      return left.index - right.index
+    })
+    .map(({ item }) => item)
 }
 
 function instagramThumbnailUrl(rawMedia, type) {
