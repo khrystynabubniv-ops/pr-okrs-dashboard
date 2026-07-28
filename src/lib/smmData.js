@@ -238,9 +238,9 @@ export function getSmmMonthData(month) {
         tone: stats.er >= 5 ? 'green' : stats.er >= 4 ? 'yellow' : 'red',
       },
       {
-        label: 'Перегляди рілз',
-        value: `${goalProgress}%`,
-        detail: `${formatNumber(stats.goalCurrent)} / ${formatNumber(stats.goalTarget)} до цілі`,
+        label: 'Перегляди vs ціль',
+        value: `${formatNumber(stats.goalCurrent)} / ${formatNumber(stats.goalTarget)} (${goalProgress}%)`,
+        detail: 'середні перегляди рілз / ціль',
         tone: goalProgress >= 85 ? 'green' : goalProgress >= 65 ? 'yellow' : 'red',
       },
     ],
@@ -279,7 +279,8 @@ export function getSmmMonthData(month) {
         unit: '',
         periodLabel: 'Останні 12 тижнів',
         data: weeklyTrends.followers.map((value, index) => ({
-          week: `W${index + 1}`,
+          week: `Тиждень ${index + 1}`,
+          axisLabel: `Т${index + 1}`,
           value,
         })),
       },
@@ -290,7 +291,8 @@ export function getSmmMonthData(month) {
         unit: '',
         periodLabel: 'Останні 12 тижнів',
         data: weeklyTrends.reelViews.map((value, index) => ({
-          week: `W${index + 1}`,
+          week: `Тиждень ${index + 1}`,
+          axisLabel: `Т${index + 1}`,
           value,
         })),
       },
@@ -301,7 +303,8 @@ export function getSmmMonthData(month) {
         unit: '%',
         periodLabel: 'Останні 12 тижнів',
         data: weeklyTrends.er.map((value, index) => ({
-          week: `W${index + 1}`,
+          week: `Тиждень ${index + 1}`,
+          axisLabel: `Т${index + 1}`,
           value,
         })),
       },
@@ -317,6 +320,7 @@ export function getSmmMonthData(month) {
 
 export function buildSmmInsightsPayload(data) {
   if (!data) return null
+  const analysisPosts = (data.posts || []).filter((post) => post.variantTag !== 'Пробний')
 
   return {
     month: data.month,
@@ -325,13 +329,13 @@ export function buildSmmInsightsPayload(data) {
     trends: data.trends,
     monthlyBreakdown: data.monthlyBreakdown,
     contentTypeBreakdown: data.contentTypeBreakdown,
-    topPosts: data.posts
+    topPosts: analysisPosts
       .filter((post) => post.tag === 'Найкращий')
       .map(compactPostForAi),
-    weakestPosts: data.posts
+    weakestPosts: analysisPosts
       .filter((post) => post.tag === 'Найгірший')
       .map(compactPostForAi),
-    latestPosts: data.posts.slice(0, 6).map(compactPostForAi),
+    latestPosts: analysisPosts.slice(0, 6).map(compactPostForAi),
   }
 }
 
@@ -362,6 +366,8 @@ function buildMonthlyBreakdown(selectedMonth) {
         month: month.split(' ')[0],
         posts: stats.posts,
         netFollowers: stats.netFollowers,
+        newFollowers: stats.newFollowers,
+        unfollows: stats.unfollows,
         er: stats.er,
       }
     })

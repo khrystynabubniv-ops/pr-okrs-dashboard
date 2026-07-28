@@ -103,10 +103,11 @@ const SMM_REEL_VIEW_TARGET = parsePositiveNumber(process.env.SMM_REEL_VIEW_TARGE
 const SMM_POST_REEL_VIEW_TARGET =
   parsePositiveNumber(process.env.SMM_POST_REEL_VIEW_TARGET) || 15000
 const SMM_MEDIA_INSIGHTS_LIMIT =
-  parsePositiveNumber(process.env.SMM_MEDIA_INSIGHTS_LIMIT) || 8
+  parsePositiveNumber(process.env.SMM_MEDIA_INSIGHTS_LIMIT) || 12
 const META_GRAPH_DEFAULT_VERSION = 'v25.0'
 const META_MEDIA_INSIGHT_BATCHES = [
   ['views', 'reach', 'likes', 'comments', 'shares', 'saved', 'total_interactions'],
+  ['follows'],
 ]
 const META_REEL_INSIGHT_BATCHES = [
   ['ig_reels_avg_watch_time', 'ig_reels_video_view_total_time'],
@@ -4091,12 +4092,14 @@ async function fetchInstagramSmmData(monthInput) {
   const [profile, rawMedia, accountInsightsResult] = await Promise.all([
     fetchInstagramProfile(config),
     fetchInstagramMedia(config, fetchRange),
-    fetchInstagramAccountInsights(config, fetchRange).catch((error) => ({
+    fetchInstagramAccountInsights(config, fetchRange, monthKey).catch((error) => ({
       error: error.message,
       insights: {},
+      followActions: {},
     })),
   ])
   const accountInsights = accountInsightsResult.insights || accountInsightsResult
+  const followActions = accountInsightsResult.followActions || {}
   const accountInsightsError = accountInsightsResult.error || ''
   const insightMedia = prioritizeSmmMediaForInsights(rawMedia, monthRange).slice(
     0,
@@ -4116,6 +4119,7 @@ async function fetchInstagramSmmData(monthInput) {
   const payload = buildLiveSmmPayload({
     accountInsights,
     accountInsightsError,
+    followActions,
     media,
     monthKey,
     monthRange,
@@ -4208,24 +4212,163 @@ async function fetchInstagramMedia(config, range) {
   return fetchMetaPaged(config, url, 'Meta API не повернув Instagram media.')
 }
 
-async function fetchInstagramAccountInsights(config, range) {
+async function fetchInstagramAccountInsights(config, range, monthKey) {
   const chunks = smmInsightRangeChunks(range)
-  const chunkInsights = await mapWithConcurrency(
-    chunks,
-    boundedInteger(process.env.META_ACCOUNT_INSIGHTS_CONCURRENCY, 3, 1, 6),
-    async (chunk) =>
-      fetchMetaInsights(config, config.accountId, META_ACCOUNT_INSIGHT_BATCHES, {
-        period: 'day',
-        since: smmUnixTime(chunk.from),
-        until: smmUnixTime(chunk.to),
-      }),
-  )
+  const concurrency = boundedInteger(process.env.META_ACCOUNT_INSIGHTS_CONCURRENCY, 3, 1, 6)
+  const followRanges = buildSmmFollowMetricRanges(monthKey)
+  const [chunkInsights, followEntries] = await Promise.all([
+    mapWithConcurrency(
+      chunks,
+      concurrency,
+      async (chunk) =>
+        fetchMetaInsights(config, config.accountId, META_ACCOUNT_INSIGHT_BATCHES, {
+          period: 'day',
+          since: smmUnixTime(chunk.from),
+          until: smmUnixTime(chunk.to),
+        }),
+    ),
+    mapWithConcurrency(
+      followRanges,
+      concurrency,
+      async ({ key, range: followRange }) => [
+        key,
+        await fetchInstagramFollowActions(config, followRange),
+      ],
+    ),
+  ])
   const insights = chunkInsights.reduce((accumulator, item) => {
     mergeMetaInsights(accumulator, item)
     return accumulator
   }, {})
 
-  return { insights }
+  return { insights, followActions: Object.fromEntries(followEntries) }
+}
+
+async function fetchInstagramFollowActions(config, range) {
+  const chunks = smmInsightRangeChunks(range)
+  const results = await mapWithConcurrency(
+    chunks,
+    boundedInteger(process.env.META_ACCOUNT_FOLLOW_INSIGHTS_CONCURRENCY, 3, 1, 6),
+    async (chunk) => {
+      try {
+        const payload = await fetchMetaJson(
+          config,
+          `${config.accountId}/insights`,
+          {
+            metric: 'follows_and_unfollows',
+            period: 'day',
+            metric_type: 'total_value',
+            breakdown: 'follow_type',
+            since: smmUnixTime(chunk.from),
+            until: smmUnixTime(chunk.to),
+          },
+          'Meta API не повернув follows_and_unfollows.',
+        )
+        return parseInstagramFollowActions(payload)
+      } catch (error) {
+        return {
+          newFollowers: null,
+          unfollows: null,
+          netFollowers: null,
+          unavailableReason: metaFollowActionsUnavailableReason(error),
+        }
+      }
+    },
+  )
+  const available = results.filter((item) => Number.isFinite(item?.netFollowers))
+
+  if (!available.length) {
+    return {
+      newFollowers: null,
+      unfollows: null,
+      netFollowers: null,
+      unavailableReason:
+        results.find((item) => item?.unavailableReason)?.unavailableReason ||
+        'Meta не повернула breakdown follow_type для follows_and_unfollows.',
+    }
+  }
+
+  const newFollowers = sumNumbers(available.map((item) => item.newFollowers))
+  const unfollows = sumNumbers(available.map((item) => item.unfollows))
+  const unknown = sumNumbers(available.map((item) => item.unknownFollowActions))
+
+  return {
+    newFollowers,
+    unfollows,
+    unknownFollowActions: unknown,
+    netFollowers: newFollowers - unfollows,
+    unavailableReason: '',
+  }
+}
+
+function parseInstagramFollowActions(payload) {
+  const metric = Array.isArray(payload?.data)
+    ? payload.data.find((item) => item?.name === 'follows_and_unfollows')
+    : null
+  const breakdowns = Array.isArray(metric?.total_value?.breakdowns)
+    ? metric.total_value.breakdowns
+    : []
+  const results = breakdowns.flatMap((breakdown) =>
+    Array.isArray(breakdown?.results) ? breakdown.results : [],
+  )
+
+  if (!results.length) {
+    return {
+      newFollowers: null,
+      unfollows: null,
+      netFollowers: null,
+      unavailableReason: 'Meta не повернула breakdown follow_type для follows_and_unfollows.',
+    }
+  }
+
+  let newFollowers = 0
+  let unfollows = 0
+  let unknownFollowActions = 0
+
+  results.forEach((result) => {
+    const type = textValue(result?.dimension_values?.[0]).toUpperCase()
+    const value = Number(result?.value || 0)
+    if (!Number.isFinite(value)) return
+
+    if (type === 'FOLLOWER') {
+      newFollowers += value
+      return
+    }
+
+    if (type === 'NON_FOLLOWER') {
+      unfollows += value
+      return
+    }
+
+    unknownFollowActions += value
+  })
+
+  return {
+    newFollowers,
+    unfollows,
+    unknownFollowActions,
+    netFollowers: newFollowers - unfollows,
+    unavailableReason: '',
+  }
+}
+
+function metaFollowActionsUnavailableReason(error) {
+  const detail = metaResponseErrorMessage(error?.details || '')
+  const message = detail || textValue(error?.message)
+
+  if (/100 followers|100\+ followers|less than 100/i.test(message)) {
+    return 'Meta не повернула follows_and_unfollows: потрібно 100+ підписників для цього зрізу.'
+  }
+
+  if (/metric_type=total_value/i.test(message)) {
+    return 'Meta вимагає metric_type=total_value для follows_and_unfollows.'
+  }
+
+  if (/breakdown/i.test(message)) {
+    return 'Meta не повернула breakdown follow_type для follows_and_unfollows.'
+  }
+
+  return message || 'Meta не повернула follows_and_unfollows.'
 }
 
 async function fetchInstagramMediaInsights(config, media) {
@@ -4396,6 +4539,7 @@ function parseMetaJsonBody(body) {
 function buildLiveSmmPayload({
   accountInsights,
   accountInsightsError,
+  followActions,
   media,
   monthKey,
   monthRange,
@@ -4405,12 +4549,19 @@ function buildLiveSmmPayload({
   const previousMonthKey = shiftSmmMonth(monthKey, -1)
   const previousMonthRange = smmMonthRange(previousMonthKey)
   const previousMedia = media.filter((item) => smmDateInRange(item.publishedAt, previousMonthRange))
-  const currentStats = calculateSmmStats(selectedMedia, accountInsights, monthRange, profile)
+  const currentStats = calculateSmmStats(
+    selectedMedia,
+    accountInsights,
+    monthRange,
+    profile,
+    smmFollowMetric(followActions, `month:${monthKey}`),
+  )
   const previousStats = calculateSmmStats(
     previousMedia,
     accountInsights,
     previousMonthRange,
     profile,
+    smmFollowMetric(followActions, `month:${previousMonthKey}`),
   )
   const reelViewsDelta = percentChange(currentStats.avgReelViews, previousStats.avgReelViews)
   const sharesDelta = percentChange(currentStats.shares, previousStats.shares)
@@ -4429,7 +4580,7 @@ function buildLiveSmmPayload({
       {
         label: 'Приріст підписників',
         value: formatSmmSigned(currentStats.netFollowers),
-        detail: currentStats.netFollowers === null ? 'Meta не віддала історію' : 'за вибраний місяць',
+        detail: currentStats.followersDetail,
         tone:
           currentStats.netFollowers === null
             ? 'yellow'
@@ -4446,9 +4597,9 @@ function buildLiveSmmPayload({
         tone: currentStats.er >= 5 ? 'green' : currentStats.er >= 3.5 ? 'yellow' : 'red',
       },
       {
-        label: 'Перегляди рілз',
-        value: `${goalProgress}%`,
-        detail: `${formatSmmNumber(currentStats.avgReelViews)} / ${formatSmmNumber(SMM_REEL_VIEW_TARGET)} до цілі`,
+        label: 'Перегляди vs ціль',
+        value: `${formatSmmNumber(currentStats.avgReelViews)} / ${formatSmmNumber(SMM_REEL_VIEW_TARGET)} (${goalProgress}%)`,
+        detail: 'середні перегляди рілз / ціль',
         tone: goalProgress >= 85 ? 'green' : goalProgress >= 60 ? 'yellow' : 'red',
       },
     ],
@@ -4479,8 +4630,8 @@ function buildLiveSmmPayload({
         detail: `${formatSmmNumber(currentStats.avgReelViews)} / ${formatSmmNumber(SMM_REEL_VIEW_TARGET)} сер. переглядів рілз`,
       },
     },
-    trends: buildLiveSmmTrends(media, accountInsights, monthKey),
-    monthlyBreakdown: buildLiveMonthlyBreakdown(media, accountInsights, monthKey),
+    trends: buildLiveSmmTrends(media, accountInsights, followActions, monthKey),
+    monthlyBreakdown: buildLiveMonthlyBreakdown(media, accountInsights, followActions, monthKey),
     contentTypeBreakdown: buildLiveContentTypeBreakdown(selectedMedia),
     posts: tagLiveSmmPosts(selectedMedia).slice(0, 12),
     meta: {
@@ -4492,28 +4643,40 @@ function buildLiveSmmPayload({
   }
 }
 
-function calculateSmmStats(media, accountInsights, range, profile) {
+function calculateSmmStats(media, accountInsights, range, profile, followMetric) {
   const reels = media.filter((item) => item.type === 'reel')
   const avgReelViews = Math.round(averageNumbers(reels.map((item) => item.views)) || 0)
   const shares = sumNumbers(media.map((item) => item.engagement?.shares))
   const reach = sumNumbers(media.map((item) => item.reach || item.nonFollowerReach || item.views))
   const engagement = sumNumbers(media.map((item) => item.engagement?.total))
   const er = roundSmmDecimal(reach ? (engagement / reach) * 100 : averageNumbers(media.map((item) => item.er)) || 0)
+  const hasFollowActions = Number.isFinite(followMetric?.netFollowers)
   const hasFollowerHistory = hasInsightValues(accountInsights, ['follower_count'], range)
-  const newFollowers = hasFollowerHistory
+  const fallbackNewFollowers = hasFollowerHistory
     ? Math.round(sumInsightValues(accountInsights, ['follower_count'], range))
     : null
+  const newFollowers = hasFollowActions
+    ? Math.round(followMetric.newFollowers)
+    : fallbackNewFollowers
+  const unfollows = hasFollowActions ? Math.round(followMetric.unfollows) : null
+  const netFollowers = hasFollowActions
+    ? Math.round(followMetric.netFollowers)
+    : fallbackNewFollowers
   const followers = Math.round(firstPositiveNumber([profile.followers_count, profile.followersCount]))
-  const followersDetail = newFollowers !== null
-    ? `${formatSmmNumber(newFollowers)} нових за період · відписки Meta не віддає`
-    : 'поточна кількість; історія приросту недоступна'
+  const followersDetail = hasFollowActions
+    ? `${formatSmmNumber(newFollowers)} нових · ${formatSmmNumber(unfollows)} відписок`
+    : fallbackNewFollowers !== null
+      ? `${formatSmmNumber(fallbackNewFollowers)} нових · Meta не повернула breakdown follow_type для відписок`
+      : followMetric?.unavailableReason || 'поточна кількість; історія приросту недоступна'
 
   return {
     avgReelViews,
     er,
     followers,
     followersDetail,
-    netFollowers: newFollowers,
+    netFollowers,
+    newFollowers,
+    unfollows,
     posts: media.length,
     shares,
   }
@@ -4537,6 +4700,8 @@ function normalizeInstagramMedia(rawMedia = {}, insights = {}, profile = {}) {
   )
   const baseReach = reach || impressions || views
   const errBase = views || baseReach
+  const hasFollows = hasInsightValues(insights, ['follows'])
+  const follows = hasFollows ? Math.round(firstInsightNumber(insights, ['follows']) || 0) : null
   const post = {
     id: textValue(rawMedia.id),
     type,
@@ -4553,9 +4718,10 @@ function normalizeInstagramMedia(rawMedia = {}, insights = {}, profile = {}) {
       saves,
       total: totalInteractions,
     },
-    newFollowers: hasInsightValues(insights, ['follows'])
-      ? Math.round(firstInsightNumber(insights, ['follows']) || 0)
-      : null,
+    newFollowers: follows,
+    newFollowersUnavailableReason: hasFollows
+      ? ''
+      : smmMediaFollowsUnavailableReason(type),
     er: roundSmmDecimal(baseReach ? (totalInteractions / baseReach) * 100 : 0),
     err: roundSmmDecimal(errBase ? (totalInteractions / errBase) * 100 : 0),
     nonFollowerReach: reach,
@@ -4584,6 +4750,14 @@ function normalizeInstagramMediaType(rawMedia = {}) {
   if (mediaType === 'CAROUSEL_ALBUM') return 'carousel'
   if (mediaType === 'VIDEO') return 'reel'
   return 'static'
+}
+
+function smmMediaFollowsUnavailableReason(type) {
+  if (type === 'reel') {
+    return 'Meta Media Insights зараз не повертає follows для цього Reel/media product type.'
+  }
+
+  return 'Meta Media Insights не повернула follows для цього поста.'
 }
 
 function prioritizeSmmMediaForInsights(media, monthRange) {
@@ -4619,7 +4793,7 @@ function normalizeWatchTimeSeconds(value) {
   return roundSmmDecimal(seconds)
 }
 
-function buildLiveSmmTrends(media, accountInsights, monthKey) {
+function buildLiveSmmTrends(media, accountInsights, followActions, monthKey) {
   const buckets = smmWeekBuckets(monthKey)
   const periodLabel = `${smmShortDateLabel(buckets[0]?.from)} - ${smmShortDateLabel(
     buckets.at(-1)?.to,
@@ -4632,12 +4806,19 @@ function buildLiveSmmTrends(media, accountInsights, monthKey) {
       metricLabel: 'Приріст за тиждень',
       unit: '',
       periodLabel,
-      data: buckets.map((bucket) => ({
-        week: smmWeekRangeLabel(bucket),
-        value: hasInsightValues(accountInsights, ['follower_count'], bucket)
-          ? Math.round(sumInsightValues(accountInsights, ['follower_count'], bucket))
-          : null,
-      })),
+      data: buckets.map((bucket, index) => {
+        const metric = smmFollowMetric(followActions, `week:${index}`)
+
+        return {
+          week: smmWeekTooltipLabel(bucket, index),
+          axisLabel: smmWeekAxisLabel(bucket),
+          value: Number.isFinite(metric?.netFollowers)
+            ? Math.round(metric.netFollowers)
+            : hasInsightValues(accountInsights, ['follower_count'], bucket)
+              ? Math.round(sumInsightValues(accountInsights, ['follower_count'], bucket))
+              : null,
+        }
+      }),
     },
     {
       key: 'reelViews',
@@ -4645,8 +4826,9 @@ function buildLiveSmmTrends(media, accountInsights, monthKey) {
       metricLabel: 'Середні перегляди',
       unit: '',
       periodLabel,
-      data: buckets.map((bucket) => ({
-        week: smmWeekRangeLabel(bucket),
+      data: buckets.map((bucket, index) => ({
+        week: smmWeekTooltipLabel(bucket, index),
+        axisLabel: smmWeekAxisLabel(bucket),
         value: Math.round(
           averageNumbers(
             media
@@ -4662,26 +4844,32 @@ function buildLiveSmmTrends(media, accountInsights, monthKey) {
       metricLabel: 'ER',
       unit: '%',
       periodLabel,
-      data: buckets.map((bucket) => ({
-        week: smmWeekRangeLabel(bucket),
+      data: buckets.map((bucket, index) => ({
+        week: smmWeekTooltipLabel(bucket, index),
+        axisLabel: smmWeekAxisLabel(bucket),
         value: weightedSmmEr(media.filter((item) => smmDateInRange(item.publishedAt, bucket))),
       })),
     },
   ]
 }
 
-function buildLiveMonthlyBreakdown(media, accountInsights, monthKey) {
+function buildLiveMonthlyBreakdown(media, accountInsights, followActions, monthKey) {
   return Array.from({ length: 6 }, (_, index) => shiftSmmMonth(monthKey, index - 5)).map(
     (key) => {
       const range = smmMonthRange(key)
       const monthMedia = media.filter((item) => smmDateInRange(item.publishedAt, range))
+      const metric = smmFollowMetric(followActions, `month:${key}`)
 
       return {
         month: smmShortMonthLabel(key),
         posts: monthMedia.length,
-        netFollowers: hasInsightValues(accountInsights, ['follower_count'], range)
-          ? Math.round(sumInsightValues(accountInsights, ['follower_count'], range))
-          : null,
+        netFollowers: Number.isFinite(metric?.netFollowers)
+          ? Math.round(metric.netFollowers)
+          : hasInsightValues(accountInsights, ['follower_count'], range)
+            ? Math.round(sumInsightValues(accountInsights, ['follower_count'], range))
+            : null,
+        newFollowers: Number.isFinite(metric?.newFollowers) ? Math.round(metric.newFollowers) : null,
+        unfollows: Number.isFinite(metric?.unfollows) ? Math.round(metric.unfollows) : null,
         er: weightedSmmEr(monthMedia, { unavailableAsNull: true }),
       }
     },
@@ -4921,6 +5109,25 @@ function smmTrendRange(monthKey) {
   }
 }
 
+function buildSmmFollowMetricRanges(monthKey) {
+  const ranges = new Map()
+
+  Array.from({ length: 6 }, (_, index) => shiftSmmMonth(monthKey, index - 5)).forEach((key) => {
+    ranges.set(`month:${key}`, smmMonthRange(key))
+  })
+
+  smmWeekBuckets(monthKey).forEach((range, index) => {
+    ranges.set(`week:${index}`, range)
+  })
+
+  return [...ranges.entries()].map(([key, range]) => ({ key, range }))
+}
+
+function smmFollowMetric(followActions, key) {
+  const metric = followActions?.[key]
+  return metric && typeof metric === 'object' ? metric : null
+}
+
 function mergeSmmRanges(left, right) {
   return {
     from: Date.parse(`${left.from}Z`) <= Date.parse(`${right.from}Z`) ? left.from : right.from,
@@ -4974,6 +5181,14 @@ function smmInsightRangeChunks(range) {
 
 function smmWeekRangeLabel(range) {
   return `${smmShortDateLabel(range.from)} - ${smmShortDateLabel(range.to)}`
+}
+
+function smmWeekTooltipLabel(range, index) {
+  return `Тиждень ${index + 1} · ${smmWeekRangeLabel(range)}`
+}
+
+function smmWeekAxisLabel(range) {
+  return smmShortDateLabel(range.from)
 }
 
 function smmShortDateLabel(value) {

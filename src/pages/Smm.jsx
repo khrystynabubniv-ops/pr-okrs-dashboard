@@ -315,15 +315,20 @@ function formatDelta(value, isPercent) {
 }
 
 function buildPostTabs(posts) {
-  const sortedByViews = [...posts].sort((left, right) => Number(right.views || 0) - Number(left.views || 0))
-  const topPosts = posts.filter((post) => post.tag === 'Найкращий' || post.benchmark?.status === 'green')
-  const belowTargetPosts = posts.filter(
+  const regularPosts = posts.filter((post) => post.variantTag !== 'Пробний')
+  const trialPosts = posts.filter((post) => post.variantTag === 'Пробний')
+  const sortedByViews = [...regularPosts].sort(
+    (left, right) => Number(right.views || 0) - Number(left.views || 0),
+  )
+  const topPosts = regularPosts.filter(
+    (post) => post.tag === 'Найкращий' || post.benchmark?.status === 'green',
+  )
+  const belowTargetPosts = regularPosts.filter(
     (post) => post.type === 'reel' && post.benchmark && post.benchmark.status !== 'green',
   )
-  const trialPosts = posts.filter((post) => post.variantTag === 'Пробний')
 
   return [
-    { key: 'latest', label: 'Останні', posts },
+    { key: 'latest', label: 'Останні', posts: regularPosts },
     { key: 'top', label: 'Топ', posts: topPosts.length ? topPosts : sortedByViews.slice(0, 6) },
     { key: 'below', label: 'Нижче цілі', posts: belowTargetPosts },
     { key: 'trial', label: 'Пробні', posts: trialPosts },

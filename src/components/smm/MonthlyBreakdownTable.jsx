@@ -13,7 +13,12 @@ export function MonthlyBreakdownTable({ rows = [] }) {
             <tr>
               <th>Місяць</th>
               <th className="text-right">Пости</th>
-              <th className="text-right">Приріст</th>
+              <th
+                className="text-right"
+                title="Нові підписки мінус відписки за місяць з Meta follows_and_unfollows."
+              >
+                Net приріст
+              </th>
               <th className="text-right">ER</th>
             </tr>
           </thead>
@@ -26,7 +31,19 @@ export function MonthlyBreakdownTable({ rows = [] }) {
                 <td className="mono text-right font-semibold text-ink">
                   {row.posts}
                 </td>
-                <td className="mono text-right font-semibold text-pos">
+                <td
+                  className={`mono text-right font-semibold ${
+                    row.netFollowers < 0 ? 'text-neg' : 'text-pos'
+                  }`}
+                  title={
+                    row.newFollowers !== null &&
+                    row.newFollowers !== undefined &&
+                    row.unfollows !== null &&
+                    row.unfollows !== undefined
+                      ? `${formatNumber(row.newFollowers)} нових · ${formatNumber(row.unfollows)} відписок`
+                      : undefined
+                  }
+                >
                   {row.netFollowers === null || row.netFollowers === undefined
                     ? '—'
                     : `${row.netFollowers > 0 ? '+' : ''}${formatNumber(row.netFollowers)}`}

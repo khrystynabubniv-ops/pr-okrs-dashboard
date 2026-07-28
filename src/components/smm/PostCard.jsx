@@ -1,4 +1,4 @@
-import { CalendarDays, ExternalLink, Eye, Heart, UserPlus } from 'lucide-react'
+import { CalendarDays, ExternalLink, Eye, Heart, Info, Target, UserPlus } from 'lucide-react'
 import { formatDecimal, formatNumber } from '../../lib/smmData'
 
 const typeLabels = {
@@ -99,11 +99,16 @@ export function PostCard({ post }) {
                 ? '—'
                 : `+${post.newFollowers}`
             }
+            help={
+              post.newFollowersUnavailableReason ||
+              'Кількість акаунтів, які почали підписку після взаємодії з цим постом.'
+            }
           />
           <PostStat
             icon={Eye}
             label="Охоплення"
             value={formatNumber(post.nonFollowerReach)}
+            help="Охоплені акаунти з Meta media insights. Окремий зріз тільки по непідписниках Meta не повертає для цього media endpoint."
           />
           <PostStat label="ER" value={`${formatDecimal(post.er)}%`} />
           <PostStat label="ERR" value={`${formatDecimal(post.err)}%`} />
@@ -113,7 +118,12 @@ export function PostCard({ post }) {
                 label="Сер. перегляд"
                 value={`${formatDecimal(post.avgWatchTimeSeconds)} c`}
               />
-              <PostStat label="Ціль переглядів" value="15 000" variant="goal" />
+              <PostStat
+                icon={Target}
+                label="Ціль переглядів"
+                value="15 000"
+                variant="goal"
+              />
             </>
           ) : null}
         </div>
@@ -129,6 +139,7 @@ export function PostCard({ post }) {
       target="_blank"
       rel="noreferrer"
       className="block min-w-0 text-inherit no-underline"
+      title="Відкрити пост в Instagram"
       aria-label="Відкрити пост в Instagram"
     >
       {card}
@@ -148,7 +159,7 @@ function BenchmarkBadge({ benchmark }) {
   )
 }
 
-function PostStat({ icon: Icon, label, value, variant = 'default' }) {
+function PostStat({ icon: Icon, label, value, variant = 'default', help }) {
   return (
     <div
       className={`min-w-0 rounded-md border px-3 py-2 ${
@@ -157,15 +168,30 @@ function PostStat({ icon: Icon, label, value, variant = 'default' }) {
           : 'border-line2 bg-white'
       }`}
     >
-      <p
-        className={`flex items-center gap-1.5 truncate text-[11px] font-semibold uppercase tracking-[0.06em] ${
+      <div
+        className={`flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] ${
           variant === 'goal' ? 'text-accent2' : 'text-ink3'
         }`}
       >
         {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
-        {label}
+        <span className="truncate">{label}</span>
+        {help ? (
+          <span
+            className="inline-grid h-4 w-4 shrink-0 place-items-center rounded-full text-ink3"
+            title={help}
+            aria-label={help}
+          >
+            <Info className="h-3.5 w-3.5" />
+          </span>
+        ) : null}
+      </div>
+      <p
+        className={`mono mt-1 text-sm font-semibold ${
+          variant === 'goal' ? 'text-accent2' : 'text-ink'
+        }`}
+      >
+        {value}
       </p>
-      <p className="mono mt-1 text-sm font-semibold text-ink">{value}</p>
     </div>
   )
 }

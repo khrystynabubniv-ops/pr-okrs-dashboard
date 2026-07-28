@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2, Eye, Signal } from 'lucide-react'
+import { InfoTooltip } from '../InfoTooltip'
 
 const toneStyles = {
   green: {
@@ -33,6 +34,9 @@ const signalLabels = {
   red: 'Низько',
 }
 
+const signalTooltip =
+  'Колір показує статус метрики: зелений - у нормі, жовтий - потребує уваги, червоний - нижче очікувань.'
+
 export function StatusHero({ status, signals = [] }) {
   const styles = toneStyles[status?.tone] || toneStyles.green
   const Icon = styles.Icon
@@ -65,14 +69,17 @@ export function StatusHero({ status, signals = [] }) {
                 <p className="text-xs font-semibold uppercase tracking-[0.08em] text-ink3">
                   {signal.label}
                 </p>
-                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-ink2 ring-1 ring-line2">
-                  <span
-                    className={`h-2 w-2 shrink-0 rounded-full ${
-                      signalDots[signal.tone] || styles.dot
-                    }`}
-                  />
-                  {signalLabels[signal.tone] || 'Статус'}
-                </span>
+                <div className="flex shrink-0 items-center gap-1">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-ink2 ring-1 ring-line2">
+                    <span
+                      className={`h-2 w-2 shrink-0 rounded-full ${
+                        signalDots[signal.tone] || styles.dot
+                      }`}
+                    />
+                    {signalLabels[signal.tone] || 'Статус'}
+                  </span>
+                  <InfoTooltip text={`${signalTooltip} Поточний статус: ${signalLabels[signal.tone] || 'статус'}.`} />
+                </div>
               </div>
               <p className="mono mt-3 text-xl font-semibold text-ink">{signal.value}</p>
               {signal.detail ? (

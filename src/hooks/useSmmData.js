@@ -46,7 +46,7 @@ export function useSmmData(month, previewState = '') {
 
         const monthKey = monthToIsoMonth(month)
         const controller = new AbortController()
-        const requestTimeout = window.setTimeout(() => controller.abort(), 18000)
+        const requestTimeout = window.setTimeout(() => controller.abort(), 35000)
 
         try {
           const data = await apiRequest(

@@ -15,6 +15,7 @@ export function TrendChart({ trend }) {
   const gradientId = `smm-${trend?.key || 'trend'}-gradient`
   const chartRef = useRef(null)
   const [chartWidth, setChartWidth] = useState(0)
+  const xAxisKey = trend?.data?.some((item) => item.axisLabel) ? 'axisLabel' : 'week'
 
   useEffect(() => {
     const node = chartRef.current
@@ -66,7 +67,7 @@ export function TrendChart({ trend }) {
               </linearGradient>
             </defs>
             <XAxis
-              dataKey="week"
+              dataKey={xAxisKey}
               axisLine={false}
               tickLine={false}
               interval="preserveStartEnd"
