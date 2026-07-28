@@ -14,14 +14,17 @@ const kindStyles = {
   risk: 'bg-rose-50 text-rose-700 ring-rose-200',
 }
 
-export function AiInsightsCard({ monthKey, monthLabel, payload }) {
+export function AiInsightsCard({ monthKey, monthLabel, payload, unavailableReason = '' }) {
   const [insight, setInsight] = useState(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState(null)
+  const unavailableMessage =
+    unavailableReason || (!payload && monthKey ? 'Недостатньо даних для аналізу цього місяця' : '')
+  const isUnavailable = Boolean(unavailableMessage)
 
   const generate = useCallback(async () => {
-    if (!monthKey || !payload) return
+    if (!monthKey || !payload || isUnavailable) return
 
     setGenerating(true)
     setError(null)
@@ -41,13 +44,19 @@ export function AiInsightsCard({ monthKey, monthLabel, payload }) {
       setGenerating(false)
       setLoading(false)
     }
-  }, [monthKey, payload])
+  }, [isUnavailable, monthKey, payload])
 
   useEffect(() => {
     let isMounted = true
 
     async function loadInsight() {
-      if (!monthKey || !payload) return
+      if (!monthKey || !payload || isUnavailable) {
+        setLoading(false)
+        setGenerating(false)
+        setError(null)
+        setInsight(null)
+        return
+      }
 
       setLoading(true)
       setError(null)
@@ -77,7 +86,7 @@ export function AiInsightsCard({ monthKey, monthLabel, payload }) {
     return () => {
       isMounted = false
     }
-  }, [generate, monthKey, payload])
+  }, [generate, isUnavailable, monthKey, payload])
 
   return (
     <section className="panel h-full min-w-0 px-5 py-5">
@@ -94,7 +103,7 @@ export function AiInsightsCard({ monthKey, monthLabel, payload }) {
         <button
           type="button"
           onClick={generate}
-          disabled={generating || loading}
+          disabled={generating || loading || isUnavailable}
           className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-white transition hover:bg-accent2 disabled:opacity-60"
         >
           <RefreshCw className={`h-4 w-4 ${generating ? 'animate-spin' : ''}`} />
@@ -102,7 +111,16 @@ export function AiInsightsCard({ monthKey, monthLabel, payload }) {
         </button>
       </div>
 
-      {loading || generating ? (
+      {isUnavailable ? (
+        <div className="mt-5 rounded-md border border-line bg-surface-2 px-4 py-4">
+          <p className="text-sm font-semibold text-ink">{unavailableMessage}</p>
+          <p className="mt-1 text-sm leading-6 text-ink2">
+            Після першої публікації за місяць Comms Copilot зможе сформувати висновки.
+          </p>
+        </div>
+      ) : null}
+
+      {!isUnavailable && (loading || generating) ? (
         <div className="mt-5 space-y-3">
           <div className="h-4 w-4/5 animate-pulse rounded bg-line2" />
           <div className="h-4 w-3/5 animate-pulse rounded bg-line2" />
@@ -114,7 +132,7 @@ export function AiInsightsCard({ monthKey, monthLabel, payload }) {
         </div>
       ) : null}
 
-      {!loading && !generating && error ? (
+      {!isUnavailable && !loading && !generating && error ? (
         <div className="mt-5 rounded-md border border-rose-200 bg-rose-50 px-4 py-4">
           <p className="text-sm font-semibold text-rose-900">
             Не вдалося згенерувати висновки — перевірте налаштування.
@@ -123,7 +141,7 @@ export function AiInsightsCard({ monthKey, monthLabel, payload }) {
         </div>
       ) : null}
 
-      {!loading && !generating && !error && insight ? (
+      {!isUnavailable && !loading && !generating && !error && insight ? (
         <div className="mt-5">
           <p className="text-sm leading-6 text-ink2">{insight.leadParagraph}</p>
           <div className="mt-5 space-y-3">

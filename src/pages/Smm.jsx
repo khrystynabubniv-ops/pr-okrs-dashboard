@@ -33,6 +33,9 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
   const [postFilter, setPostFilter] = useState('latest')
   const monthKey = monthToIsoMonth(selectedMonth)
   const insightsPayload = useMemo(() => buildSmmInsightsPayload(data), [data])
+  const insightsUnavailableReason = data?.meta?.isEmptyMonth
+    ? 'Недостатньо даних для аналізу цього місяця'
+    : ''
   const postTabs = useMemo(() => buildPostTabs(data?.posts || []), [data])
   const activePostTab = postTabs.find((tab) => tab.key === postFilter) || postTabs[0]
 
@@ -124,25 +127,25 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <SmmKpiCard
             label={data.kpis.followers.label}
-            value={formatNumber(data.kpis.followers.value)}
+            value={formatOptionalNumber(data.kpis.followers.value)}
             delta={data.kpis.followers.delta}
             detail={data.kpis.followers.detail}
           />
           <SmmKpiCard
             label={data.kpis.averageReelViews.label}
-            value={formatNumber(data.kpis.averageReelViews.value)}
+            value={formatOptionalNumber(data.kpis.averageReelViews.value)}
             deltaPercent={data.kpis.averageReelViews.deltaPercent}
             detail={data.kpis.averageReelViews.detail}
           />
           <SmmKpiCard
             label={data.kpis.shares.label}
-            value={formatNumber(data.kpis.shares.value)}
+            value={formatOptionalNumber(data.kpis.shares.value)}
             deltaPercent={data.kpis.shares.deltaPercent}
             detail={data.kpis.shares.detail}
           />
           <SmmKpiCard
             label={data.kpis.goalProgress.label}
-            value={`${data.kpis.goalProgress.value}%`}
+            value={formatOptionalPercent(data.kpis.goalProgress.value)}
             detail={data.kpis.goalProgress.detail}
             progress={data.kpis.goalProgress.value}
           />
@@ -153,6 +156,7 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
             monthKey={monthKey}
             monthLabel={selectedMonth}
             payload={insightsPayload}
+            unavailableReason={insightsUnavailableReason}
           />
           <MonthlyBreakdownTable rows={data.monthlyBreakdown} />
         </div>
@@ -267,7 +271,12 @@ function SmmKpiCard({ label, value, delta, deltaPercent, detail, progress }) {
           <div className="h-2 overflow-hidden rounded-full bg-line2">
             <div
               className="h-full rounded-tag bg-accent"
-              style={{ width: `${Math.min(100, Number(progress || 0))}%` }}
+              style={{
+                width:
+                  progress === null
+                    ? '0%'
+                    : `${Math.min(100, Number(progress || 0))}%`,
+              }}
             />
           </div>
         </div>
@@ -314,6 +323,14 @@ function formatDelta(value, isPercent) {
   const number = Number(value || 0)
   const prefix = number > 0 ? '+' : ''
   return `${prefix}${number}${isPercent ? '%' : ''}`
+}
+
+function formatOptionalNumber(value) {
+  return value === null || value === undefined ? '—' : formatNumber(value)
+}
+
+function formatOptionalPercent(value) {
+  return value === null || value === undefined ? '—' : `${value}%`
 }
 
 function buildPostTabs(posts) {

@@ -4189,6 +4189,9 @@ async function fetchInstagramProfile(config) {
 }
 
 async function fetchInstagramMedia(config, range) {
+  const safeRange = clipSmmRangeToNow(range)
+  if (!safeRange) return []
+
   const fields = [
     'id',
     'caption',
@@ -4205,17 +4208,23 @@ async function fetchInstagramMedia(config, range) {
   const url = metaUrl(config, `${config.accountId}/media`, {
     fields,
     limit: 100,
-    since: smmUnixTime(range.from),
-    until: smmUnixTime(range.to),
+    since: smmUnixTime(safeRange.from),
+    until: smmUnixTime(safeRange.to),
   })
 
   return fetchMetaPaged(config, url, 'Meta API не повернув Instagram media.')
 }
 
 async function fetchInstagramAccountInsights(config, range, monthKey) {
-  const chunks = smmInsightRangeChunks(range)
+  const insightRange = clipSmmRangeToMetaInsightWindow(range)
+  const chunks = insightRange ? smmInsightRangeChunks(insightRange) : []
   const concurrency = boundedInteger(process.env.META_ACCOUNT_INSIGHTS_CONCURRENCY, 3, 1, 6)
   const followRanges = buildSmmFollowMetricRanges(monthKey)
+    .map(({ key, range: followRange }) => ({
+      key,
+      range: clipSmmRangeToMetaInsightWindow(followRange),
+    }))
+    .filter((item) => item.range)
   const [chunkInsights, followEntries] = await Promise.all([
     mapWithConcurrency(
       chunks,
@@ -4245,7 +4254,17 @@ async function fetchInstagramAccountInsights(config, range, monthKey) {
 }
 
 async function fetchInstagramFollowActions(config, range) {
-  const chunks = smmInsightRangeChunks(range)
+  const safeRange = clipSmmRangeToMetaInsightWindow(range)
+  if (!safeRange) {
+    return {
+      newFollowers: null,
+      unfollows: null,
+      netFollowers: null,
+      unavailableReason: 'Дані тимчасово недоступні',
+    }
+  }
+
+  const chunks = smmInsightRangeChunks(safeRange)
   const results = await mapWithConcurrency(
     chunks,
     boundedInteger(process.env.META_ACCOUNT_FOLLOW_INSIGHTS_CONCURRENCY, 3, 1, 6),
@@ -4284,7 +4303,7 @@ async function fetchInstagramFollowActions(config, range) {
       netFollowers: null,
       unavailableReason:
         results.find((item) => item?.unavailableReason)?.unavailableReason ||
-        'Meta не повернула breakdown follow_type для follows_and_unfollows.',
+        'Дані тимчасово недоступні',
     }
   }
 
@@ -4357,7 +4376,7 @@ function metaFollowActionsUnavailableReason(error) {
   const message = detail || textValue(error?.message)
 
   if (/100 followers|100\+ followers|less than 100/i.test(message)) {
-    return 'Meta не повернула follows_and_unfollows: потрібно 100+ підписників для цього зрізу.'
+    return 'Потрібно 100+ підписників для цього зрізу.'
   }
 
   if (/metric_type=total_value/i.test(message)) {
@@ -4368,7 +4387,7 @@ function metaFollowActionsUnavailableReason(error) {
     return 'Meta не повернула breakdown follow_type для follows_and_unfollows.'
   }
 
-  return message || 'Meta не повернула follows_and_unfollows.'
+  return 'Дані тимчасово недоступні'
 }
 
 async function fetchInstagramMediaInsights(config, media) {
@@ -4563,11 +4582,20 @@ function buildLiveSmmPayload({
     profile,
     smmFollowMetric(followActions, `month:${previousMonthKey}`),
   )
-  const reelViewsDelta = percentChange(currentStats.avgReelViews, previousStats.avgReelViews)
-  const sharesDelta = percentChange(currentStats.shares, previousStats.shares)
-  const goalProgress = SMM_REEL_VIEW_TARGET
-    ? clampPercent(Math.round((currentStats.avgReelViews / SMM_REEL_VIEW_TARGET) * 100))
-    : 0
+  const isEmptyMonth = selectedMedia.length === 0
+  const reelViewsDelta =
+    currentStats.posts && previousStats.posts
+      ? percentChange(currentStats.avgReelViews, previousStats.avgReelViews)
+      : null
+  const sharesDelta =
+    currentStats.posts && previousStats.posts
+      ? percentChange(currentStats.shares, previousStats.shares)
+      : null
+  const goalProgress = isEmptyMonth
+    ? null
+    : SMM_REEL_VIEW_TARGET
+      ? clampPercent(Math.round((currentStats.avgReelViews / SMM_REEL_VIEW_TARGET) * 100))
+      : 0
   const status = liveSmmStatus(currentStats, goalProgress)
 
   return {
@@ -4579,55 +4607,77 @@ function buildLiveSmmPayload({
     signals: [
       {
         label: 'Приріст підписників',
-        value: formatSmmSigned(currentStats.netFollowers),
-        detail: currentStats.followersDetail,
+        value: isEmptyMonth ? '—' : formatSmmSigned(currentStats.netFollowers),
+        detail: isEmptyMonth
+          ? 'Показник зʼявиться після першої публікації місяця'
+          : currentStats.followersDetail,
         tone:
-          currentStats.netFollowers === null
-            ? 'yellow'
-            : currentStats.netFollowers >= 100
-              ? 'green'
-              : currentStats.netFollowers > 0
-                ? 'yellow'
-                : 'red',
+          isEmptyMonth
+            ? 'neutral'
+            : currentStats.netFollowers === null
+              ? 'yellow'
+              : currentStats.netFollowers >= 100
+                ? 'green'
+                : currentStats.netFollowers > 0
+                  ? 'yellow'
+                  : 'red',
       },
       {
         label: 'ER',
-        value: `${formatSmmDecimal(currentStats.er)}%`,
+        value: isEmptyMonth ? '—' : `${formatSmmDecimal(currentStats.er)}%`,
         detail: 'середній ER за місяць',
-        tone: currentStats.er >= 5 ? 'green' : currentStats.er >= 3.5 ? 'yellow' : 'red',
+        tone: isEmptyMonth
+          ? 'neutral'
+          : currentStats.er >= 5
+            ? 'green'
+            : currentStats.er >= 3.5
+              ? 'yellow'
+              : 'red',
       },
       {
         label: 'Перегляди vs ціль',
-        value: `${formatSmmNumber(currentStats.avgReelViews)} / ${formatSmmNumber(SMM_REEL_VIEW_TARGET)} (${goalProgress}%)`,
+        value: isEmptyMonth
+          ? `— / ${formatSmmNumber(SMM_REEL_VIEW_TARGET)}`
+          : `${formatSmmNumber(currentStats.avgReelViews)} / ${formatSmmNumber(SMM_REEL_VIEW_TARGET)} (${goalProgress}%)`,
         detail: 'середні перегляди рілз / ціль',
-        tone: goalProgress >= 85 ? 'green' : goalProgress >= 60 ? 'yellow' : 'red',
+        tone: isEmptyMonth
+          ? 'neutral'
+          : goalProgress >= 85
+            ? 'green'
+            : goalProgress >= 60
+              ? 'yellow'
+              : 'red',
       },
     ],
     kpis: {
       followers: {
         label: 'Підписники',
         value: currentStats.followers,
-        delta: currentStats.netFollowers,
-        detail: currentStats.followersDetail,
+        delta: isEmptyMonth ? null : currentStats.netFollowers,
+        detail: isEmptyMonth
+          ? 'Поточна кількість акаунта; приріст зʼявиться після даних за місяць'
+          : currentStats.followersDetail,
       },
       averageReelViews: {
         label: 'Середні перегляди рілз',
-        value: currentStats.avgReelViews,
+        value: isEmptyMonth ? null : currentStats.avgReelViews,
         deltaPercent: reelViewsDelta,
-        detail: 'до минулого місяця',
+        detail: isEmptyMonth ? 'Публікацій за місяць ще немає' : 'до минулого місяця',
       },
       shares: {
         label: 'Шери за місяць',
-        value: currentStats.shares,
+        value: isEmptyMonth ? null : currentStats.shares,
         deltaPercent: sharesDelta,
-        detail: 'до минулого місяця',
+        detail: isEmptyMonth ? 'Публікацій за місяць ще немає' : 'до минулого місяця',
       },
       goalProgress: {
         label: 'Прогрес до цілі місяця',
         value: goalProgress,
         current: currentStats.avgReelViews,
         target: SMM_REEL_VIEW_TARGET,
-        detail: `${formatSmmNumber(currentStats.avgReelViews)} / ${formatSmmNumber(SMM_REEL_VIEW_TARGET)} сер. переглядів рілз`,
+        detail: isEmptyMonth
+          ? `Ціль ${formatSmmNumber(SMM_REEL_VIEW_TARGET)} сер. переглядів рілз активується після першого Reel`
+          : `${formatSmmNumber(currentStats.avgReelViews)} / ${formatSmmNumber(SMM_REEL_VIEW_TARGET)} сер. переглядів рілз`,
       },
     },
     trends: buildLiveSmmTrends(media, accountInsights, followActions, monthKey),
@@ -4639,6 +4689,7 @@ function buildLiveSmmPayload({
       username: textValue(profile.username),
       fetchedAt: new Date().toISOString(),
       accountInsightsError,
+      isEmptyMonth,
     },
   }
 }
@@ -4667,7 +4718,7 @@ function calculateSmmStats(media, accountInsights, range, profile, followMetric)
     ? `${formatSmmNumber(newFollowers)} нових · ${formatSmmNumber(unfollows)} відписок`
     : fallbackNewFollowers !== null
       ? `${formatSmmNumber(fallbackNewFollowers)} нових · Meta не повернула breakdown follow_type для відписок`
-      : followMetric?.unavailableReason || 'поточна кількість; історія приросту недоступна'
+      : followMetric?.unavailableReason || 'Дані тимчасово недоступні'
 
   return {
     avgReelViews,
@@ -4678,6 +4729,7 @@ function calculateSmmStats(media, accountInsights, range, profile, followMetric)
     newFollowers,
     unfollows,
     posts: media.length,
+    reels: reels.length,
     shares,
   }
 }
@@ -4962,9 +5014,9 @@ function normalizeSmmCaption(value) {
 function liveSmmStatus(stats, goalProgress) {
   if (!stats.posts) {
     return {
-      tone: 'yellow',
-      title: 'Все ок',
-      description: 'Meta підключена, але за цей місяць ще немає публікацій у відповіді API.',
+      tone: 'neutral',
+      title: 'Ще немає даних за цей місяць',
+      description: 'Публікацій поки не було. Показники зʼявляться після першого поста.',
     }
   }
 
@@ -5151,6 +5203,57 @@ function smmWeekBuckets(monthKey) {
       to: `${formatIsoDate(to)}T23:59:59`,
     }
   })
+}
+
+function clipSmmRangeToNow(range) {
+  const latest = new Date()
+  latest.setUTCHours(23, 59, 59, 0)
+
+  return clipSmmRange(range, {
+    from: range?.from,
+    to: `${formatIsoDate(latest)}T23:59:59`,
+  })
+}
+
+function clipSmmRangeToMetaInsightWindow(range) {
+  const latest = new Date()
+  latest.setUTCHours(23, 59, 59, 0)
+
+  const earliest = new Date(latest)
+  earliest.setUTCFullYear(earliest.getUTCFullYear() - 2)
+  earliest.setUTCHours(0, 0, 0, 0)
+
+  return clipSmmRange(range, {
+    from: `${formatIsoDate(earliest)}T00:00:00`,
+    to: `${formatIsoDate(latest)}T23:59:59`,
+  })
+}
+
+function clipSmmRange(range, limit) {
+  if (!range?.from || !range?.to || !limit?.to) return null
+
+  const rangeFrom = Date.parse(isoDateBoundary(range.from))
+  const rangeTo = Date.parse(isoDateBoundary(range.to))
+  const limitFrom = limit.from ? Date.parse(isoDateBoundary(limit.from)) : rangeFrom
+  const limitTo = Date.parse(isoDateBoundary(limit.to))
+
+  if (
+    !Number.isFinite(rangeFrom) ||
+    !Number.isFinite(rangeTo) ||
+    !Number.isFinite(limitFrom) ||
+    !Number.isFinite(limitTo)
+  ) {
+    return null
+  }
+
+  const from = new Date(Math.max(rangeFrom, limitFrom))
+  const to = new Date(Math.min(rangeTo, limitTo))
+  if (from > to) return null
+
+  return {
+    from: `${formatIsoDate(from)}T00:00:00`,
+    to: `${formatIsoDate(to)}T23:59:59`,
+  }
 }
 
 function smmInsightRangeChunks(range) {

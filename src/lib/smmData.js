@@ -320,7 +320,10 @@ export function getSmmMonthData(month) {
 
 export function buildSmmInsightsPayload(data) {
   if (!data) return null
+  if (data.meta?.isEmptyMonth) return null
+
   const analysisPosts = (data.posts || []).filter((post) => post.variantTag !== 'Пробний')
+  if (!analysisPosts.length) return null
 
   return {
     month: data.month,

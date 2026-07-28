@@ -20,18 +20,26 @@ const toneStyles = {
     dot: 'bg-neg',
     Icon: AlertTriangle,
   },
+  neutral: {
+    shell: 'border-line bg-white',
+    icon: 'bg-line2 text-ink2',
+    dot: 'bg-ink3',
+    Icon: Signal,
+  },
 }
 
 const signalDots = {
   green: 'bg-pos',
   yellow: 'bg-warn',
   red: 'bg-neg',
+  neutral: 'bg-ink3',
 }
 
 const signalLabels = {
   green: 'Добре',
   yellow: 'Увага',
   red: 'Низько',
+  neutral: 'Немає даних',
 }
 
 const signalTooltip =
@@ -59,24 +67,24 @@ export function StatusHero({ status, signals = [] }) {
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-3">
           {signals.map((signal) => (
             <div
               key={signal.label}
-              className="rounded-md border border-white/70 bg-white/70 px-3 py-3 shadow-sm shadow-black/[0.03]"
+              className="min-w-0 rounded-md border border-white/70 bg-white/70 px-3 py-3 shadow-sm shadow-black/[0.03]"
             >
-              <div className="flex flex-wrap items-start gap-2">
-                <p className="min-w-0 flex-1 text-xs font-semibold uppercase tracking-[0.08em] text-ink3">
+              <div className="flex min-w-0 flex-col gap-2">
+                <p className="min-w-0 text-xs font-semibold uppercase tracking-[0.08em] text-ink3">
                   {signal.label}
                 </p>
-                <div className="ml-auto flex shrink-0 items-center gap-1">
-                  <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-ink2 ring-1 ring-line2">
+                <div className="flex min-w-0 items-center gap-1">
+                  <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-ink2 ring-1 ring-line2">
                     <span
                       className={`h-2 w-2 shrink-0 rounded-full ${
                         signalDots[signal.tone] || styles.dot
                       }`}
                     />
-                    {signalLabels[signal.tone] || 'Статус'}
+                    <span className="truncate">{signalLabels[signal.tone] || 'Статус'}</span>
                   </span>
                   <InfoTooltip text={`${signalTooltip} Поточний статус: ${signalLabels[signal.tone] || 'статус'}.`} />
                 </div>
