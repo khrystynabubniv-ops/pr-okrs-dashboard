@@ -58,11 +58,22 @@ const pageEyebrows = {
   '/linkedin-report': 'Channels · Personal Brands',
 }
 
+const widePagePaths = new Set([
+  '/dashboard',
+  '/smm',
+  '/goals',
+  '/monthly',
+  '/events',
+  '/reports/events',
+  '/reports/linkedin',
+  '/linkedin-report',
+])
+
 export function Layout({ selectedMonth, onMonthChange, children }) {
   const location = useLocation()
   const title = pageTitles[location.pathname] || 'Comms Tool'
   const eyebrow = pageEyebrows[location.pathname] || 'Communications'
-  const isWidePage = location.pathname === '/smm'
+  const isWidePage = widePagePaths.has(location.pathname)
   const showMonthSelector =
     location.pathname !== '/reports/linkedin' && location.pathname !== '/linkedin-report'
   const [authInfo, setAuthInfo] = useState({ auth: { enabled: false }, user: null })
