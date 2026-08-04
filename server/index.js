@@ -5222,21 +5222,13 @@ function smmInsightDateInRange(item, range) {
 }
 
 function aggregateSmmErByFollowers(media) {
-  const realMedia = media.filter(
-    (item) => item.variantTag !== 'Пробний' && Number.isFinite(item.followersSnapshot) && item.followersSnapshot > 0,
-  )
-  if (!realMedia.length) return null
+  // Середнє ER по постах, а не сумарний engagement/followers — інакше показник
+  // зростає з кількістю постів у групі замість того, щоб відображати типовий ER поста.
+  const perPostEr = media
+    .filter((item) => item.variantTag !== 'Пробний')
+    .map((item) => item.er)
+    .filter((value) => Number.isFinite(value))
 
-  const uniqueSnapshots = new Set(realMedia.map((item) => item.followersSnapshot))
-  if (uniqueSnapshots.size === 1) {
-    const followers = realMedia[0].followersSnapshot
-    const engagement = sumNumbers(realMedia.map((item) => item.engagement?.totalWithFollows))
-    return roundSmmDecimal((engagement / followers) * 100)
-  }
-
-  // Група постів рідко перетинає межу місяця (напр. тижневий бакет у трендах) — тоді
-  // просто середнє по вже готових post.er, бо в кожного з них свій followersSnapshot.
-  const perPostEr = realMedia.map((item) => item.er).filter((value) => Number.isFinite(value))
   if (!perPostEr.length) return null
   return roundSmmDecimal(perPostEr.reduce((sum, value) => sum + value, 0) / perPostEr.length)
 }
