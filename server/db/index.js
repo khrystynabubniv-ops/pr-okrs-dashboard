@@ -845,6 +845,64 @@ function mapSmmFollowersDataRow(row) {
   }
 }
 
+let smmPostOverridesTableReady = false
+
+export async function listStoredSmmPostOverrides() {
+  if (!isDatabaseConfigured()) return []
+  await ensureSmmPostOverridesTable()
+
+  const result = await query(`select * from smm_post_overrides`)
+  return result.rows.map(mapSmmPostOverrideRow)
+}
+
+export async function saveStoredSmmPostOverride(postId, override, userId = null) {
+  await ensureSmmPostOverridesTable()
+
+  if (!override) {
+    await query(`delete from smm_post_overrides where post_id = $1`, [postId])
+    return null
+  }
+
+  const result = await query(
+    `
+      insert into smm_post_overrides (post_id, override, updated_by)
+      values ($1, $2, $3)
+      on conflict (post_id)
+      do update set
+        override = excluded.override,
+        updated_by = excluded.updated_by,
+        updated_at = now()
+      returning *
+    `,
+    [postId, override, userId],
+  )
+
+  return mapSmmPostOverrideRow(result.rows[0])
+}
+
+async function ensureSmmPostOverridesTable() {
+  if (smmPostOverridesTableReady) return
+
+  await query(`
+    create table if not exists smm_post_overrides (
+      post_id text primary key,
+      override text not null check (override in ('trial', 'regular')),
+      updated_by uuid references app_users(id) on delete set null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `)
+  smmPostOverridesTableReady = true
+}
+
+function mapSmmPostOverrideRow(row) {
+  return {
+    postId: row.post_id,
+    override: row.override,
+    updatedAt: row.updated_at,
+  }
+}
+
 export async function listStoredEventReports() {
   if (!isDatabaseConfigured()) return []
   await ensureEventReportsTable()

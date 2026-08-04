@@ -30,10 +30,12 @@ import {
   getStoredSmmNotes,
   getStoredSmmFollowers,
   listStoredSmmFollowers,
+  listStoredSmmPostOverrides,
   saveStoredLinkedInReportData,
   saveStoredMonthlyFocusEntry,
   saveStoredSmmNotes,
   saveStoredSmmFollowers,
+  saveStoredSmmPostOverride,
   updateBoardReportNotionPage,
   updateStoredKpiGoalValue,
   upsertStoredKpiGoalFromExternal,
@@ -49,6 +51,8 @@ const SMM_NOTES_FILE =
   process.env.SMM_NOTES_FILE || path.join(__dirname, 'data', 'smm-notes.json')
 const SMM_FOLLOWERS_FILE =
   process.env.SMM_FOLLOWERS_FILE || path.join(__dirname, 'data', 'smm-followers.json')
+const SMM_POST_OVERRIDES_FILE =
+  process.env.SMM_POST_OVERRIDES_FILE || path.join(__dirname, 'data', 'smm-post-overrides.json')
 
 const app = express()
 const port = process.env.PORT || 3001
@@ -4128,16 +4132,17 @@ async function fetchInstagramSmmData(monthInput) {
     .map((item) => normalizeInstagramMedia(item, mediaInsightsById.get(item.id) || {}, profile))
     .filter((item) => item.id && item.publishedAt)
     .sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt))
-  const followersByMonth = await resolveSmmFollowersByMonth(
-    [monthKey, ...media.map((item) => item.publishedAt.slice(0, 7))],
-    profile,
-  )
+  const [followersByMonth, postOverrides] = await Promise.all([
+    resolveSmmFollowersByMonth([monthKey, ...media.map((item) => item.publishedAt.slice(0, 7))], profile),
+    resolveSmmPostOverrides(),
+  ])
 
   const payload = buildLiveSmmPayload({
     accountInsights,
     accountInsightsError,
     followActions,
     followersByMonth,
+    postOverrides,
     media,
     monthKey,
     monthRange,
@@ -4582,12 +4587,13 @@ function buildLiveSmmPayload({
   accountInsightsError,
   followActions,
   followersByMonth,
+  postOverrides,
   media,
   monthKey,
   monthRange,
   profile,
 }) {
-  const taggedMedia = enrichSmmMedia(media, followersByMonth)
+  const taggedMedia = enrichSmmMedia(media, followersByMonth, postOverrides)
   const selectedMedia = taggedMedia.filter((item) => smmDateInRange(item.publishedAt, monthRange))
   const previousMonthKey = shiftSmmMonth(monthKey, -1)
   const previousMonthRange = smmMonthRange(previousMonthKey)
@@ -4721,7 +4727,7 @@ function buildLiveSmmPayload({
       monthKey,
     ),
     contentTypeBreakdown: buildLiveContentTypeBreakdown(selectedMedia),
-    posts: tagLiveSmmPosts(selectedMedia, followersByMonth).slice(0, 12),
+    posts: tagLiveSmmPosts(selectedMedia, followersByMonth, postOverrides).slice(0, 12),
     meta: {
       accountId: textValue(profile.id),
       username: textValue(profile.username),
@@ -5046,7 +5052,12 @@ async function resolveSmmFollowersByMonth(months, profile) {
   return new Map(entries.filter(([, followers]) => followers !== null))
 }
 
-function enrichSmmMedia(media, followersByMonth = new Map()) {
+async function resolveSmmPostOverrides() {
+  const entries = await listSmmPostOverrides()
+  return new Map(entries.filter((entry) => entry?.postId).map((entry) => [entry.postId, entry.override]))
+}
+
+function enrichSmmMedia(media, followersByMonth = new Map(), postOverrides = new Map()) {
   const duplicateCaptionKeys = duplicateSmmCaptionKeys(media)
 
   return media.map((post) => {
@@ -5054,7 +5065,8 @@ function enrichSmmMedia(media, followersByMonth = new Map()) {
 
     return {
       ...post,
-      variantTag: isSmmTrialPost(post, duplicateCaptionKeys) ? 'Пробний' : null,
+      variantTag: resolveSmmVariantTag(post, duplicateCaptionKeys, postOverrides),
+      variantOverride: postOverrides.get(post.id) || null,
       followersSnapshot,
       // ER (за підписниками) = взаємодії (включно з новими підписками) / підписники на початок місяця поста.
       er: followersSnapshot
@@ -5064,8 +5076,11 @@ function enrichSmmMedia(media, followersByMonth = new Map()) {
   })
 }
 
-function tagLiveSmmPosts(media, followersByMonth) {
-  const posts = enrichSmmMedia(media, followersByMonth).map((post) => ({ ...post, tag: null }))
+function tagLiveSmmPosts(media, followersByMonth, postOverrides) {
+  const posts = enrichSmmMedia(media, followersByMonth, postOverrides).map((post) => ({
+    ...post,
+    tag: null,
+  }))
   const ranked = posts
     .filter((post) => post.views > 0)
     .sort((left, right) => right.views - left.views)
@@ -5093,6 +5108,14 @@ function duplicateSmmCaptionKeys(posts) {
   }, new Map())
 
   return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key))
+}
+
+function resolveSmmVariantTag(post, duplicateCaptionKeys, postOverrides) {
+  const override = postOverrides?.get(post.id)
+  if (override === 'trial') return 'Пробний'
+  if (override === 'regular') return null
+
+  return isSmmTrialPost(post, duplicateCaptionKeys) ? 'Пробний' : null
 }
 
 function isSmmTrialPost(post, duplicateCaptionKeys) {
@@ -5704,6 +5727,65 @@ async function writeLocalSmmFollowers(month, data) {
   all[month] = data
   await mkdir(path.dirname(SMM_FOLLOWERS_FILE), { recursive: true })
   await writeFile(SMM_FOLLOWERS_FILE, JSON.stringify(all, null, 2), 'utf8')
+}
+
+async function listSmmPostOverrides() {
+  if (isDatabaseConfigured()) {
+    try {
+      return await listStoredSmmPostOverrides()
+    } catch (error) {
+      if (!shouldUseLocalLinkedInReportFallback(error)) throw error
+      return Object.values(await readAllLocalSmmPostOverrides())
+    }
+  }
+
+  return Object.values(await readAllLocalSmmPostOverrides())
+}
+
+async function saveSmmPostOverride(postId, override, userId) {
+  const normalizedOverride = override === 'trial' || override === 'regular' ? override : null
+
+  if (isDatabaseConfigured()) {
+    try {
+      return await saveStoredSmmPostOverride(postId, normalizedOverride, userId)
+    } catch (error) {
+      if (!shouldUseLocalLinkedInReportFallback(error)) throw error
+    }
+  }
+
+  if (!normalizedOverride) {
+    await deleteLocalSmmPostOverride(postId)
+    return null
+  }
+
+  const payload = { postId, override: normalizedOverride, updatedAt: new Date().toISOString() }
+  await writeLocalSmmPostOverride(postId, payload)
+  return payload
+}
+
+async function readAllLocalSmmPostOverrides() {
+  try {
+    const content = await readFile(SMM_POST_OVERRIDES_FILE, 'utf8')
+    const parsed = JSON.parse(content)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch (error) {
+    if (error.code === 'ENOENT') return {}
+    throw error
+  }
+}
+
+async function writeLocalSmmPostOverride(postId, data) {
+  const all = await readAllLocalSmmPostOverrides()
+  all[postId] = data
+  await mkdir(path.dirname(SMM_POST_OVERRIDES_FILE), { recursive: true })
+  await writeFile(SMM_POST_OVERRIDES_FILE, JSON.stringify(all, null, 2), 'utf8')
+}
+
+async function deleteLocalSmmPostOverride(postId) {
+  const all = await readAllLocalSmmPostOverrides()
+  delete all[postId]
+  await mkdir(path.dirname(SMM_POST_OVERRIDES_FILE), { recursive: true })
+  await writeFile(SMM_POST_OVERRIDES_FILE, JSON.stringify(all, null, 2), 'utf8')
 }
 
 async function createEventReport(report, userId) {
@@ -6477,6 +6559,28 @@ app.post('/api/smm/followers/bulk', requireAuth, asyncHandler(async (request, re
 
   invalidateSmmDataCache()
   response.json({ entries: saved })
+}))
+
+app.get('/api/smm/post-overrides', asyncHandler(async (request, response) => {
+  const entries = await listSmmPostOverrides()
+  response.json({ entries })
+}))
+
+app.patch('/api/smm/post-overrides', requireAuth, asyncHandler(async (request, response) => {
+  const postId = textValue(request.body?.postId)
+  const override = request.body?.override === null ? null : textValue(request.body?.override)
+
+  if (!postId) {
+    throw createHttpError(400, 'Передайте postId.')
+  }
+
+  if (override !== null && override !== 'trial' && override !== 'regular') {
+    throw createHttpError(400, "Передайте override як 'trial', 'regular' або null.")
+  }
+
+  const saved = await saveSmmPostOverride(postId, override, request.user?.id)
+  invalidateSmmDataCache()
+  response.json({ postId, override: saved?.override ?? null, updatedAt: saved?.updatedAt || '' })
 }))
 
 app.post('/api/smm/insights/generate', asyncHandler(async (request, response) => {

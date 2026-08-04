@@ -119,5 +119,22 @@ export function useSmmData(month, previewState = '') {
     }
   }, [month, previewState])
 
-  return state
+  async function refresh() {
+    const normalizedPreviewState = String(previewState || '').toLowerCase()
+    if (['mock', 'empty', 'loading'].includes(normalizedPreviewState)) return
+
+    const monthKey = monthToIsoMonth(month)
+
+    try {
+      const data = await apiRequest(
+        `/api/smm/data?month=${encodeURIComponent(monthKey || month)}`,
+        { forceRefresh: true },
+      )
+      setState({ data, loading: false, error: null })
+    } catch {
+      // Ручне оновлення не має стирати вже показані дані при невдачі.
+    }
+  }
+
+  return { ...state, refresh }
 }

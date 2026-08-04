@@ -1,5 +1,6 @@
-import { CalendarDays, ExternalLink, Eye, Heart, Info, Target, UserPlus } from 'lucide-react'
-import { formatDecimal, formatNumber } from '../../lib/smmData'
+import { useState } from 'react'
+import { CalendarDays, ExternalLink, Eye, FlaskConical, Heart, Info, Target, UserPlus } from 'lucide-react'
+import { formatDecimal, formatNumber, setSmmPostVariantOverride } from '../../lib/smmData'
 
 const typeLabels = {
   reel: 'Reel',
@@ -19,7 +20,24 @@ const tagStyles = {
   Найгірший: 'bg-rose-50 text-rose-700 ring-rose-200',
 }
 
-export function PostCard({ post }) {
+export function PostCard({ post, onVariantChange }) {
+  const [savingVariant, setSavingVariant] = useState(false)
+  const isTrial = post.variantTag === 'Пробний'
+
+  async function handleToggleVariant(event) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (savingVariant) return
+
+    setSavingVariant(true)
+    try {
+      await setSmmPostVariantOverride(post.id, isTrial ? 'regular' : 'trial')
+      await onVariantChange?.()
+    } finally {
+      setSavingVariant(false)
+    }
+  }
+
   const card = (
     <article className="panel min-w-0 overflow-hidden transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="relative aspect-[16/10] overflow-hidden bg-surface-2 [background-image:repeating-linear-gradient(135deg,var(--surface-2)_0,var(--surface-2)_10px,var(--line)_10px,var(--line)_20px)]">
@@ -50,6 +68,20 @@ export function PostCard({ post }) {
             </span>
           ) : null}
         </div>
+        <button
+          type="button"
+          onClick={handleToggleVariant}
+          disabled={savingVariant}
+          title={isTrial ? 'Прибрати позначку «Пробний»' : 'Позначити як «Пробний»'}
+          aria-label={isTrial ? 'Прибрати позначку «Пробний»' : 'Позначити як «Пробний»'}
+          className={`absolute right-3 top-3 inline-grid h-7 w-7 shrink-0 place-items-center rounded-md shadow-sm ring-1 ring-inset transition disabled:opacity-60 ${
+            isTrial
+              ? 'bg-indigo-600 text-white ring-indigo-600'
+              : 'bg-white/90 text-ink3 ring-line hover:text-indigo-700'
+          }`}
+        >
+          <FlaskConical className="h-4 w-4" />
+        </button>
       </div>
 
       <div className="space-y-4 px-4 py-4">

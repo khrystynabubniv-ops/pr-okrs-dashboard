@@ -1,4 +1,5 @@
 import { MONTHS } from '../constants'
+import { apiRequest } from './api'
 import { getViewsBenchmark } from './smmBenchmark'
 
 const monthStats = {
@@ -340,6 +341,13 @@ export function buildSmmInsightsPayload(data) {
       .map(compactPostForAi),
     latestPosts: analysisPosts.slice(0, 6).map(compactPostForAi),
   }
+}
+
+export async function setSmmPostVariantOverride(postId, override) {
+  return apiRequest('/api/smm/post-overrides', {
+    method: 'PATCH',
+    body: JSON.stringify({ postId, override }),
+  })
 }
 
 export function monthToIsoMonth(month) {

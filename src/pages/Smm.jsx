@@ -31,7 +31,7 @@ const REEL_POST_VIEW_TARGET = 15000
 export function SmmPage({ selectedMonth, onMonthChange }) {
   const [searchParams] = useSearchParams()
   const previewState = searchParams.get('previewState') || ''
-  const { data, loading, error } = useSmmData(selectedMonth, previewState)
+  const { data, loading, error, refresh } = useSmmData(selectedMonth, previewState)
   const [connectionNotice, setConnectionNotice] = useState('')
   const [postFilter, setPostFilter] = useState('latest')
   const [postView, setPostView] = useState('cards')
@@ -239,11 +239,11 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
           ))}
         </div>
         {postView === 'table' ? (
-          <PostsTable posts={activePostTab.posts} />
+          <PostsTable posts={activePostTab.posts} onVariantChange={refresh} />
         ) : (
           <div className="grid gap-4 lg:grid-cols-3">
             {activePostTab.posts.map((post) => (
-              <PostCard key={post.id} post={post} />
+              <PostCard key={post.id} post={post} onVariantChange={refresh} />
             ))}
           </div>
         )}
