@@ -143,6 +143,16 @@ function invalidateApiCacheForMutation(path) {
 
   if (key.startsWith('/api/smm/insights/generate')) {
     invalidateApiCache('/api/smm/insights')
+    return
+  }
+
+  if (key.startsWith('/api/smm/notes')) {
+    invalidateApiCache('/api/smm/notes')
+    return
+  }
+
+  if (key.startsWith('/api/smm/followers')) {
+    invalidateApiCache(['/api/smm/followers', '/api/smm/data'])
   }
 }
 

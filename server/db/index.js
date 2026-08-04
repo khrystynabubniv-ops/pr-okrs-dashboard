@@ -713,6 +713,138 @@ function mapLinkedInReportDataRow(row) {
   }
 }
 
+let smmNotesTableReady = false
+
+export async function getStoredSmmNotes(month) {
+  if (!isDatabaseConfigured()) return null
+  await ensureSmmNotesTable()
+
+  const result = await query(
+    `
+      select *
+      from smm_notes_data
+      where month = $1
+      limit 1
+    `,
+    [month],
+  )
+
+  return result.rows[0] ? mapSmmNotesDataRow(result.rows[0]) : null
+}
+
+export async function saveStoredSmmNotes(month, conclusions, userId = null) {
+  await ensureSmmNotesTable()
+
+  const result = await query(
+    `
+      insert into smm_notes_data (month, conclusions, updated_by)
+      values ($1, $2, $3)
+      on conflict (month)
+      do update set
+        conclusions = excluded.conclusions,
+        updated_by = excluded.updated_by,
+        updated_at = now()
+      returning *
+    `,
+    [month, JSON.stringify(Array.isArray(conclusions) ? conclusions : []), userId],
+  )
+
+  return mapSmmNotesDataRow(result.rows[0])
+}
+
+async function ensureSmmNotesTable() {
+  if (smmNotesTableReady) return
+
+  await query(`
+    create table if not exists smm_notes_data (
+      month text primary key,
+      conclusions jsonb not null default '[]'::jsonb,
+      updated_by uuid references app_users(id) on delete set null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `)
+  smmNotesTableReady = true
+}
+
+function mapSmmNotesDataRow(row) {
+  return {
+    month: row.month,
+    conclusions: Array.isArray(row.conclusions) ? row.conclusions : [],
+    updatedAt: row.updated_at,
+  }
+}
+
+let smmFollowersTableReady = false
+
+export async function getStoredSmmFollowers(month) {
+  if (!isDatabaseConfigured()) return null
+  await ensureSmmFollowersTable()
+
+  const result = await query(
+    `
+      select *
+      from smm_followers_data
+      where month = $1
+      limit 1
+    `,
+    [month],
+  )
+
+  return result.rows[0] ? mapSmmFollowersDataRow(result.rows[0]) : null
+}
+
+export async function listStoredSmmFollowers() {
+  if (!isDatabaseConfigured()) return []
+  await ensureSmmFollowersTable()
+
+  const result = await query(`select * from smm_followers_data order by month asc`)
+  return result.rows.map(mapSmmFollowersDataRow)
+}
+
+export async function saveStoredSmmFollowers(month, followers, userId = null) {
+  await ensureSmmFollowersTable()
+
+  const result = await query(
+    `
+      insert into smm_followers_data (month, followers, updated_by)
+      values ($1, $2, $3)
+      on conflict (month)
+      do update set
+        followers = excluded.followers,
+        updated_by = excluded.updated_by,
+        updated_at = now()
+      returning *
+    `,
+    [month, followers, userId],
+  )
+
+  return mapSmmFollowersDataRow(result.rows[0])
+}
+
+async function ensureSmmFollowersTable() {
+  if (smmFollowersTableReady) return
+
+  await query(`
+    create table if not exists smm_followers_data (
+      month text primary key,
+      followers integer not null,
+      updated_by uuid references app_users(id) on delete set null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `)
+  smmFollowersTableReady = true
+}
+
+function mapSmmFollowersDataRow(row) {
+  return {
+    month: row.month,
+    followers: Number(row.followers),
+    updatedAt: row.updated_at,
+  }
+}
+
 export async function listStoredEventReports() {
   if (!isDatabaseConfigured()) return []
   await ensureEventReportsTable()

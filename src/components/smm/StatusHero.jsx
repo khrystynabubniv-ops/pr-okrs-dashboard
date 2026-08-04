@@ -45,6 +45,10 @@ const signalLabels = {
 const signalTooltip =
   'Колір показує статус метрики: зелений - у нормі, жовтий - потребує уваги, червоний - нижче очікувань.'
 
+const signalFormulas = {
+  ER: 'Формула: ER = Σ(лайки + коментарі + шери + збереження + нові підписки) / підписники на початок місяця × 100 (ERR — те саме, але діленe на охоплення). Пробні рілз не входять.',
+}
+
 export function StatusHero({ status, signals = [] }) {
   const styles = toneStyles[status?.tone] || toneStyles.green
   const Icon = styles.Icon
@@ -86,7 +90,11 @@ export function StatusHero({ status, signals = [] }) {
                     />
                     {signalLabels[signal.tone] || 'Статус'}
                   </span>
-                  <InfoTooltip text={`${signalTooltip} Поточний статус: ${signalLabels[signal.tone] || 'статус'}.`} />
+                  <InfoTooltip
+                    text={`${signalTooltip} Поточний статус: ${signalLabels[signal.tone] || 'статус'}.${
+                      signalFormulas[signal.label] ? ` ${signalFormulas[signal.label]}` : ''
+                    }`}
+                  />
                 </div>
               </div>
               <p className="mono mt-3 text-xl font-semibold leading-tight text-ink">

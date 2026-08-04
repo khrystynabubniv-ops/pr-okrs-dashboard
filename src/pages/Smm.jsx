@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
-import { AlertTriangle, PlugZap, TrendingDown, TrendingUp } from 'lucide-react'
+import { AlertTriangle, LayoutGrid, PlugZap, Table2, TrendingDown, TrendingUp } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { InstagramIcon } from '../components/icons/InstagramIcon'
 import { MonthSelector } from '../components/MonthSelector'
 import { AiInsightsCard } from '../components/smm/AiInsightsCard'
+import { ConclusionsNotes } from '../components/smm/ConclusionsNotes'
 import { ContentTypeBreakdown } from '../components/smm/ContentTypeBreakdown'
 import { MonthlyBreakdownTable } from '../components/smm/MonthlyBreakdownTable'
 import { PostCard } from '../components/smm/PostCard'
+import { PostsTable } from '../components/smm/PostsTable'
 import { SmmSourceIndicator, StatusHero } from '../components/smm/StatusHero'
 import { TrendChart } from '../components/smm/TrendChart'
 import { useSmmData } from '../hooks/useSmmData'
@@ -21,6 +23,7 @@ const anchors = [
   { href: '#trends', label: 'Тренди' },
   { href: '#formats', label: 'Формати' },
   { href: '#posts', label: 'Пости' },
+  { href: '#conclusions', label: 'Висновки' },
 ]
 
 const REEL_POST_VIEW_TARGET = 15000
@@ -31,6 +34,7 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
   const { data, loading, error } = useSmmData(selectedMonth, previewState)
   const [connectionNotice, setConnectionNotice] = useState('')
   const [postFilter, setPostFilter] = useState('latest')
+  const [postView, setPostView] = useState('cards')
   const monthKey = monthToIsoMonth(selectedMonth)
   const insightsPayload = useMemo(() => buildSmmInsightsPayload(data), [data])
   const insightsUnavailableReason = data?.meta?.isEmptyMonth
@@ -162,15 +166,7 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
           />
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.9fr)_minmax(320px,1fr)]">
-          <AiInsightsCard
-            monthKey={monthKey}
-            monthLabel={selectedMonth}
-            payload={insightsPayload}
-            unavailableReason={insightsUnavailableReason}
-          />
-          <MonthlyBreakdownTable rows={data.monthlyBreakdown} />
-        </div>
+        <MonthlyBreakdownTable rows={data.monthlyBreakdown} />
       </section>
 
       <section id="trends" className="scroll-mt-28 space-y-4">
@@ -195,9 +191,35 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
             <p className="section-label">Content performance</p>
             <h2 className="mt-1 text-lg font-semibold text-ink">Пости</h2>
           </div>
-          <p className="text-sm font-medium text-ink3">
-            {activePostTab.posts.length} з {data.posts.length} публікацій
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-sm font-medium text-ink3">
+              {activePostTab.posts.length} з {data.posts.length} публікацій
+            </p>
+            <div className="inline-flex rounded-md border border-line bg-white p-1">
+              <button
+                type="button"
+                onClick={() => setPostView('cards')}
+                aria-label="Картки"
+                title="Картки"
+                className={`inline-flex h-7 w-7 items-center justify-center rounded transition ${
+                  postView === 'cards' ? 'bg-accent text-white' : 'text-ink3 hover:text-ink'
+                }`}
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setPostView('table')}
+                aria-label="Таблиця"
+                title="Таблиця"
+                className={`inline-flex h-7 w-7 items-center justify-center rounded transition ${
+                  postView === 'table' ? 'bg-accent text-white' : 'text-ink3 hover:text-ink'
+                }`}
+              >
+                <Table2 className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </div>
         <div className="flex gap-2 overflow-x-auto">
           {postTabs.map((tab) => (
@@ -216,10 +238,30 @@ export function SmmPage({ selectedMonth, onMonthChange }) {
             </button>
           ))}
         </div>
-        <div className="grid gap-4 lg:grid-cols-3">
-          {activePostTab.posts.map((post) => (
-            <PostCard key={post.id} post={post} />
-          ))}
+        {postView === 'table' ? (
+          <PostsTable posts={activePostTab.posts} />
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-3">
+            {activePostTab.posts.map((post) => (
+              <PostCard key={post.id} post={post} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section id="conclusions" className="scroll-mt-28 space-y-4">
+        <div>
+          <p className="section-label">Підсумок</p>
+          <h2 className="mt-1 text-lg font-semibold text-ink">Висновки та рекомендації</h2>
+        </div>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <AiInsightsCard
+            monthKey={monthKey}
+            monthLabel={selectedMonth}
+            payload={insightsPayload}
+            unavailableReason={insightsUnavailableReason}
+          />
+          <ConclusionsNotes monthKey={monthKey} />
         </div>
       </section>
     </SmmShell>

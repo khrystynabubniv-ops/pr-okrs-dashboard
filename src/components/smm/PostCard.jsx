@@ -110,8 +110,16 @@ export function PostCard({ post }) {
             value={formatNumber(post.nonFollowerReach)}
             help="Охоплені акаунти з Meta media insights. Окремий зріз тільки по непідписниках Meta не повертає для цього media endpoint."
           />
-          <PostStat label="ER" value={`${formatDecimal(post.er)}%`} />
-          <PostStat label="ERR" value={`${formatDecimal(post.err)}%`} />
+          <PostStat
+            label="ER"
+            value={post.er === null || post.er === undefined ? '—' : `${formatDecimal(post.er)}%`}
+            help="Взаємодії (включно з новими підписками) / підписники на початок місяця поста."
+          />
+          <PostStat
+            label="ERR"
+            value={`${formatDecimal(post.err)}%`}
+            help="Взаємодії (включно з новими підписками) / охоплення поста."
+          />
           {post.type === 'reel' ? (
             <>
               <PostStat

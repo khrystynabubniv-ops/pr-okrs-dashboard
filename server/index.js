@@ -27,8 +27,13 @@ import {
   listStoredEventReports,
   listStoredKpiGoals,
   listStoredMonthlyFocusEntries,
+  getStoredSmmNotes,
+  getStoredSmmFollowers,
+  listStoredSmmFollowers,
   saveStoredLinkedInReportData,
   saveStoredMonthlyFocusEntry,
+  saveStoredSmmNotes,
+  saveStoredSmmFollowers,
   updateBoardReportNotionPage,
   updateStoredKpiGoalValue,
   upsertStoredKpiGoalFromExternal,
@@ -40,6 +45,10 @@ const EVENT_REPORTS_FILE =
   process.env.EVENT_REPORTS_FILE || path.join(__dirname, 'data', 'event-reports.json')
 const LINKEDIN_REPORT_FILE =
   process.env.LINKEDIN_REPORT_FILE || path.join(__dirname, 'data', 'linkedin-report.json')
+const SMM_NOTES_FILE =
+  process.env.SMM_NOTES_FILE || path.join(__dirname, 'data', 'smm-notes.json')
+const SMM_FOLLOWERS_FILE =
+  process.env.SMM_FOLLOWERS_FILE || path.join(__dirname, 'data', 'smm-followers.json')
 
 const app = express()
 const port = process.env.PORT || 3001
@@ -99,9 +108,13 @@ const LOOQME_COVERAGE_CACHE_TTL_MS = 5 * 60 * 1000
 const MAILCHIMP_REPORTS_CACHE_TTL_MS = 5 * 60 * 1000
 const SMM_DATA_CACHE_TTL_MS = 5 * 60 * 1000
 const SMM_EMPLOYEE_COUNT = parsePositiveNumber(process.env.SMM_EMPLOYEE_COUNT) || 310
-const SMM_REEL_VIEW_TARGET = parsePositiveNumber(process.env.SMM_REEL_VIEW_TARGET) || 20000
+const SMM_REEL_VIEW_TARGET = parsePositiveNumber(process.env.SMM_REEL_VIEW_TARGET) || 15000
 const SMM_POST_REEL_VIEW_TARGET =
   parsePositiveNumber(process.env.SMM_POST_REEL_VIEW_TARGET) || 15000
+// ER тут — за підписниками (engagement / followers на початок місяця), а не за охопленням,
+// тож пороги нижчі за типові "reach-based" ER-бенчмарки (реальний діапазон акаунта — 0.6–2.9%).
+const SMM_ER_GREEN_THRESHOLD = parsePositiveNumber(process.env.SMM_ER_GREEN_THRESHOLD) || 2
+const SMM_ER_YELLOW_THRESHOLD = parsePositiveNumber(process.env.SMM_ER_YELLOW_THRESHOLD) || 1
 const SMM_MEDIA_INSIGHTS_LIMIT =
   parsePositiveNumber(process.env.SMM_MEDIA_INSIGHTS_LIMIT) || 12
 const META_GRAPH_DEFAULT_VERSION = 'v25.0'
@@ -4115,11 +4128,16 @@ async function fetchInstagramSmmData(monthInput) {
     .map((item) => normalizeInstagramMedia(item, mediaInsightsById.get(item.id) || {}, profile))
     .filter((item) => item.id && item.publishedAt)
     .sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt))
+  const followersByMonth = await resolveSmmFollowersByMonth(
+    [monthKey, ...media.map((item) => item.publishedAt.slice(0, 7))],
+    profile,
+  )
 
   const payload = buildLiveSmmPayload({
     accountInsights,
     accountInsightsError,
     followActions,
+    followersByMonth,
     media,
     monthKey,
     monthRange,
@@ -4563,15 +4581,19 @@ function buildLiveSmmPayload({
   accountInsights,
   accountInsightsError,
   followActions,
+  followersByMonth,
   media,
   monthKey,
   monthRange,
   profile,
 }) {
-  const selectedMedia = media.filter((item) => smmDateInRange(item.publishedAt, monthRange))
+  const taggedMedia = enrichSmmMedia(media, followersByMonth)
+  const selectedMedia = taggedMedia.filter((item) => smmDateInRange(item.publishedAt, monthRange))
   const previousMonthKey = shiftSmmMonth(monthKey, -1)
   const previousMonthRange = smmMonthRange(previousMonthKey)
-  const previousMedia = media.filter((item) => smmDateInRange(item.publishedAt, previousMonthRange))
+  const previousMedia = taggedMedia.filter((item) =>
+    smmDateInRange(item.publishedAt, previousMonthRange),
+  )
   const currentStats = calculateSmmStats(
     selectedMedia,
     accountInsights,
@@ -4628,15 +4650,22 @@ function buildLiveSmmPayload({
       },
       {
         label: 'ER',
-        value: isEmptyMonth ? '—' : `${formatSmmDecimal(currentStats.er)}%`,
-        detail: 'середній ER за місяць',
-        tone: isEmptyMonth
-          ? 'neutral'
-          : currentStats.er >= 5
-            ? 'green'
-            : currentStats.er >= 3.5
-              ? 'yellow'
-              : 'red',
+        value:
+          isEmptyMonth || currentStats.er === null
+            ? '—'
+            : `${formatSmmDecimal(currentStats.er)}%`,
+        detail:
+          currentStats.er === null && !isEmptyMonth
+            ? 'Немає даних про підписників на початок місяця'
+            : 'середній ER за місяць (за підписниками)',
+        tone:
+          isEmptyMonth || currentStats.er === null
+            ? 'neutral'
+            : currentStats.er >= SMM_ER_GREEN_THRESHOLD
+              ? 'green'
+              : currentStats.er >= SMM_ER_YELLOW_THRESHOLD
+                ? 'yellow'
+                : 'red',
       },
       {
         label: 'Перегляди vs ціль',
@@ -4684,10 +4713,15 @@ function buildLiveSmmPayload({
           : `${formatSmmNumber(currentStats.avgReelViews)} / ${formatSmmNumber(SMM_REEL_VIEW_TARGET)} сер. переглядів рілз`,
       },
     },
-    trends: buildLiveSmmTrends(media, accountInsights, followActions, monthKey),
-    monthlyBreakdown: buildLiveMonthlyBreakdown(media, accountInsights, followActions, monthKey),
+    trends: buildLiveSmmTrends(taggedMedia, accountInsights, followActions, monthKey),
+    monthlyBreakdown: buildLiveMonthlyBreakdown(
+      taggedMedia,
+      accountInsights,
+      followActions,
+      monthKey,
+    ),
     contentTypeBreakdown: buildLiveContentTypeBreakdown(selectedMedia),
-    posts: tagLiveSmmPosts(selectedMedia).slice(0, 12),
+    posts: tagLiveSmmPosts(selectedMedia, followersByMonth).slice(0, 12),
     meta: {
       accountId: textValue(profile.id),
       username: textValue(profile.username),
@@ -4699,12 +4733,12 @@ function buildLiveSmmPayload({
 }
 
 function calculateSmmStats(media, accountInsights, range, profile, followMetric) {
+  const realMedia = media.filter((item) => item.variantTag !== 'Пробний')
   const reels = media.filter((item) => item.type === 'reel')
-  const avgReelViews = Math.round(averageNumbers(reels.map((item) => item.views)) || 0)
-  const shares = sumNumbers(media.map((item) => item.engagement?.shares))
-  const reach = sumNumbers(media.map((item) => item.reach || item.nonFollowerReach || item.views))
-  const engagement = sumNumbers(media.map((item) => item.engagement?.total))
-  const er = roundSmmDecimal(reach ? (engagement / reach) * 100 : averageNumbers(media.map((item) => item.er)) || 0)
+  const realReels = realMedia.filter((item) => item.type === 'reel')
+  const avgReelViews = Math.round(averageNumbers(realReels.map((item) => item.views)) || 0)
+  const shares = sumNumbers(realMedia.map((item) => item.engagement?.shares))
+  const er = aggregateSmmErByFollowers(realMedia)
   const hasFollowActions = Number.isFinite(followMetric?.netFollowers)
   const hasFollowerHistory = hasInsightValues(accountInsights, ['follower_count'], range)
   const fallbackNewFollowers = hasFollowerHistory
@@ -4754,10 +4788,11 @@ function normalizeInstagramMedia(rawMedia = {}, insights = {}, profile = {}) {
   const totalInteractions = Math.round(
     firstInsightNumber(insights, ['total_interactions']) || likes + comments + shares + saves,
   )
-  const baseReach = reach || impressions || views
-  const errBase = views || baseReach
   const hasFollows = hasInsightValues(insights, ['follows'])
   const follows = hasFollows ? Math.round(firstInsightNumber(insights, ['follows']) || 0) : null
+  // ERR (за охопленням) = взаємодії, включно з новими підписками з цього поста, / reach.
+  const engagementWithFollows = totalInteractions + (follows || 0)
+  const reachBase = reach || impressions || 0
   const post = {
     id: textValue(rawMedia.id),
     type,
@@ -4773,13 +4808,15 @@ function normalizeInstagramMedia(rawMedia = {}, insights = {}, profile = {}) {
       shares,
       saves,
       total: totalInteractions,
+      totalWithFollows: engagementWithFollows,
     },
     newFollowers: follows,
     newFollowersUnavailableReason: hasFollows
       ? ''
       : smmMediaFollowsUnavailableReason(type),
-    er: roundSmmDecimal(baseReach ? (totalInteractions / baseReach) * 100 : 0),
-    err: roundSmmDecimal(errBase ? (totalInteractions / errBase) * 100 : 0),
+    // ER (за підписниками) рахується пізніше в enrichSmmMedia, коли відомий followersSnapshot для місяця поста.
+    er: null,
+    err: roundSmmDecimal(reachBase ? (engagementWithFollows / reachBase) * 100 : 0),
     nonFollowerReach: reach,
     avgWatchTimeSeconds: normalizeWatchTimeSeconds(
       firstInsightNumber(insights, [
@@ -4888,7 +4925,12 @@ function buildLiveSmmTrends(media, accountInsights, followActions, monthKey) {
         value: Math.round(
           averageNumbers(
             media
-              .filter((item) => item.type === 'reel' && smmDateInRange(item.publishedAt, bucket))
+              .filter(
+                (item) =>
+                  item.type === 'reel' &&
+                  item.variantTag !== 'Пробний' &&
+                  smmDateInRange(item.publishedAt, bucket),
+              )
               .map((item) => item.views),
           ) || 0,
         ),
@@ -4903,7 +4945,9 @@ function buildLiveSmmTrends(media, accountInsights, followActions, monthKey) {
       data: buckets.map((bucket, index) => ({
         week: smmWeekTooltipLabel(bucket, index),
         axisLabel: smmWeekAxisLabel(bucket),
-        value: weightedSmmEr(media.filter((item) => smmDateInRange(item.publishedAt, bucket))),
+        value: aggregateSmmErByFollowers(
+          media.filter((item) => smmDateInRange(item.publishedAt, bucket)),
+        ),
       })),
     },
   ]
@@ -4926,7 +4970,7 @@ function buildLiveMonthlyBreakdown(media, accountInsights, followActions, monthK
             : null,
         newFollowers: Number.isFinite(metric?.newFollowers) ? Math.round(metric.newFollowers) : null,
         unfollows: Number.isFinite(metric?.unfollows) ? Math.round(metric.unfollows) : null,
-        er: weightedSmmEr(monthMedia, { unavailableAsNull: true }),
+        er: aggregateSmmErByFollowers(monthMedia),
       }
     },
   )
@@ -4947,35 +4991,90 @@ function buildLiveContentTypeBreakdown(media) {
     story: 'Stories, якщо Meta повернула їх у media',
   }
 
-  return order
-    .map((type) => {
-      const items = media.filter((item) => item.type === type)
-      if (!items.length) return null
+  const buildRow = (format, items, note) => {
+    if (!items.length) return null
 
-      return {
-        format: labels[type],
-        posts: items.length,
-        avgViews: Math.round(averageNumbers(items.map((item) => item.views)) || 0),
-        er: weightedSmmEr(items),
-        note: notes[type],
-      }
+    return {
+      format,
+      posts: items.length,
+      avgViews: Math.round(averageNumbers(items.map((item) => item.views)) || 0),
+      er: aggregateSmmErByFollowers(items),
+      note,
+    }
+  }
+
+  return order
+    .flatMap((type) => {
+      const items = media.filter((item) => item.type === type)
+      if (type !== 'reel') return [buildRow(labels[type], items, notes[type])]
+
+      const realReels = items.filter((item) => item.variantTag !== 'Пробний')
+      const trialReels = items.filter((item) => item.variantTag === 'Пробний')
+      return [
+        buildRow(labels.reel, realReels, notes.reel),
+        buildRow(
+          'Reels (пробні)',
+          trialReels,
+          'Пробні рілз — не враховуються в середніх переглядах і ER вище',
+        ),
+      ]
     })
     .filter(Boolean)
 }
 
-function tagLiveSmmPosts(media) {
-  const posts = media.map((post) => ({ ...post, tag: null }))
+async function resolveSmmFollowersByMonth(months, profile) {
+  const uniqueMonths = [...new Set(months)].filter(Boolean)
+  const currentCalendarMonth = formatIsoDate(new Date()).slice(0, 7)
+
+  const entries = await Promise.all(
+    uniqueMonths.map(async (month) => {
+      const stored = await getSmmFollowers(month)
+      if (stored) return [month, stored.followers]
+
+      if (month === currentCalendarMonth) {
+        const followers = Math.round(numberValue(profile.followers_count) || 0)
+        if (followers > 0) {
+          await saveSmmFollowers(month, followers)
+          return [month, followers]
+        }
+      }
+
+      return [month, null]
+    }),
+  )
+
+  return new Map(entries.filter(([, followers]) => followers !== null))
+}
+
+function enrichSmmMedia(media, followersByMonth = new Map()) {
+  const duplicateCaptionKeys = duplicateSmmCaptionKeys(media)
+
+  return media.map((post) => {
+    const followersSnapshot = followersByMonth.get(post.publishedAt.slice(0, 7)) ?? null
+
+    return {
+      ...post,
+      variantTag: isSmmTrialPost(post, duplicateCaptionKeys) ? 'Пробний' : null,
+      followersSnapshot,
+      // ER (за підписниками) = взаємодії (включно з новими підписками) / підписники на початок місяця поста.
+      er: followersSnapshot
+        ? roundSmmDecimal((post.engagement.totalWithFollows / followersSnapshot) * 100)
+        : null,
+    }
+  })
+}
+
+function tagLiveSmmPosts(media, followersByMonth) {
+  const posts = enrichSmmMedia(media, followersByMonth).map((post) => ({ ...post, tag: null }))
   const ranked = posts
     .filter((post) => post.views > 0)
     .sort((left, right) => right.views - left.views)
   const best = ranked[0]
   const weakest = ranked.length > 1 ? ranked[ranked.length - 1] : null
-  const duplicateCaptionKeys = duplicateSmmCaptionKeys(posts)
 
   return posts
     .map((post) => ({
       ...post,
-      variantTag: isSmmTrialPost(post, duplicateCaptionKeys) ? 'Пробний' : null,
       tag:
         post.id === best?.id
           ? 'Найкращий'
@@ -5024,7 +5123,9 @@ function liveSmmStatus(stats, goalProgress) {
     }
   }
 
-  if (goalProgress >= 85 && stats.er >= 4.5) {
+  const erKnown = Number.isFinite(stats.er)
+
+  if (goalProgress >= 85 && erKnown && stats.er >= SMM_ER_GREEN_THRESHOLD) {
     return {
       tone: 'green',
       title: 'Є що подивитись',
@@ -5032,7 +5133,7 @@ function liveSmmStatus(stats, goalProgress) {
     }
   }
 
-  if (goalProgress < 50 || stats.er < 2.5) {
+  if (goalProgress < 50 || (erKnown && stats.er < SMM_ER_YELLOW_THRESHOLD)) {
     return {
       tone: 'red',
       title: 'Потрібна увага',
@@ -5120,13 +5221,24 @@ function smmInsightDateInRange(item, range) {
   return smmDateInRange(`${formatIsoDate(date)}T12:00:00`, range)
 }
 
-function weightedSmmEr(media, options = {}) {
-  const reach = sumNumbers(media.map((item) => item.reach || item.nonFollowerReach || item.views))
-  const engagement = sumNumbers(media.map((item) => item.engagement?.total))
-  if (reach) return roundSmmDecimal((engagement / reach) * 100)
-  const averageEr = averageNumbers(media.map((item) => item.er))
-  if (!averageEr && options.unavailableAsNull) return null
-  return roundSmmDecimal(averageEr || 0)
+function aggregateSmmErByFollowers(media) {
+  const realMedia = media.filter(
+    (item) => item.variantTag !== 'Пробний' && Number.isFinite(item.followersSnapshot) && item.followersSnapshot > 0,
+  )
+  if (!realMedia.length) return null
+
+  const uniqueSnapshots = new Set(realMedia.map((item) => item.followersSnapshot))
+  if (uniqueSnapshots.size === 1) {
+    const followers = realMedia[0].followersSnapshot
+    const engagement = sumNumbers(realMedia.map((item) => item.engagement?.totalWithFollows))
+    return roundSmmDecimal((engagement / followers) * 100)
+  }
+
+  // Група постів рідко перетинає межу місяця (напр. тижневий бакет у трендах) — тоді
+  // просто середнє по вже готових post.er, бо в кожного з них свій followersSnapshot.
+  const perPostEr = realMedia.map((item) => item.er).filter((value) => Number.isFinite(value))
+  if (!perPostEr.length) return null
+  return roundSmmDecimal(perPostEr.reduce((sum, value) => sum + value, 0) / perPostEr.length)
 }
 
 function smmMonthKey(value) {
@@ -5358,6 +5470,10 @@ function writeSmmDataCache(cacheKey, payload) {
   })
 }
 
+function invalidateSmmDataCache() {
+  smmDataCache.clear()
+}
+
 function averageNumbers(values) {
   const numbers = values.map(Number).filter((value) => Number.isFinite(value) && value > 0)
   if (!numbers.length) return 0
@@ -5477,6 +5593,125 @@ function normalizeLinkedInReportData(data = {}) {
     people: Array.isArray(data.people) ? data.people : [],
     updatedAt: textValue(data.updatedAt),
   }
+}
+
+async function getSmmNotes(month) {
+  if (isDatabaseConfigured()) {
+    try {
+      return await getStoredSmmNotes(month)
+    } catch (error) {
+      if (!shouldUseLocalLinkedInReportFallback(error)) throw error
+      return readLocalSmmNotes(month)
+    }
+  }
+
+  return readLocalSmmNotes(month)
+}
+
+async function saveSmmNotes(month, conclusions, userId) {
+  const normalizedConclusions = Array.isArray(conclusions)
+    ? conclusions.map((item) => textValue(item)).filter(Boolean)
+    : []
+
+  if (isDatabaseConfigured()) {
+    try {
+      return await saveStoredSmmNotes(month, normalizedConclusions, userId)
+    } catch (error) {
+      if (!shouldUseLocalLinkedInReportFallback(error)) throw error
+    }
+  }
+
+  const payload = { month, conclusions: normalizedConclusions, updatedAt: new Date().toISOString() }
+  await writeLocalSmmNotes(month, payload)
+  return payload
+}
+
+async function readAllLocalSmmNotes() {
+  try {
+    const content = await readFile(SMM_NOTES_FILE, 'utf8')
+    const parsed = JSON.parse(content)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch (error) {
+    if (error.code === 'ENOENT') return {}
+    throw error
+  }
+}
+
+async function readLocalSmmNotes(month) {
+  const all = await readAllLocalSmmNotes()
+  return all[month] || null
+}
+
+async function writeLocalSmmNotes(month, data) {
+  const all = await readAllLocalSmmNotes()
+  all[month] = data
+  await mkdir(path.dirname(SMM_NOTES_FILE), { recursive: true })
+  await writeFile(SMM_NOTES_FILE, JSON.stringify(all, null, 2), 'utf8')
+}
+
+async function getSmmFollowers(month) {
+  if (isDatabaseConfigured()) {
+    try {
+      return await getStoredSmmFollowers(month)
+    } catch (error) {
+      if (!shouldUseLocalLinkedInReportFallback(error)) throw error
+      return readLocalSmmFollowers(month)
+    }
+  }
+
+  return readLocalSmmFollowers(month)
+}
+
+async function listSmmFollowers() {
+  if (isDatabaseConfigured()) {
+    try {
+      return await listStoredSmmFollowers()
+    } catch (error) {
+      if (!shouldUseLocalLinkedInReportFallback(error)) throw error
+      return Object.values(await readAllLocalSmmFollowers())
+    }
+  }
+
+  return Object.values(await readAllLocalSmmFollowers())
+}
+
+async function saveSmmFollowers(month, followers, userId) {
+  const normalizedFollowers = Math.round(Number(followers) || 0)
+
+  if (isDatabaseConfigured()) {
+    try {
+      return await saveStoredSmmFollowers(month, normalizedFollowers, userId)
+    } catch (error) {
+      if (!shouldUseLocalLinkedInReportFallback(error)) throw error
+    }
+  }
+
+  const payload = { month, followers: normalizedFollowers, updatedAt: new Date().toISOString() }
+  await writeLocalSmmFollowers(month, payload)
+  return payload
+}
+
+async function readAllLocalSmmFollowers() {
+  try {
+    const content = await readFile(SMM_FOLLOWERS_FILE, 'utf8')
+    const parsed = JSON.parse(content)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch (error) {
+    if (error.code === 'ENOENT') return {}
+    throw error
+  }
+}
+
+async function readLocalSmmFollowers(month) {
+  const all = await readAllLocalSmmFollowers()
+  return all[month] || null
+}
+
+async function writeLocalSmmFollowers(month, data) {
+  const all = await readAllLocalSmmFollowers()
+  all[month] = data
+  await mkdir(path.dirname(SMM_FOLLOWERS_FILE), { recursive: true })
+  await writeFile(SMM_FOLLOWERS_FILE, JSON.stringify(all, null, 2), 'utf8')
 }
 
 async function createEventReport(report, userId) {
@@ -6166,6 +6401,90 @@ app.get('/api/smm/insights', asyncHandler(async (request, response) => {
   }
 
   response.json({ ...cached, source: 'cache' })
+}))
+
+app.get('/api/smm/notes', asyncHandler(async (request, response) => {
+  const month = textValue(request.query.month)
+
+  if (!month) {
+    throw createHttpError(400, 'Передайте month у форматі YYYY-MM.')
+  }
+
+  const notes = await getSmmNotes(month)
+  response.json({
+    month,
+    conclusions: notes?.conclusions || [],
+    updatedAt: notes?.updatedAt || '',
+  })
+}))
+
+app.patch('/api/smm/notes', requireAuth, asyncHandler(async (request, response) => {
+  const month = textValue(request.body?.month)
+  const hasConclusions = Array.isArray(request.body?.conclusions)
+
+  if (!month) {
+    throw createHttpError(400, 'Передайте month у форматі YYYY-MM.')
+  }
+
+  if (!hasConclusions) {
+    throw createHttpError(400, 'Передайте conclusions як масив.')
+  }
+
+  const saved = await saveSmmNotes(month, request.body.conclusions, request.user?.id)
+  response.json({
+    month,
+    conclusions: saved?.conclusions || [],
+    updatedAt: saved?.updatedAt || '',
+  })
+}))
+
+app.get('/api/smm/followers', asyncHandler(async (request, response) => {
+  const month = textValue(request.query.month)
+
+  if (!month) {
+    const entries = await listSmmFollowers()
+    response.json({ entries })
+    return
+  }
+
+  const record = await getSmmFollowers(month)
+  response.json({ month, followers: record?.followers ?? null, updatedAt: record?.updatedAt || '' })
+}))
+
+app.patch('/api/smm/followers', requireAuth, asyncHandler(async (request, response) => {
+  const month = textValue(request.body?.month)
+  const followers = Number(request.body?.followers)
+
+  if (!month) {
+    throw createHttpError(400, 'Передайте month у форматі YYYY-MM.')
+  }
+
+  if (!Number.isFinite(followers) || followers < 0) {
+    throw createHttpError(400, 'Передайте followers як невід’ємне число.')
+  }
+
+  const saved = await saveSmmFollowers(month, followers, request.user?.id)
+  invalidateSmmDataCache()
+  response.json({ month, followers: saved?.followers ?? null, updatedAt: saved?.updatedAt || '' })
+}))
+
+app.post('/api/smm/followers/bulk', requireAuth, asyncHandler(async (request, response) => {
+  const entries = Array.isArray(request.body?.entries) ? request.body.entries : null
+
+  if (!entries) {
+    throw createHttpError(400, 'Передайте entries як масив { month, followers }.')
+  }
+
+  const saved = []
+  for (const entry of entries) {
+    const month = textValue(entry?.month)
+    const followers = Number(entry?.followers)
+    if (!month || !Number.isFinite(followers) || followers < 0) continue
+    saved.push(await saveSmmFollowers(month, followers, request.user?.id))
+  }
+
+  invalidateSmmDataCache()
+  response.json({ entries: saved })
 }))
 
 app.post('/api/smm/insights/generate', asyncHandler(async (request, response) => {

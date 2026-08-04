@@ -1,3 +1,4 @@
+import { InfoTooltip } from '../InfoTooltip'
 import { formatDecimal, formatNumber } from '../../lib/smmData'
 
 export function MonthlyBreakdownTable({ rows = [] }) {
@@ -19,7 +20,12 @@ export function MonthlyBreakdownTable({ rows = [] }) {
               >
                 Net приріст
               </th>
-              <th className="text-right">ER</th>
+              <th className="text-right">
+                <span className="inline-flex items-center justify-end gap-1">
+                  ER
+                  <InfoTooltip text="ER = Σ(лайки + коментарі + шери + збереження + нові підписки) / підписники на початок місяця × 100. Пробні рілз не враховуються." />
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody>
