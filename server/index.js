@@ -4226,6 +4226,7 @@ async function fetchInstagramMedia(config, range) {
     'timestamp',
     'like_count',
     'comments_count',
+    'is_shared_to_feed',
   ].join(',')
 
   const url = metaUrl(config, `${config.accountId}/media`, {
@@ -4806,6 +4807,9 @@ function normalizeInstagramMedia(rawMedia = {}, insights = {}, profile = {}) {
     publishedAt: textValue(rawMedia.timestamp).slice(0, 10),
     thumbnailUrl: instagramThumbnailUrl(rawMedia, type),
     permalink: textValue(rawMedia.permalink),
+    // Instagram Trial Reels: поки рілз не "розшарений" у стрічку/грід підписників,
+    // Meta повертає is_shared_to_feed=false. Це і є пробний рілз.
+    sharedToFeed: typeof rawMedia.is_shared_to_feed === 'boolean' ? rawMedia.is_shared_to_feed : null,
     views,
     reach,
     engagement: {
@@ -5058,14 +5062,12 @@ async function resolveSmmPostOverrides() {
 }
 
 function enrichSmmMedia(media, followersByMonth = new Map(), postOverrides = new Map()) {
-  const duplicateCaptionKeys = duplicateSmmCaptionKeys(media)
-
   return media.map((post) => {
     const followersSnapshot = followersByMonth.get(post.publishedAt.slice(0, 7)) ?? null
 
     return {
       ...post,
-      variantTag: resolveSmmVariantTag(post, duplicateCaptionKeys, postOverrides),
+      variantTag: resolveSmmVariantTag(post, postOverrides),
       variantOverride: postOverrides.get(post.id) || null,
       followersSnapshot,
       // ER (за підписниками) = взаємодії (включно з новими підписками) / підписники на початок місяця поста.
@@ -5100,41 +5102,13 @@ function tagLiveSmmPosts(media, followersByMonth, postOverrides) {
     .sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt))
 }
 
-function duplicateSmmCaptionKeys(posts) {
-  const counts = posts.reduce((accumulator, post) => {
-    const key = normalizeSmmCaption(post.caption)
-    if (key) accumulator.set(key, (accumulator.get(key) || 0) + 1)
-    return accumulator
-  }, new Map())
-
-  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key))
-}
-
-function resolveSmmVariantTag(post, duplicateCaptionKeys, postOverrides) {
+function resolveSmmVariantTag(post, postOverrides) {
   const override = postOverrides?.get(post.id)
   if (override === 'trial') return 'Пробний'
   if (override === 'regular') return null
 
-  return isSmmTrialPost(post, duplicateCaptionKeys) ? 'Пробний' : null
-}
-
-function isSmmTrialPost(post, duplicateCaptionKeys) {
-  const caption = normalizeSmmCaption(post.caption)
-  const rawCaption = textValue(post.caption).toLowerCase()
-
-  return (
-    duplicateCaptionKeys.has(caption) ||
-    /\b(test|trial|draft|ab test|a\/b)\b/i.test(rawCaption) ||
-    /тест|пробн|чернетк/.test(rawCaption)
-  )
-}
-
-function normalizeSmmCaption(value) {
-  return textValue(value)
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120)
+  // Instagram Trial Reels: рілз, який Meta ще не "розшарила" у стрічку/грід підписників.
+  return post.type === 'reel' && post.sharedToFeed === false ? 'Пробний' : null
 }
 
 function liveSmmStatus(stats, goalProgress) {
