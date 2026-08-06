@@ -3739,18 +3739,23 @@ function normalizeMailchimpReport(report = {}, index = 0) {
     ),
     uniqueOpens,
     totalOpens,
-    openRate: normalizeMailchimpRate(
-      opens.open_rate ?? report.open_rate,
-      delivered ? uniqueOpens / delivered : null,
-    ),
+    // Prefer our own uniqueOpens/delivered ratio over Mailchimp's `open_rate`
+    // field: that API field can diverge from the "recipients who opened"
+    // percentage Mailchimp itself shows in its UI/report exports (e.g. it may
+    // apply its own trackable-opens adjustment), so recompute from raw counts
+    // and only fall back to Mailchimp's field when we lack the counts.
+    openRate: delivered
+      ? roundMailchimpNumber((uniqueOpens / delivered) * 100)
+      : normalizeMailchimpRate(opens.open_rate ?? report.open_rate),
     lastOpen: textValue(opens.last_open || report.last_open),
     uniqueClicks,
     uniqueSubscriberClicks,
     totalClicks,
-    clickRate: normalizeMailchimpRate(
-      clicks.click_rate ?? report.click_rate,
-      delivered ? uniqueSubscriberClicks / delivered : null,
-    ),
+    // Same reasoning as openRate above: compute directly from raw counts so
+    // the badge matches what Mailchimp's own report/export shows.
+    clickRate: delivered
+      ? roundMailchimpNumber((uniqueSubscriberClicks / delivered) * 100)
+      : normalizeMailchimpRate(clicks.click_rate ?? report.click_rate),
     clickToOpenRate: normalizeMailchimpRate(
       clicks.click_to_open_rate ?? report.click_to_open_rate,
       uniqueOpens ? uniqueSubscriberClicks / uniqueOpens : null,
