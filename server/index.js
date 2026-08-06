@@ -3695,6 +3695,24 @@ function normalizeMailchimpReport(report = {}, index = 0) {
   const clicks = report.clicks || {}
   const bounces = report.bounces || {}
   const forwards = report.forwards || {}
+  const debugTitle = textValue(
+    report.campaign_title || report.title || report.settings?.title || '',
+  )
+  if (/mate conf/i.test(debugTitle)) {
+    // TEMP DEBUG: comparing our OR/CR against Mailchimp's own CSV export.
+    // Remove once the discrepancy is diagnosed.
+    console.log(
+      '[mailchimp-debug] raw report for %s: %s',
+      debugTitle,
+      JSON.stringify({
+        id: report.id || report.campaign_id,
+        emails_sent: report.emails_sent,
+        opens,
+        clicks,
+        bounces,
+      }),
+    )
+  }
   const emailsSent = mailchimpNumberValue(report.emails_sent ?? report.emailsSent)
   const hardBounces = mailchimpNumberValue(bounces.hard_bounces ?? report.hard_bounces)
   const softBounces = mailchimpNumberValue(bounces.soft_bounces ?? report.soft_bounces)
