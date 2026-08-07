@@ -3695,24 +3695,6 @@ function normalizeMailchimpReport(report = {}, index = 0) {
   const clicks = report.clicks || {}
   const bounces = report.bounces || {}
   const forwards = report.forwards || {}
-  const debugTitle = textValue(
-    report.campaign_title || report.title || report.settings?.title || '',
-  )
-  if (/mate conf/i.test(debugTitle)) {
-    // TEMP DEBUG: comparing our OR/CR against Mailchimp's own CSV export.
-    // Remove once the discrepancy is diagnosed.
-    console.log(
-      '[mailchimp-debug] raw report for %s: %s',
-      debugTitle,
-      JSON.stringify({
-        id: report.id || report.campaign_id,
-        emails_sent: report.emails_sent,
-        opens,
-        clicks,
-        bounces,
-      }),
-    )
-  }
   const emailsSent = mailchimpNumberValue(report.emails_sent ?? report.emailsSent)
   const hardBounces = mailchimpNumberValue(bounces.hard_bounces ?? report.hard_bounces)
   const softBounces = mailchimpNumberValue(bounces.soft_bounces ?? report.soft_bounces)
@@ -3721,8 +3703,20 @@ function normalizeMailchimpReport(report = {}, index = 0) {
     mailchimpNumberValue(bounces.total_bounces ?? report.total_bounces) ||
     hardBounces + softBounces + syntaxErrors
   const delivered = Math.max(0, emailsSent - totalBounces)
-  const uniqueOpens = mailchimpNumberValue(opens.unique_opens ?? report.unique_opens)
-  const totalOpens = mailchimpNumberValue(opens.opens_total ?? report.opens_total)
+  // Mailchimp's `unique_opens`/`opens_total` include automated opens caused by
+  // Apple Mail Privacy Protection (MPP) prefetching campaign images, which
+  // inflates open counts for recipients who never actually opened the email.
+  // Mailchimp's own report UI/CSV exports show the `proxy_excluded_*` figures
+  // instead (real human opens), so prefer those whenever Mailchimp provides
+  // them and only fall back to the raw counts otherwise.
+  const uniqueOpens = hasNumberLikeValue(
+    opens.proxy_excluded_unique_opens ?? report.proxy_excluded_unique_opens,
+  )
+    ? mailchimpNumberValue(opens.proxy_excluded_unique_opens ?? report.proxy_excluded_unique_opens)
+    : mailchimpNumberValue(opens.unique_opens ?? report.unique_opens)
+  const totalOpens = hasNumberLikeValue(opens.proxy_excluded_opens ?? report.proxy_excluded_opens)
+    ? mailchimpNumberValue(opens.proxy_excluded_opens ?? report.proxy_excluded_opens)
+    : mailchimpNumberValue(opens.opens_total ?? report.opens_total)
   const uniqueClicks = mailchimpNumberValue(clicks.unique_clicks ?? report.unique_clicks)
   const uniqueSubscriberClicks = mailchimpNumberValue(
     clicks.unique_subscriber_clicks ?? report.unique_subscriber_clicks ?? uniqueClicks,
@@ -3757,14 +3751,13 @@ function normalizeMailchimpReport(report = {}, index = 0) {
     ),
     uniqueOpens,
     totalOpens,
-    // Prefer our own uniqueOpens/delivered ratio over Mailchimp's `open_rate`
-    // field: that API field can diverge from the "recipients who opened"
-    // percentage Mailchimp itself shows in its UI/report exports (e.g. it may
-    // apply its own trackable-opens adjustment), so recompute from raw counts
-    // and only fall back to Mailchimp's field when we lack the counts.
+    // uniqueOpens is already the proxy-excluded (MPP-adjusted) count above, so
+    // this ratio matches the open rate Mailchimp itself shows in its UI/CSV
+    // exports. Only fall back to Mailchimp's own rate field (preferring its
+    // proxy-excluded variant) when we don't have delivered/open counts at all.
     openRate: delivered
       ? roundMailchimpNumber((uniqueOpens / delivered) * 100)
-      : normalizeMailchimpRate(opens.open_rate ?? report.open_rate),
+      : normalizeMailchimpRate(opens.proxy_excluded_open_rate ?? opens.open_rate ?? report.open_rate),
     lastOpen: textValue(opens.last_open || report.last_open),
     uniqueClicks,
     uniqueSubscriberClicks,
@@ -5836,15 +5829,18 @@ function normalizeStoredEventReport(report) {
 }
 
 function normalizeEventReportPayload(report = {}) {
-  const type = ['event', 'partnership', 'launch'].includes(report.type) ? report.type : 'event'
+  const type = ['event', 'partnership', 'launch', 'internship'].includes(report.type)
+    ? report.type
+    : 'event'
   const isEvent = type === 'event'
   const isPartnership = type === 'partnership'
   const isLaunch = type === 'launch'
+  const isIntern = type === 'internship'
   const dateMode =
     report.dateMode === 'single' || report.dateMode === 'period'
       ? report.dateMode
       : eventReportDefaultDateMode(type)
-  const promoEnabled = isLaunch ? booleanValue(report.promoEnabled) : isEvent
+  const promoEnabled = isLaunch ? booleanValue(report.promoEnabled) : (isEvent || isIntern)
   const tgEnabled = isLaunch ? booleanValue(report.tgEnabled) : false
   const hireEnabled = isPartnership ? booleanValue(report.hireEnabled) : false
   const rawViews = report.views ?? report.partnershipViews
@@ -5883,8 +5879,8 @@ function normalizeEventReportPayload(report = {}) {
     campaigns: promoEnabled && Array.isArray(report.campaigns)
       ? report.campaigns.map(normalizeEventCampaign)
       : [],
-    promoSpendUsd: isEvent ? numberValue(report.promoSpendUsd) : 0,
-    orgSpendUsd: isEvent ? numberValue(report.orgSpendUsd) : 0,
+    promoSpendUsd: isEvent || isIntern ? numberValue(report.promoSpendUsd) : 0,
+    orgSpendUsd: isEvent || isIntern ? numberValue(report.orgSpendUsd) : 0,
     mediaMentions: numberValue(report.mediaMentions),
     channels: isEvent ? textValue(report.channels) : '',
     engagement: isEvent ? textValue(report.engagement) : '',
@@ -5902,13 +5898,54 @@ function normalizeEventReportPayload(report = {}) {
     tgReach,
     tgPosts: tgEnabled ? numberValue(report.tgPosts) : 0,
     tgChannelList: tgEnabled ? textValue(report.tgChannelList) : '',
-    otherSpendUsd: isLaunch ? numberValue(report.otherSpendUsd) : 0,
+    otherSpendUsd: isLaunch || isIntern ? numberValue(report.otherSpendUsd) : 0,
     budgetOverride: isLaunch ? nullableNumberValue(report.budgetOverride) : null,
     resources: isLaunch && Array.isArray(report.resources)
       ? report.resources.map(normalizeEventResource).filter((resource) => resource.name || resource.url)
       : [],
     feedback: isEvent ? textValue(report.feedback) : '',
     notes: isEvent ? textValue(report.notes) : '',
+    internBusinesses: isIntern && Array.isArray(report.internBusinesses)
+      ? report.internBusinesses.map(normalizeEventBusiness)
+      : [],
+    internChannelTags: isIntern && Array.isArray(report.internChannelTags)
+      ? report.internChannelTags.map(textValue).filter(Boolean)
+      : [],
+    internTgChannelList: isIntern ? textValue(report.internTgChannelList) : '',
+    internEmailLists: isIntern ? textValue(report.internEmailLists) : '',
+    internTopChannels: isIntern && Array.isArray(report.internTopChannels)
+      ? report.internTopChannels.map(textValue)
+      : [],
+    internSources: isIntern && Array.isArray(report.internSources)
+      ? report.internSources.map(normalizeEventChannelSource)
+      : [],
+    siteVisits: isIntern ? numberValue(report.siteVisits) : 0,
+    smmSharePct: isIntern ? numberValue(report.smmSharePct) : 0,
+    prevPeriodVisits: isIntern ? numberValue(report.prevPeriodVisits) : 0,
+    geo: isIntern ? textValue(report.geo) : '',
+    internCreatives: isIntern && Array.isArray(report.internCreatives)
+      ? report.internCreatives.map(normalizeEventCreative)
+      : [],
+    internFunnelSource: isIntern ? textValue(report.internFunnelSource) : '',
+    internFunnelLink: isIntern ? normalizeExternalUrl(report.internFunnelLink) : '',
+    internFunnelStages: isIntern && Array.isArray(report.internFunnelStages)
+      ? report.internFunnelStages.map(normalizeEventFunnelStage)
+      : [],
+    sourcesOfHire: isIntern ? textValue(report.sourcesOfHire) : '',
+    internDisqualify: isIntern && Array.isArray(report.internDisqualify)
+      ? report.internDisqualify.map(normalizeEventDisqualifyReason)
+      : [],
+    currency: isIntern ? textValue(report.currency) || 'USD' : '',
+    participantsCount: isIntern ? numberValue(report.participantsCount) : 0,
+    formsReceived: isIntern ? numberValue(report.formsReceived) : 0,
+    formsSent: isIntern ? numberValue(report.formsSent) : 0,
+    keyQuotes: isIntern ? textValue(report.keyQuotes) : '',
+    whatWorked: isIntern ? textValue(report.whatWorked) : '',
+    whatDidntWork: isIntern ? textValue(report.whatDidntWork) : '',
+    audienceNotes: isIntern ? textValue(report.audienceNotes) : '',
+    nextSteps: isIntern ? textValue(report.nextSteps) : '',
+    goalsStatus: isIntern ? textValue(report.goalsStatus) : '',
+    cohortComparison: isIntern ? textValue(report.cohortComparison) : '',
     aiSummary: textValue(report.aiSummary),
     aiInsights: Array.isArray(report.aiInsights)
       ? report.aiInsights.map(textValue).filter(Boolean)
@@ -5937,6 +5974,46 @@ function normalizeEventResource(resource = {}) {
   return {
     name: textValue(resource.name),
     url: normalizeExternalUrl(resource.url),
+  }
+}
+
+function normalizeEventBusiness(business = {}) {
+  return {
+    name: textValue(business.name),
+    hireGoal: numberValue(business.hireGoal),
+    hiresActual: numberValue(business.hiresActual),
+  }
+}
+
+function normalizeEventChannelSource(source = {}) {
+  return {
+    name: textValue(source.name),
+    applications: numberValue(source.applications),
+  }
+}
+
+function normalizeEventCreative(creative = {}) {
+  return {
+    name: textValue(creative.name),
+    kind: textValue(creative.kind),
+    result: numberValue(creative.result),
+    cpa: numberValue(creative.cpa),
+    cpc: numberValue(creative.cpc),
+    ctr: numberValue(creative.ctr),
+  }
+}
+
+function normalizeEventFunnelStage(stage = {}) {
+  return {
+    stage: textValue(stage.stage),
+    count: numberValue(stage.count),
+  }
+}
+
+function normalizeEventDisqualifyReason(reason = {}) {
+  return {
+    reason: textValue(reason.reason),
+    count: numberValue(reason.count),
   }
 }
 

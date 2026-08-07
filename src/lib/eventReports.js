@@ -1,6 +1,6 @@
 export const FX_EUR_USD = 1.08
 
-export const REPORT_TYPES = ['event', 'partnership', 'launch']
+export const REPORT_TYPES = ['event', 'partnership', 'launch', 'internship']
 
 const integerFormatter = new Intl.NumberFormat('uk-UA', {
   maximumFractionDigits: 0,
@@ -49,6 +49,46 @@ export function normalizeResource(resource = {}) {
   }
 }
 
+export function normalizeBusiness(business = {}) {
+  return {
+    name: String(business.name || '').trim(),
+    hireGoal: toReportNumber(business.hireGoal),
+    hiresActual: toReportNumber(business.hiresActual),
+  }
+}
+
+export function normalizeChannelSource(source = {}) {
+  return {
+    name: String(source.name || '').trim(),
+    applications: toReportNumber(source.applications),
+  }
+}
+
+export function normalizeCreative(creative = {}) {
+  return {
+    name: String(creative.name || '').trim(),
+    kind: String(creative.kind || '').trim(),
+    result: toReportNumber(creative.result),
+    cpa: toReportNumber(creative.cpa),
+    cpc: toReportNumber(creative.cpc),
+    ctr: toReportNumber(creative.ctr),
+  }
+}
+
+export function normalizeFunnelStage(stage = {}) {
+  return {
+    stage: String(stage.stage || '').trim(),
+    count: toReportNumber(stage.count),
+  }
+}
+
+export function normalizeDisqualifyReason(reason = {}) {
+  return {
+    reason: String(reason.reason || '').trim(),
+    count: toReportNumber(reason.count),
+  }
+}
+
 export function defaultDateMode(type) {
   return type === 'event' ? 'single' : 'period'
 }
@@ -58,11 +98,12 @@ export function normalizeReportInput(report = {}) {
   const isEvent = type === 'event'
   const isPartnership = type === 'partnership'
   const isLaunch = type === 'launch'
+  const isIntern = type === 'internship'
   const dateMode = report.dateMode === 'single' || report.dateMode === 'period'
     ? report.dateMode
     : defaultDateMode(type)
   const promoEnabled =
-    isLaunch ? Boolean(report.promoEnabled) : isEvent
+    isLaunch ? Boolean(report.promoEnabled) : (isEvent || isIntern)
   const tgEnabled = isLaunch ? Boolean(report.tgEnabled) : false
   const hireEnabled = isPartnership ? Boolean(report.hireEnabled) : false
   const partnershipViews = report.views ?? report.partnershipViews
@@ -95,8 +136,8 @@ export function normalizeReportInput(report = {}) {
     confirmed: isEvent ? toReportNumber(report.confirmed) : 0,
     attended: isEvent ? toReportNumber(report.attended) : 0,
     teamCount: isEvent ? toReportNumber(report.teamCount) : 0,
-    promoSpendUsd: isEvent ? toReportNumber(report.promoSpendUsd) : 0,
-    orgSpendUsd: isEvent ? toReportNumber(report.orgSpendUsd) : 0,
+    promoSpendUsd: isEvent || isIntern ? toReportNumber(report.promoSpendUsd) : 0,
+    orgSpendUsd: isEvent || isIntern ? toReportNumber(report.orgSpendUsd) : 0,
     channels: isEvent ? String(report.channels || '').trim() : '',
     engagement: isEvent ? String(report.engagement || '').trim() : '',
     feedback: isEvent ? String(report.feedback || '').trim() : '',
@@ -126,11 +167,53 @@ export function normalizeReportInput(report = {}) {
     tgReach,
     tgPosts: tgEnabled ? toReportNumber(report.tgPosts) : 0,
     tgChannelList: tgEnabled ? String(report.tgChannelList || '').trim() : '',
-    otherSpendUsd: isLaunch ? toReportNumber(report.otherSpendUsd) : 0,
+    otherSpendUsd: isLaunch || isIntern ? toReportNumber(report.otherSpendUsd) : 0,
     budgetOverride: isLaunch ? toNullableReportNumber(report.budgetOverride) : null,
     resources: isLaunch && Array.isArray(report.resources)
       ? report.resources.map(normalizeResource).filter((item) => item.name || item.url)
       : [],
+
+    internBusinesses: isIntern && Array.isArray(report.internBusinesses)
+      ? report.internBusinesses.map(normalizeBusiness)
+      : [],
+    internChannelTags: isIntern && Array.isArray(report.internChannelTags)
+      ? report.internChannelTags.map((tag) => String(tag || '').trim()).filter(Boolean)
+      : [],
+    internTgChannelList: isIntern ? String(report.internTgChannelList || '').trim() : '',
+    internEmailLists: isIntern ? String(report.internEmailLists || '').trim() : '',
+    internTopChannels: isIntern && Array.isArray(report.internTopChannels)
+      ? report.internTopChannels.map((item) => String(item || '').trim())
+      : [],
+    internSources: isIntern && Array.isArray(report.internSources)
+      ? report.internSources.map(normalizeChannelSource)
+      : [],
+    siteVisits: isIntern ? toReportNumber(report.siteVisits) : 0,
+    smmSharePct: isIntern ? toReportNumber(report.smmSharePct) : 0,
+    prevPeriodVisits: isIntern ? toReportNumber(report.prevPeriodVisits) : 0,
+    geo: isIntern ? String(report.geo || '').trim() : '',
+    internCreatives: isIntern && Array.isArray(report.internCreatives)
+      ? report.internCreatives.map(normalizeCreative)
+      : [],
+    internFunnelSource: isIntern ? String(report.internFunnelSource || '').trim() : '',
+    internFunnelLink: isIntern ? String(report.internFunnelLink || '').trim() : '',
+    internFunnelStages: isIntern && Array.isArray(report.internFunnelStages)
+      ? report.internFunnelStages.map(normalizeFunnelStage)
+      : [],
+    sourcesOfHire: isIntern ? String(report.sourcesOfHire || '').trim() : '',
+    internDisqualify: isIntern && Array.isArray(report.internDisqualify)
+      ? report.internDisqualify.map(normalizeDisqualifyReason)
+      : [],
+    currency: isIntern ? String(report.currency || 'USD').trim() : '',
+    participantsCount: isIntern ? toReportNumber(report.participantsCount) : 0,
+    formsReceived: isIntern ? toReportNumber(report.formsReceived) : 0,
+    formsSent: isIntern ? toReportNumber(report.formsSent) : 0,
+    keyQuotes: isIntern ? String(report.keyQuotes || '').trim() : '',
+    whatWorked: isIntern ? String(report.whatWorked || '').trim() : '',
+    whatDidntWork: isIntern ? String(report.whatDidntWork || '').trim() : '',
+    audienceNotes: isIntern ? String(report.audienceNotes || '').trim() : '',
+    nextSteps: isIntern ? String(report.nextSteps || '').trim() : '',
+    goalsStatus: isIntern ? String(report.goalsStatus || '').trim() : '',
+    cohortComparison: isIntern ? String(report.cohortComparison || '').trim() : '',
 
     aiSummary: String(report.aiSummary || ''),
     aiInsights: Array.isArray(report.aiInsights)
@@ -210,6 +293,43 @@ export function compute(report = {}) {
       cpv: safeDiv(effectiveBudget, normalized.reachTotal),
       campaigns,
       campaignTotals,
+    }
+  }
+
+  if (normalized.type === 'internship') {
+    const businesses = normalized.internBusinesses
+    const hireGoalTotal = businesses.reduce((sum, business) => sum + business.hireGoal, 0)
+    const hiresTotal = businesses.reduce((sum, business) => sum + business.hiresActual, 0)
+    const totalBudget = normalized.promoSpendUsd + normalized.orgSpendUsd + normalized.otherSpendUsd
+    const stages = normalized.internFunnelStages
+    const firstStageCount = stages.length ? stages[0].count : 0
+    const lastStageCount = stages.length ? stages[stages.length - 1].count : 0
+    const funnel = stages.map((stage, index) => {
+      const prevCount = index === 0 ? 0 : stages[index - 1].count
+      return {
+        ...stage,
+        convPct: index === 0 ? null : safeDiv(stage.count, prevCount) * 100,
+        widthPct: firstStageCount ? safeDiv(stage.count, firstStageCount) * 100 : 0,
+      }
+    })
+
+    return {
+      type: normalized.type,
+      totalBudget,
+      hireGoalTotal,
+      hiresTotal,
+      applications: firstStageCount,
+      participantsCount: normalized.participantsCount,
+      cpa: safeDiv(totalBudget, firstStageCount),
+      cpl: safeDiv(totalBudget, normalized.participantsCount),
+      cph: safeDiv(totalBudget, hiresTotal),
+      funnel,
+      conversionOverall: safeDiv(lastStageCount, firstStageCount) * 100,
+      responseRate: safeDiv(normalized.formsReceived, normalized.formsSent) * 100,
+      siteVisitChangePct: safeDiv(normalized.siteVisits, normalized.prevPeriodVisits) * 100,
+      campaigns,
+      campaignTotals,
+      creatives: normalized.internCreatives,
     }
   }
 
@@ -297,6 +417,57 @@ export function buildReportFacts(report, metrics = compute(report)) {
             }
           : null,
         resources: normalized.resources,
+      },
+    }
+  }
+
+  if (normalized.type === 'internship') {
+    return {
+      ...common,
+      internship: {
+        totalBudgetUsd: metrics.totalBudget,
+        promoSpendUsd: normalized.promoSpendUsd,
+        orgSpendUsd: normalized.orgSpendUsd,
+        otherSpendUsd: normalized.otherSpendUsd,
+        currency: normalized.currency,
+        businesses: normalized.internBusinesses,
+        hireGoalTotal: metrics.hireGoalTotal,
+        hiresTotal: metrics.hiresTotal,
+        applications: metrics.applications,
+        participantsCount: normalized.participantsCount,
+        cpaUsd: metrics.cpa,
+        cplUsd: metrics.cpl,
+        cphUsd: metrics.cph,
+        channelTags: normalized.internChannelTags,
+        tgChannelList: normalized.internTgChannelList,
+        emailLists: normalized.internEmailLists,
+        topChannels: normalized.internTopChannels,
+        sources: normalized.internSources,
+        siteVisits: normalized.siteVisits,
+        smmSharePct: normalized.smmSharePct,
+        prevPeriodVisits: normalized.prevPeriodVisits,
+        siteVisitChangePct: metrics.siteVisitChangePct,
+        geo: normalized.geo,
+        campaigns: metrics.campaigns.map(campaignFact),
+        creatives: normalized.internCreatives,
+        funnelSource: normalized.internFunnelSource,
+        funnelLink: normalized.internFunnelLink,
+        funnel: metrics.funnel,
+        conversionOverallPct: metrics.conversionOverall,
+        sourcesOfHire: normalized.sourcesOfHire,
+        disqualifyReasons: normalized.internDisqualify,
+        formsReceived: normalized.formsReceived,
+        formsSent: normalized.formsSent,
+        responseRatePct: metrics.responseRate,
+        keyQuotes: normalized.keyQuotes,
+      },
+      qualitative: {
+        whatWorked: normalized.whatWorked,
+        whatDidntWork: normalized.whatDidntWork,
+        audienceNotes: normalized.audienceNotes,
+        nextSteps: normalized.nextSteps,
+        goalsStatus: normalized.goalsStatus,
+        cohortComparison: normalized.cohortComparison,
       },
     }
   }
