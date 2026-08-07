@@ -7,6 +7,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { Client as NotionClient } from '@notionhq/client'
 import cors from 'cors'
 import express from 'express'
+import * as XLSX from 'xlsx'
 import {
   attachUser,
   authStatus,
@@ -149,7 +150,7 @@ const smmInsightsCache = new Map()
 let googleTokenCache = null
 
 app.use(cors())
-app.use(express.json({ limit: '1mb' }))
+app.use(express.json({ limit: '15mb' }))
 app.use(attachUser)
 registerAuthRoutes(app)
 
@@ -6143,6 +6144,349 @@ function parseEventReportAiResponse(text) {
   }
 }
 
+const INTERNSHIP_BLOCK_KEYS = [
+  'channels',
+  'siteAnalytics',
+  'campaigns',
+  'funnel',
+  'budget',
+  'results',
+  'feedback',
+]
+
+const MAX_INTERNSHIP_BLOCK_FILE_BYTES = 8 * 1024 * 1024
+
+const INTERNSHIP_BLOCK_SCHEMAS = {
+  channels: `Проаналізуй скріншот або файл з планом промо чи таблицею каналів залучення для стажування.
+Поверни ТІЛЬКИ валідний JSON без markdown чи пояснень:
+{
+  "channelTags": ["рядки з переліку, що згадані в даних: SMM + промо, Медіа (DOU, Cases, BlogUni), Telegram-канали, Email-розсилки, Комʼюніті UGEN, Соцмережі Genesis, Особисті сторінки команди, Карʼєрні центри ЗВО, Ярмарки вакансій, Happy Monday"],
+  "tgChannelList": "перелік Telegram-каналів через кому, або порожній рядок",
+  "emailLists": "перелік email-розсилок через кому, або порожній рядок",
+  "topChannels": ["до 5 назв каналів за результатом, від кращого до гіршого"],
+  "sources": [{"name": "назва джерела заявок", "applications": число}]
+}
+Якщо якогось поля немає в даних — постав порожній рядок, порожній масив або 0. Не вигадуй дані, яких немає на скріншоті/у файлі.`,
+  siteAnalytics: `Проаналізуй скріншот дешборду GA4 (або подібної аналітики сайту) для стажування.
+Поверни ТІЛЬКИ валідний JSON:
+{"siteVisits": число, "smmSharePct": число (частка SMM у відсотках, без знаку %), "prevPeriodVisits": число (візити попереднього періоду, якщо є порівняння), "geo": "рядок з гео, якщо видно"}
+Якщо якогось значення немає — постав 0 або порожній рядок. Не вигадуй дані.`,
+  campaigns: `Проаналізуй скріншот або таблицю з Meta/Google Ads Manager з рекламними кампаніями для стажування.
+Поверни ТІЛЬКИ валідний JSON:
+{
+  "campaigns": [{"name":"назва кампанії","ctype":"Clicks або Leads","spendEur":число,"result":число,"clicks":число,"impressions":число,"reach":число}],
+  "creatives": [{"name":"назва креативу","kind":"Static або Video","result":число,"cpa":число,"cpc":число,"ctr":число}]
+}
+Якщо креативів немає на скріншоті/у файлі — поверни порожній масив creatives. Усі суми як числа без символів валют. Не вигадуй дані.`,
+  funnel: `Проаналізуй скріншот воронки найму з ATS (Recruitee, Ashby тощо) для стажування.
+Поверни ТІЛЬКИ валідний JSON:
+{
+  "funnelSource": "назва ATS-системи, якщо видно",
+  "funnelLink": "",
+  "stages": [{"stage":"назва етапу воронки як на скріншоті","count":число кандидатів на цьому етапі}],
+  "sourcesOfHire": "рядок з джерелами найму, якщо видно",
+  "disqualify": [{"reason":"причина дискваліфікації","count":число кандидатів}]
+}
+Збережи етапи у порядку воронки зверху вниз, як на скріншоті. Не вигадуй дані.`,
+  budget: `Проаналізуй скріншот або таблицю витрат на стажування.
+Поверни ТІЛЬКИ валідний JSON:
+{"promoSpendUsd": число, "orgSpendUsd": число, "otherSpendUsd": число, "currency": "код валюти, напр. USD"}
+Якщо витрати вказані в іншій валюті — вкажи цю валюту в полі currency, а числа залиш як є. Не вигадуй дані.`,
+  results: `Проаналізуй скріншот офферів/наймів з ATS для стажування.
+Поверни ТІЛЬКИ валідний JSON:
+{"participantsCount": число (учасників стажування), "businesses": [{"name":"назва бізнесу-замовника","hiresActual":число наймів}]}
+Якщо бізнеси не вказані на скріншоті — поверни порожній масив businesses. Не вигадуй дані.`,
+  feedback: `Проаналізуй скріншоти відповідей із форми фідбеку учасників стажування.
+Поверни ТІЛЬКИ валідний JSON:
+{"formsReceived": число, "formsSent": число, "keyQuotes": "2-3 короткі цитати учасників одним рядком, розділені ' / '"}
+Не вигадуй дані.`,
+}
+
+async function parseInternshipBlockAi({ blockKey, mimeType, base64Data, textContent }) {
+  const instructions = INTERNSHIP_BLOCK_SCHEMAS[blockKey]
+  if (!instructions) {
+    throw createHttpError(400, 'Невідомий блок для розпізнавання.')
+  }
+
+  const preferredProvider = String(process.env.EVENT_REPORTS_AI_PROVIDER || '')
+    .trim()
+    .toLowerCase()
+  const anthropicKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY
+  const isImage = Boolean(mimeType) && mimeType.startsWith('image/')
+
+  if (preferredProvider !== 'anthropic' && process.env.OPENROUTER_API_KEY) {
+    return parseInternshipBlockViaOpenRouter({ instructions, mimeType, base64Data, textContent, isImage })
+  }
+
+  if (anthropicKey) {
+    return parseInternshipBlockViaAnthropic({
+      instructions,
+      mimeType,
+      base64Data,
+      textContent,
+      isImage,
+      apiKey: anthropicKey,
+    })
+  }
+
+  throw createHttpError(
+    503,
+    'AI-ключ не налаштований. Додайте OPENROUTER_API_KEY або ANTHROPIC_API_KEY у змінні середовища.',
+  )
+}
+
+async function parseInternshipBlockViaAnthropic({
+  instructions,
+  mimeType,
+  base64Data,
+  textContent,
+  isImage,
+  apiKey,
+}) {
+  const anthropic = new Anthropic({ apiKey })
+  const content = isImage
+    ? [
+        { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Data } },
+        { type: 'text', text: instructions },
+      ]
+    : [{ type: 'text', text: `${instructions}\n\nДані з файлу:\n${textContent}` }]
+
+  const message = await anthropic.messages.create({
+    model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest',
+    max_tokens: 1400,
+    temperature: 0.1,
+    messages: [{ role: 'user', content }],
+  })
+
+  const text = message.content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n')
+
+  return parseJsonObject(text)
+}
+
+async function parseInternshipBlockViaOpenRouter({
+  instructions,
+  mimeType,
+  base64Data,
+  textContent,
+  isImage,
+}) {
+  const userContent = isImage
+    ? [
+        { type: 'text', text: instructions },
+        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}` } },
+      ]
+    : `${instructions}\n\nДані з файлу:\n${textContent}`
+
+  const apiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.APP_BASE_URL || 'http://localhost:5173',
+      'X-OpenRouter-Title': 'Comms Tool',
+    },
+    body: JSON.stringify({
+      model:
+        process.env.OPENROUTER_MODEL ||
+        process.env.ANTHROPIC_MODEL ||
+        'anthropic/claude-sonnet-4.6',
+      max_tokens: 1400,
+      temperature: 0.1,
+      messages: [
+        { role: 'system', content: 'Повертай тільки валідний JSON без markdown, code fence чи пояснень.' },
+        { role: 'user', content: userContent },
+      ],
+    }),
+  })
+
+  if (!apiResponse.ok) {
+    throw createHttpError(502, 'AI не розпізнав файл.', await apiResponse.text())
+  }
+
+  const payload = await apiResponse.json()
+  const content = payload.choices?.[0]?.message?.content || ''
+  return parseJsonObject(content)
+}
+
+function normalizeParsedInternshipBlock(blockKey, raw = {}) {
+  switch (blockKey) {
+    case 'channels':
+      return {
+        channelTags: Array.isArray(raw.channelTags)
+          ? raw.channelTags.map(textValue).filter(Boolean)
+          : [],
+        tgChannelList: textValue(raw.tgChannelList),
+        emailLists: textValue(raw.emailLists),
+        topChannels: Array.isArray(raw.topChannels)
+          ? raw.topChannels.slice(0, 5).map(textValue)
+          : [],
+        sources: Array.isArray(raw.sources) ? raw.sources.map(normalizeEventChannelSource) : [],
+      }
+    case 'siteAnalytics':
+      return {
+        siteVisits: numberValue(raw.siteVisits),
+        smmSharePct: numberValue(raw.smmSharePct),
+        prevPeriodVisits: numberValue(raw.prevPeriodVisits),
+        geo: textValue(raw.geo),
+      }
+    case 'campaigns':
+      return {
+        campaigns: Array.isArray(raw.campaigns) ? raw.campaigns.map(normalizeEventCampaign) : [],
+        creatives: Array.isArray(raw.creatives) ? raw.creatives.map(normalizeEventCreative) : [],
+      }
+    case 'funnel':
+      return {
+        funnelSource: textValue(raw.funnelSource),
+        funnelLink: normalizeExternalUrl(raw.funnelLink),
+        stages: Array.isArray(raw.stages) ? raw.stages.map(normalizeEventFunnelStage) : [],
+        sourcesOfHire: textValue(raw.sourcesOfHire),
+        disqualify: Array.isArray(raw.disqualify)
+          ? raw.disqualify.map(normalizeEventDisqualifyReason)
+          : [],
+      }
+    case 'budget':
+      return {
+        promoSpendUsd: numberValue(raw.promoSpendUsd),
+        orgSpendUsd: numberValue(raw.orgSpendUsd),
+        otherSpendUsd: numberValue(raw.otherSpendUsd),
+        currency: textValue(raw.currency) || 'USD',
+      }
+    case 'results':
+      return {
+        participantsCount: numberValue(raw.participantsCount),
+        businesses: Array.isArray(raw.businesses)
+          ? raw.businesses
+              .map((business) => ({
+                name: textValue(business?.name),
+                hiresActual: numberValue(business?.hiresActual),
+              }))
+              .filter((business) => business.name)
+          : [],
+      }
+    case 'feedback':
+      return {
+        formsReceived: numberValue(raw.formsReceived),
+        formsSent: numberValue(raw.formsSent),
+        keyQuotes: textValue(raw.keyQuotes),
+      }
+    default:
+      throw createHttpError(400, 'Невідомий блок для розпізнавання.')
+  }
+}
+
+function extractTextFromSpreadsheetBase64(dataBase64) {
+  try {
+    const buffer = Buffer.from(dataBase64, 'base64')
+    const workbook = XLSX.read(buffer, { type: 'buffer' })
+    const chunks = workbook.SheetNames.map((sheetName) => {
+      const sheet = workbook.Sheets[sheetName]
+      const csv = XLSX.utils.sheet_to_csv(sheet)
+      return `# ${sheetName}\n${csv}`
+    })
+
+    return chunks.join('\n\n').slice(0, 20000)
+  } catch {
+    throw createHttpError(400, 'Не вдалося прочитати XLSX-файл.')
+  }
+}
+
+async function generateInternshipRetroAi(facts) {
+  const preferredProvider = String(process.env.EVENT_REPORTS_AI_PROVIDER || '')
+    .trim()
+    .toLowerCase()
+  const anthropicKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY
+
+  if (preferredProvider !== 'anthropic' && process.env.OPENROUTER_API_KEY) {
+    return generateInternshipRetroViaOpenRouter(facts)
+  }
+
+  if (anthropicKey) {
+    return generateInternshipRetroViaAnthropic(facts, anthropicKey)
+  }
+
+  throw createHttpError(
+    503,
+    'AI-ключ не налаштований. Додайте OPENROUTER_API_KEY або ANTHROPIC_API_KEY у змінні середовища.',
+  )
+}
+
+async function generateInternshipRetroViaAnthropic(facts, apiKey) {
+  const anthropic = new Anthropic({ apiKey })
+  const message = await anthropic.messages.create({
+    model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest',
+    max_tokens: 1200,
+    temperature: 0.2,
+    system: internshipRetroAiSystemPrompt(),
+    messages: [{ role: 'user', content: eventReportAiUserPrompt(facts) }],
+  })
+
+  const text = message.content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n')
+
+  return parseInternshipRetroAiResponse(text)
+}
+
+async function generateInternshipRetroViaOpenRouter(facts) {
+  const apiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.APP_BASE_URL || 'http://localhost:5173',
+      'X-OpenRouter-Title': 'Comms Tool',
+    },
+    body: JSON.stringify({
+      model:
+        process.env.OPENROUTER_MODEL ||
+        process.env.ANTHROPIC_MODEL ||
+        'anthropic/claude-sonnet-4.6',
+      max_tokens: 1200,
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: internshipRetroAiSystemPrompt() },
+        { role: 'user', content: eventReportAiUserPrompt(facts) },
+      ],
+    }),
+  })
+
+  if (!apiResponse.ok) {
+    throw createHttpError(502, 'AI не згенерував висновки.', await apiResponse.text())
+  }
+
+  const payload = await apiResponse.json()
+  const content = payload.choices?.[0]?.message?.content || ''
+  return parseInternshipRetroAiResponse(content)
+}
+
+function internshipRetroAiSystemPrompt() {
+  return [
+    'Ти senior Communications/PR аналітик. Пиши українською, дуже стисло, business-facing і по факту.',
+    'Критичне правило: не рахуй, не перераховуй і не вигадуй жодних чисел чи фактів, яких немає у facts. Спирайся тільки на дані з facts.',
+    'На основі facts (заповнені блоки звіту про стажування — канали, аналітику сайту, кампанії, воронку найму, бюджет, результати, фідбек) сформулюй короткий ретроспективний розбір.',
+    'Поверни тільки валідний JSON без markdown, пояснень чи code fence.',
+    'Схема відповіді: {"whatWorked":"1-2 речення що працювало","whatDidntWork":"1-2 речення що не працювало","audienceNotes":"1 речення про аудиторію промо, якщо є дані","nextSteps":"1-2 речення що змінити наступного разу","goalsStatus":"коротка фраза про статус цілей найму","cohortComparison":"коротка фраза-посилання на попередній потік, якщо релевантно, інакше порожній рядок"}',
+    'Якщо якогось блоку даних немає — чесно залиш відповідне поле коротким і без вигаданих деталей, або порожнім рядком.',
+  ].join('\n')
+}
+
+function parseInternshipRetroAiResponse(text) {
+  const json = parseJsonObject(text)
+
+  return {
+    whatWorked: textValue(json.whatWorked),
+    whatDidntWork: textValue(json.whatDidntWork),
+    audienceNotes: textValue(json.audienceNotes),
+    nextSteps: textValue(json.nextSteps),
+    goalsStatus: textValue(json.goalsStatus),
+    cohortComparison: textValue(json.cohortComparison),
+  }
+}
+
 async function generateSmmInsightsAi({ month, data }) {
   if (!process.env.OPENROUTER_API_KEY) {
     throw createHttpError(
@@ -6749,6 +7093,62 @@ app.post('/api/event-reports/generate', requireAuth, asyncHandler(async (request
   }
 
   response.json(await generateEventReportAi(facts))
+}))
+
+app.post('/api/event-reports/parse-block', requireAuth, asyncHandler(async (request, response) => {
+  const { blockKey, fileName, mimeType, dataBase64 } = request.body || {}
+
+  if (!INTERNSHIP_BLOCK_KEYS.includes(blockKey)) {
+    throw createHttpError(400, 'Невідомий блок для розпізнавання.')
+  }
+  if (!dataBase64 || typeof dataBase64 !== 'string') {
+    throw createHttpError(400, 'Файл не передано.')
+  }
+
+  const approxBytes = Math.ceil((dataBase64.length * 3) / 4)
+  if (approxBytes > MAX_INTERNSHIP_BLOCK_FILE_BYTES) {
+    throw createHttpError(413, 'Файл завеликий. Максимум 8MB.')
+  }
+
+  const normalizedMime = String(mimeType || '').toLowerCase()
+  const isImage = normalizedMime.startsWith('image/')
+  const isSpreadsheet =
+    normalizedMime.includes('spreadsheet') ||
+    normalizedMime.includes('excel') ||
+    /\.xlsx?$/i.test(String(fileName || ''))
+  const isCsv = normalizedMime.includes('csv') || /\.csv$/i.test(String(fileName || ''))
+
+  let textContent = ''
+
+  if (isSpreadsheet) {
+    textContent = extractTextFromSpreadsheetBase64(dataBase64)
+  } else if (isCsv) {
+    textContent = Buffer.from(dataBase64, 'base64').toString('utf8').slice(0, 20000)
+  } else if (!isImage) {
+    throw createHttpError(
+      400,
+      'Непідтримуваний формат файлу. Використайте PNG, JPG, CSV або XLSX.',
+    )
+  }
+
+  const raw = await parseInternshipBlockAi({
+    blockKey,
+    mimeType: normalizedMime,
+    base64Data: isImage ? dataBase64 : '',
+    textContent,
+  })
+
+  response.json(normalizeParsedInternshipBlock(blockKey, raw))
+}))
+
+app.post('/api/event-reports/generate-retro', requireAuth, asyncHandler(async (request, response) => {
+  const facts = request.body?.facts
+
+  if (!facts || typeof facts !== 'object' || Array.isArray(facts)) {
+    throw createHttpError(400, 'Передайте facts із уже порахованими метриками.')
+  }
+
+  response.json(await generateInternshipRetroAi(facts))
 }))
 
 app.post('/api/generate-report', asyncHandler(async (request, response) => {
