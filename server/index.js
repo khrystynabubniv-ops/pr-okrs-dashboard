@@ -150,7 +150,7 @@ const smmInsightsCache = new Map()
 let googleTokenCache = null
 
 app.use(cors())
-app.use(express.json({ limit: '15mb' }))
+app.use(express.json({ limit: '30mb' }))
 app.use(attachUser)
 registerAuthRoutes(app)
 
@@ -5927,6 +5927,9 @@ function normalizeEventReportPayload(report = {}) {
     internCreatives: isIntern && Array.isArray(report.internCreatives)
       ? report.internCreatives.map(normalizeEventCreative)
       : [],
+    internCreativeMedia: isIntern && Array.isArray(report.internCreativeMedia)
+      ? report.internCreativeMedia.map(normalizeEventCreativeMedia).filter((item) => item.dataBase64)
+      : [],
     internFunnelSource: isIntern ? textValue(report.internFunnelSource) : '',
     internFunnelLink: isIntern ? normalizeExternalUrl(report.internFunnelLink) : '',
     internFunnelStages: isIntern && Array.isArray(report.internFunnelStages)
@@ -6001,6 +6004,18 @@ function normalizeEventCreative(creative = {}) {
     cpa: numberValue(creative.cpa),
     cpc: numberValue(creative.cpc),
     ctr: numberValue(creative.ctr),
+  }
+}
+
+const MAX_CREATIVE_MEDIA_BASE64_LENGTH = Math.ceil((6 * 1024 * 1024 * 4) / 3)
+
+function normalizeEventCreativeMedia(media = {}) {
+  const dataBase64 = String(media.dataBase64 || '')
+
+  return {
+    name: textValue(media.name),
+    mimeType: textValue(media.mimeType),
+    dataBase64: dataBase64.length <= MAX_CREATIVE_MEDIA_BASE64_LENGTH ? dataBase64 : '',
   }
 }
 

@@ -151,6 +151,8 @@ const INTERNSHIP_BLOCK_ACCEPT =
   'image/png,image/jpeg,image/webp,.csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 const MAX_INTERNSHIP_BLOCK_FILE_BYTES = 8 * 1024 * 1024
+const MAX_CREATIVE_MEDIA_BYTES = 6 * 1024 * 1024
+const CREATIVE_MEDIA_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime'
 
 function readFileAsBase64(file) {
   return new Promise((resolve, reject) => {
@@ -284,6 +286,7 @@ const initialForm = (type = 'event') => {
     prevPeriodVisits: '',
     geo: '',
     internCreatives: [emptyCreative()],
+    internCreativeMedia: [],
     internFunnelSource: '',
     internFunnelLink: '',
     internFunnelStages: [emptyFunnelStage()],
@@ -622,6 +625,43 @@ function ReportForm({ onClose, onCreated }) {
       ...current,
       internTopChannels: current.internTopChannels.map((item, itemIndex) =>
         itemIndex === index ? value : item,
+      ),
+    }))
+  }
+
+  const [creativeMediaError, setCreativeMediaError] = useState('')
+
+  function addCreativeMediaFiles(fileList) {
+    const files = Array.from(fileList || [])
+    setCreativeMediaError('')
+
+    files.forEach((file) => {
+      if (file.size > MAX_CREATIVE_MEDIA_BYTES) {
+        setCreativeMediaError(`Файл «${file.name}» завеликий. Максимум 6MB.`)
+        return
+      }
+
+      readFileAsBase64(file)
+        .then((dataBase64) => {
+          setForm((current) => ({
+            ...current,
+            internCreativeMedia: [
+              ...current.internCreativeMedia,
+              { name: file.name, mimeType: file.type, dataBase64 },
+            ],
+          }))
+        })
+        .catch(() => {
+          setCreativeMediaError(`Не вдалося прочитати файл «${file.name}».`)
+        })
+    })
+  }
+
+  function removeCreativeMedia(index) {
+    setForm((current) => ({
+      ...current,
+      internCreativeMedia: current.internCreativeMedia.filter(
+        (_, mediaIndex) => mediaIndex !== index,
       ),
     }))
   }
@@ -986,6 +1026,9 @@ function ReportForm({ onClose, onCreated }) {
               onSetBlockMode={setInternBlockMode}
               onUploadBlock={handleInternBlockUpload}
               onGenerateRetro={handleGenerateInternshipRetro}
+              creativeMediaError={creativeMediaError}
+              onAddCreativeMedia={addCreativeMediaFiles}
+              onRemoveCreativeMedia={removeCreativeMedia}
             />
           ) : null}
 
@@ -1460,6 +1503,9 @@ function InternshipFields({
   onSetBlockMode,
   onUploadBlock,
   onGenerateRetro,
+  creativeMediaError,
+  onAddCreativeMedia,
+  onRemoveCreativeMedia,
 }) {
   return (
     <div className="er-blk-stack">
@@ -1785,6 +1831,17 @@ function InternshipFields({
               Додати креатив
             </button>
           </div>
+
+          <h4 className="er-subheading">Найкращі креативи</h4>
+          <p className="er-mini">
+            Просто підвантажте самі креативи — метрики заповнювати не обов&apos;язково.
+          </p>
+          <CreativeMediaGrid
+            items={form.internCreativeMedia}
+            error={creativeMediaError}
+            onAdd={onAddCreativeMedia}
+            onRemove={onRemoveCreativeMedia}
+          />
         </BlockAutoOrManual>
       </InternshipBlock>
 
@@ -2272,6 +2329,78 @@ function ScreenshotDropzone({ content, busy, error, onFile }) {
   )
 }
 
+function CreativeMediaGrid({ items, error, onAdd, onRemove }) {
+  const inputRef = useRef(null)
+
+  function handleChange(event) {
+    onAdd(event.target.files)
+    event.target.value = ''
+  }
+
+  return (
+    <div>
+      <div className="er-media-grid">
+        {items.map((item, index) => (
+          <div className="er-media-card" key={`${item.name}-${index}`}>
+            <CreativeMediaThumb item={item} />
+            <button
+              type="button"
+              className="er-media-remove"
+              onClick={() => onRemove(index)}
+              aria-label={`Видалити ${item.name}`}
+            >
+              <X className="er-media-remove-icon" />
+            </button>
+            <span className="er-media-name">{item.name}</span>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="er-media-add"
+          onClick={() => inputRef.current?.click()}
+        >
+          <ImagePlus className="er-drop-icon" />
+          <span>Додати фото</span>
+        </button>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept={CREATIVE_MEDIA_ACCEPT}
+        className="er-hidden-input"
+        onChange={handleChange}
+      />
+      {error ? <p className="er-form-error">{error}</p> : null}
+    </div>
+  )
+}
+
+function CreativeMediaThumb({ item }) {
+  if (!item.dataBase64) return <div className="er-media-thumb er-media-thumb-empty" />
+
+  const src = `data:${item.mimeType};base64,${item.dataBase64}`
+
+  return item.mimeType.startsWith('video/') ? (
+    <video src={src} className="er-media-thumb" muted playsInline />
+  ) : (
+    <img src={src} alt={item.name} className="er-media-thumb" />
+  )
+}
+
+function MediaGallery({ items }) {
+  return (
+    <div className="er-media-grid">
+      {items.map((item, index) => (
+        <div className="er-media-card" key={`${item.name}-${index}`}>
+          <CreativeMediaThumb item={item} />
+          <span className="er-media-name">{item.name}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function CampaignSection({ campaigns, metrics, onAdd, onRemove, onUpdate }) {
   return (
     <section className="er-form-section">
@@ -2725,6 +2854,16 @@ function InternshipDetailBlocks({ report, metrics }) {
             <span className="er-mini-badge">Прикріплено вручну</span>
           </div>
           <CreativesTable creatives={report.internCreatives} />
+        </section>
+      ) : null}
+
+      {report.internCreativeMedia.length ? (
+        <section className="er-detail-section">
+          <div className="er-detail-section-head">
+            <h3>Найкращі креативи</h3>
+            <span className="er-mini-badge">Прикріплено вручну</span>
+          </div>
+          <MediaGallery items={report.internCreativeMedia} />
         </section>
       ) : null}
     </>

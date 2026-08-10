@@ -1324,6 +1324,99 @@ textarea.er-input {
   line-height: 1.5;
 }
 
+.er-media-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 11px;
+  margin-top: 10px;
+}
+
+.er-media-card {
+  position: relative;
+  height: 132px;
+  overflow: hidden;
+  border: 1px solid var(--er-line);
+  border-radius: 12px;
+  background: var(--er-card-soft);
+}
+
+.er-media-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.er-media-thumb-empty {
+  background: var(--er-card-soft);
+}
+
+.er-media-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(20 21 25 / 72%);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.er-media-remove:hover {
+  background: rgb(20 21 25 / 92%);
+}
+
+.er-media-remove-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.er-media-name {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  overflow: hidden;
+  padding: 5px 8px;
+  background: rgb(20 21 25 / 72%);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.er-media-add {
+  display: grid;
+  height: 132px;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  border: 1px dashed var(--er-line);
+  border-radius: 12px;
+  background: var(--er-card-soft);
+  color: var(--er-muted);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.er-media-add:hover {
+  border-color: var(--er-accent);
+  background: var(--er-accent-soft);
+  color: var(--er-accent-d);
+}
+
 @keyframes erModalIn {
   from {
     opacity: 0;
@@ -1378,6 +1471,10 @@ textarea.er-input {
     grid-template-columns: minmax(100px, 1fr) minmax(100px, 1.6fr) 48px 48px;
   }
 
+  .er-media-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .er-ai-grid,
   .er-detail-info-grid {
     grid-template-columns: 1fr;
@@ -1404,6 +1501,10 @@ textarea.er-input {
   .er-funnel-row {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .er-media-grid {
+    grid-template-columns: 1fr;
   }
 
   .er-modal-overlay {

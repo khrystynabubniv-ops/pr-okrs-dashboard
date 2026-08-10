@@ -57,6 +57,14 @@ export function normalizeBusiness(business = {}) {
   }
 }
 
+export function normalizeCreativeMedia(media = {}) {
+  return {
+    name: String(media.name || '').trim(),
+    mimeType: String(media.mimeType || '').trim(),
+    dataBase64: String(media.dataBase64 || '').trim(),
+  }
+}
+
 export function normalizeChannelSource(source = {}) {
   return {
     name: String(source.name || '').trim(),
@@ -193,6 +201,9 @@ export function normalizeReportInput(report = {}) {
     geo: isIntern ? String(report.geo || '').trim() : '',
     internCreatives: isIntern && Array.isArray(report.internCreatives)
       ? report.internCreatives.map(normalizeCreative)
+      : [],
+    internCreativeMedia: isIntern && Array.isArray(report.internCreativeMedia)
+      ? report.internCreativeMedia.map(normalizeCreativeMedia).filter((item) => item.dataBase64)
       : [],
     internFunnelSource: isIntern ? String(report.internFunnelSource || '').trim() : '',
     internFunnelLink: isIntern ? String(report.internFunnelLink || '').trim() : '',
