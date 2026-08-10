@@ -2331,6 +2331,7 @@ function ScreenshotDropzone({ content, busy, error, onFile }) {
 
 function CreativeMediaGrid({ items, error, onAdd, onRemove }) {
   const inputRef = useRef(null)
+  const [previewIndex, setPreviewIndex] = useState(null)
 
   function handleChange(event) {
     onAdd(event.target.files)
@@ -2341,12 +2342,24 @@ function CreativeMediaGrid({ items, error, onAdd, onRemove }) {
     <div>
       <div className="er-media-grid">
         {items.map((item, index) => (
-          <div className="er-media-card" key={`${item.name}-${index}`}>
+          <div
+            className="er-media-card er-media-card-clickable"
+            key={`${item.name}-${index}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => setPreviewIndex(index)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') setPreviewIndex(index)
+            }}
+          >
             <CreativeMediaThumb item={item} />
             <button
               type="button"
               className="er-media-remove"
-              onClick={() => onRemove(index)}
+              onClick={(event) => {
+                event.stopPropagation()
+                onRemove(index)
+              }}
               aria-label={`Видалити ${item.name}`}
             >
               <X className="er-media-remove-icon" />
@@ -2372,6 +2385,9 @@ function CreativeMediaGrid({ items, error, onAdd, onRemove }) {
         onChange={handleChange}
       />
       {error ? <p className="er-form-error">{error}</p> : null}
+      {previewIndex !== null ? (
+        <MediaLightbox item={items[previewIndex]} onClose={() => setPreviewIndex(null)} />
+      ) : null}
     </div>
   )
 }
@@ -2389,14 +2405,70 @@ function CreativeMediaThumb({ item }) {
 }
 
 function MediaGallery({ items }) {
+  const [previewIndex, setPreviewIndex] = useState(null)
+
   return (
-    <div className="er-media-grid">
-      {items.map((item, index) => (
-        <div className="er-media-card" key={`${item.name}-${index}`}>
-          <CreativeMediaThumb item={item} />
-          <span className="er-media-name">{item.name}</span>
-        </div>
-      ))}
+    <div>
+      <div className="er-media-grid">
+        {items.map((item, index) => (
+          <div
+            className="er-media-card er-media-card-clickable"
+            key={`${item.name}-${index}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => setPreviewIndex(index)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') setPreviewIndex(index)
+            }}
+          >
+            <CreativeMediaThumb item={item} />
+            <span className="er-media-name">{item.name}</span>
+          </div>
+        ))}
+      </div>
+      {previewIndex !== null ? (
+        <MediaLightbox item={items[previewIndex]} onClose={() => setPreviewIndex(null)} />
+      ) : null}
+    </div>
+  )
+}
+
+function MediaLightbox({ item, onClose }) {
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') onClose()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  function handleOverlayClick(event) {
+    if (event.target === event.currentTarget) onClose()
+  }
+
+  if (!item) return null
+
+  const src = `data:${item.mimeType};base64,${item.dataBase64}`
+
+  return (
+    <div className="er-lightbox-overlay" onMouseDown={handleOverlayClick}>
+      <div className="er-lightbox-body">
+        <button
+          type="button"
+          className="er-lightbox-close"
+          onClick={onClose}
+          aria-label="Закрити"
+        >
+          <X className="er-close-icon" />
+        </button>
+        {item.mimeType.startsWith('video/') ? (
+          <video src={src} className="er-lightbox-media" controls autoPlay />
+        ) : (
+          <img src={src} alt={item.name} className="er-lightbox-media" />
+        )}
+        <span className="er-lightbox-name">{item.name}</span>
+      </div>
     </div>
   )
 }

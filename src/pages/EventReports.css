@@ -1340,6 +1340,18 @@ textarea.er-input {
   background: var(--er-card-soft);
 }
 
+.er-media-card-clickable {
+  padding: 0;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.er-media-card-clickable:hover,
+.er-media-card-clickable:focus-visible {
+  border-color: var(--er-accent);
+  outline: none;
+}
+
 .er-media-thumb {
   display: block;
   width: 100%;
@@ -1415,6 +1427,63 @@ textarea.er-input {
   border-color: var(--er-accent);
   background: var(--er-accent-soft);
   color: var(--er-accent-d);
+}
+
+.er-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(10 10 12 / 88%);
+  padding: 40px 20px;
+}
+
+.er-lightbox-body {
+  position: relative;
+  display: flex;
+  max-width: min(90vw, 900px);
+  max-height: 90vh;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.er-lightbox-media {
+  max-width: 100%;
+  max-height: 80vh;
+  border-radius: 10px;
+  object-fit: contain;
+}
+
+.er-lightbox-close {
+  position: absolute;
+  top: -14px;
+  right: -14px;
+  display: flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--er-ink);
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 25%);
+  transition: background-color 0.15s ease;
+}
+
+.er-lightbox-close:hover {
+  background: var(--hover-soft);
+}
+
+.er-lightbox-name {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
 }
 
 @keyframes erModalIn {
