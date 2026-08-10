@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  ChevronRight,
   Code2,
   ExternalLink,
   FileText,
+  ImagePlus,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -91,6 +93,113 @@ const emptyDisqualifyReason = () => ({
   reason: '',
   count: '',
 })
+
+const INTERNSHIP_BLOCK_META = [
+  { key: 'basic', number: '01', title: 'Основне' },
+  { key: 'channels', number: '02', title: 'Канали залучення' },
+  { key: 'siteAnalytics', number: '03', title: 'Аналітика сайту' },
+  { key: 'campaigns', number: '04', title: 'Промо-кампанії' },
+  { key: 'funnel', number: '05', title: 'Воронка найму' },
+  { key: 'budget', number: '06', title: 'Бюджет' },
+  { key: 'results', number: '07', title: 'Результати та найми' },
+  { key: 'feedback', number: '08', title: 'Фідбек учасників' },
+  { key: 'retro', number: '09', title: 'Висновки та ретро' },
+]
+
+const BLOCK_DROPZONE_CONTENT = {
+  channels: {
+    title: 'Скріншот плану промо або таблиці каналів',
+    subtitle:
+      'AI розпізнає перелік каналів, Telegram-канали, розсилки та кількість заявок по джерелах',
+    formats: 'PNG · JPG · XLSX · CSV',
+  },
+  siteAnalytics: {
+    title: 'Скріншот дешборду GA4',
+    subtitle: 'AI зчитає візити, частку каналів і порівняння з попереднім періодом',
+    formats: 'PNG · JPG · CSV',
+  },
+  campaigns: {
+    title: 'Скріншот з Ads Manager',
+    subtitle:
+      'AI розпізнає таблицю кампаній і створить рядки — spend, result, reach, impressions; CPA, CPM і CTR порахує сам',
+    formats: 'PNG · JPG · XLSX · CSV',
+  },
+  funnel: {
+    title: 'Скріншот воронки з Recruitee або Ashby',
+    subtitle:
+      'AI розпізнає етапи та кількості з пайплайну, порахує конверсії між етапами і Applied → Hired',
+    formats: 'PNG · JPG · CSV',
+  },
+  budget: {
+    title: 'Скріншот або експорт витрат',
+    subtitle: 'AI зчитає суми, звірить із блоком промо-кампаній і підсвітить розбіжності',
+    formats: 'PNG · JPG · XLSX · CSV',
+  },
+  results: {
+    title: 'Скріншот офферів з ATS',
+    subtitle: 'AI зчитає наймів по бізнесах і порахує CPA, CPL та CPH від загального бюджету',
+    formats: 'PNG · JPG · CSV',
+  },
+  feedback: {
+    title: 'Скріншоти відповідей із форми',
+    subtitle: 'AI зведе відповіді у короткий переказ і підсвітить повторювані болі',
+    formats: 'PNG · JPG · CSV',
+  },
+}
+
+const INTERNSHIP_BLOCK_ACCEPT =
+  'image/png,image/jpeg,image/webp,.csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+const MAX_INTERNSHIP_BLOCK_FILE_BYTES = 8 * 1024 * 1024
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = String(reader.result || '')
+      resolve(result.includes(',') ? result.split(',')[1] : result)
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
+function internshipBlockStatus(blockKey, form) {
+  switch (blockKey) {
+    case 'basic':
+      return form.name.trim() ? 'done' : 'empty'
+    case 'channels':
+      return form.internChannelTags.length ||
+        form.internTgChannelList.trim() ||
+        form.internEmailLists.trim() ||
+        form.internSources.some((source) => source.name.trim())
+        ? 'done'
+        : 'empty'
+    case 'siteAnalytics':
+      return form.siteVisits || form.geo.trim() ? 'done' : 'empty'
+    case 'campaigns':
+      return form.campaigns.some((campaign) => campaign.name.trim()) ||
+        form.internCreatives.some((creative) => creative.name.trim())
+        ? 'done'
+        : 'empty'
+    case 'funnel':
+      return form.internFunnelStages.some((stage) => stage.stage.trim()) ? 'done' : 'empty'
+    case 'budget':
+      return form.promoSpendUsd || form.orgSpendUsd || form.otherSpendUsd ? 'done' : 'empty'
+    case 'results':
+      return form.participantsCount || form.internBusinesses.some((business) => business.hiresActual)
+        ? 'done'
+        : 'empty'
+    case 'feedback':
+      return form.formsReceived || form.formsSent || form.keyQuotes.trim() ? 'done' : 'empty'
+    case 'retro':
+      return form.whatWorked.trim() || form.whatDidntWork.trim() || form.nextSteps.trim()
+        ? 'done'
+        : 'empty'
+    default:
+      return 'empty'
+  }
+}
 
 function createListField(setForm, key) {
   return {
@@ -517,6 +626,213 @@ function ReportForm({ onClose, onCreated }) {
     }))
   }
 
+  const [internBlockUi, setInternBlockUi] = useState(() => ({
+    basic: { open: true },
+    channels: { open: false, mode: 'auto', fileName: '', busy: false, error: '' },
+    siteAnalytics: { open: false, mode: 'auto', fileName: '', busy: false, error: '' },
+    campaigns: { open: false, mode: 'auto', fileName: '', busy: false, error: '' },
+    funnel: { open: false, mode: 'auto', fileName: '', busy: false, error: '' },
+    budget: { open: false, mode: 'auto', fileName: '', busy: false, error: '' },
+    results: { open: false, mode: 'auto', fileName: '', busy: false, error: '' },
+    feedback: { open: false, mode: 'auto', fileName: '', busy: false, error: '' },
+    retro: { open: false, busy: false, error: '' },
+  }))
+
+  function toggleInternBlock(blockKey) {
+    setInternBlockUi((current) => ({
+      ...current,
+      [blockKey]: { ...current[blockKey], open: !current[blockKey].open },
+    }))
+  }
+
+  function setInternBlockMode(blockKey, mode) {
+    setInternBlockUi((current) => ({
+      ...current,
+      [blockKey]: { ...current[blockKey], mode, error: '' },
+    }))
+  }
+
+  function applyParsedInternshipBlock(blockKey, parsed) {
+    setForm((current) => {
+      switch (blockKey) {
+        case 'channels':
+          return {
+            ...current,
+            internChannelTags: parsed.channelTags?.length
+              ? parsed.channelTags
+              : current.internChannelTags,
+            internTgChannelList: parsed.tgChannelList || current.internTgChannelList,
+            internEmailLists: parsed.emailLists || current.internEmailLists,
+            internTopChannels: parsed.topChannels?.length
+              ? [...parsed.topChannels, '', '', '', '', ''].slice(0, 5)
+              : current.internTopChannels,
+            internSources: parsed.sources?.length ? parsed.sources : current.internSources,
+          }
+        case 'siteAnalytics':
+          return {
+            ...current,
+            siteVisits: parsed.siteVisits || current.siteVisits,
+            smmSharePct: parsed.smmSharePct || current.smmSharePct,
+            prevPeriodVisits: parsed.prevPeriodVisits || current.prevPeriodVisits,
+            geo: parsed.geo || current.geo,
+          }
+        case 'campaigns':
+          return {
+            ...current,
+            campaigns: parsed.campaigns?.length
+              ? parsed.campaigns.map((campaign) => ({ ...emptyCampaign(), ...campaign }))
+              : current.campaigns,
+            internCreatives: parsed.creatives?.length
+              ? parsed.creatives.map((creative) => ({ ...emptyCreative(), ...creative }))
+              : current.internCreatives,
+          }
+        case 'funnel':
+          return {
+            ...current,
+            internFunnelSource: parsed.funnelSource || current.internFunnelSource,
+            internFunnelLink: parsed.funnelLink || current.internFunnelLink,
+            internFunnelStages: parsed.stages?.length
+              ? parsed.stages.map((stage) => ({ ...emptyFunnelStage(), ...stage }))
+              : current.internFunnelStages,
+            sourcesOfHire: parsed.sourcesOfHire || current.sourcesOfHire,
+            internDisqualify: parsed.disqualify?.length
+              ? parsed.disqualify.map((reason) => ({ ...emptyDisqualifyReason(), ...reason }))
+              : current.internDisqualify,
+          }
+        case 'budget':
+          return {
+            ...current,
+            promoSpendUsd: parsed.promoSpendUsd || current.promoSpendUsd,
+            orgSpendUsd: parsed.orgSpendUsd || current.orgSpendUsd,
+            otherSpendUsd: parsed.otherSpendUsd || current.otherSpendUsd,
+            currency: parsed.currency || current.currency,
+          }
+        case 'results': {
+          const parsedBusinesses = Array.isArray(parsed.businesses) ? parsed.businesses : []
+          const merged = current.internBusinesses.map((business) => {
+            const match = parsedBusinesses.find(
+              (item) =>
+                item.name &&
+                business.name &&
+                item.name.toLowerCase() === business.name.toLowerCase(),
+            )
+            return match ? { ...business, hiresActual: match.hiresActual } : business
+          })
+          const newOnes = parsedBusinesses
+            .filter(
+              (item) =>
+                item.name &&
+                !current.internBusinesses.some(
+                  (business) => business.name.toLowerCase() === item.name.toLowerCase(),
+                ),
+            )
+            .map((item) => ({ name: item.name, hireGoal: '', hiresActual: item.hiresActual }))
+
+          return {
+            ...current,
+            participantsCount: parsed.participantsCount || current.participantsCount,
+            internBusinesses: [...merged, ...newOnes],
+          }
+        }
+        case 'feedback':
+          return {
+            ...current,
+            formsReceived: parsed.formsReceived || current.formsReceived,
+            formsSent: parsed.formsSent || current.formsSent,
+            keyQuotes: parsed.keyQuotes || current.keyQuotes,
+          }
+        default:
+          return current
+      }
+    })
+  }
+
+  async function handleInternBlockUpload(blockKey, file) {
+    if (file.size > MAX_INTERNSHIP_BLOCK_FILE_BYTES) {
+      setInternBlockUi((current) => ({
+        ...current,
+        [blockKey]: { ...current[blockKey], error: 'Файл завеликий. Максимум 8MB.' },
+      }))
+      return
+    }
+
+    setInternBlockUi((current) => ({
+      ...current,
+      [blockKey]: { ...current[blockKey], busy: true, error: '' },
+    }))
+
+    try {
+      const dataBase64 = await readFileAsBase64(file)
+      const parsed = await apiRequest('/api/event-reports/parse-block', {
+        method: 'POST',
+        body: JSON.stringify({
+          blockKey,
+          fileName: file.name,
+          mimeType: file.type,
+          dataBase64,
+        }),
+      })
+
+      applyParsedInternshipBlock(blockKey, parsed)
+      setInternBlockUi((current) => ({
+        ...current,
+        [blockKey]: {
+          ...current[blockKey],
+          mode: 'manual',
+          fileName: file.name,
+          busy: false,
+          error: '',
+        },
+      }))
+    } catch (requestError) {
+      setInternBlockUi((current) => ({
+        ...current,
+        [blockKey]: {
+          ...current[blockKey],
+          busy: false,
+          error: requestError?.message || 'Не вдалося розпізнати файл.',
+        },
+      }))
+    }
+  }
+
+  async function handleGenerateInternshipRetro() {
+    setInternBlockUi((current) => ({
+      ...current,
+      retro: { ...current.retro, busy: true, error: '' },
+    }))
+
+    try {
+      const reportInput = normalizeReportInput(form)
+      const reportMetrics = compute(reportInput)
+      const facts = buildReportFacts(reportInput, reportMetrics)
+      const parsed = await apiRequest('/api/event-reports/generate-retro', {
+        method: 'POST',
+        body: JSON.stringify({ facts }),
+      })
+
+      setForm((current) => ({
+        ...current,
+        whatWorked: parsed.whatWorked || current.whatWorked,
+        whatDidntWork: parsed.whatDidntWork || current.whatDidntWork,
+        audienceNotes: parsed.audienceNotes || current.audienceNotes,
+        nextSteps: parsed.nextSteps || current.nextSteps,
+        goalsStatus: parsed.goalsStatus || current.goalsStatus,
+        cohortComparison: parsed.cohortComparison || current.cohortComparison,
+      }))
+      setInternBlockUi((current) => ({ ...current, retro: { ...current.retro, busy: false } }))
+    } catch (requestError) {
+      setInternBlockUi((current) => ({
+        ...current,
+        retro: {
+          ...current.retro,
+          busy: false,
+          error: requestError?.message || 'Не вдалося згенерувати.',
+        },
+      }))
+    }
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
     if (!form.name.trim() || submitting) return
@@ -588,45 +904,36 @@ function ReportForm({ onClose, onCreated }) {
         <div className="er-modal-body">
           <TypeSegmented value={form.type} onChange={selectType} />
 
-          <FormSection title="Основне">
-            <div className="er-form-grid er-form-grid-2">
-              <Field label="Назва">
-                <input
-                  className="er-input"
-                  value={form.name}
-                  onChange={(event) => updateField('name', event.target.value)}
-                  placeholder={
-                    form.type === 'launch'
-                      ? 'Лонч продукту'
-                      : form.type === 'internship'
-                        ? 'Creative Marketing Internship 6.0'
-                        : 'Universe Hiring Day'
-                  }
-                  required
-                />
-              </Field>
-              <DateFields form={form} updateField={updateField} />
-              <Field label="Опис" full>
-                <textarea
-                  className="er-input"
-                  value={form.description}
-                  onChange={(event) => updateField('description', event.target.value)}
-                  placeholder={
-                    form.type === 'internship'
-                      ? 'Коротко: для кого стажування і що входить'
-                      : undefined
-                  }
-                />
-              </Field>
-              <Field label="Ціль" full>
-                <textarea
-                  className="er-input"
-                  value={form.goalText}
-                  onChange={(event) => updateField('goalText', event.target.value)}
-                />
-              </Field>
-            </div>
-          </FormSection>
+          {form.type !== 'internship' ? (
+            <FormSection title="Основне">
+              <div className="er-form-grid er-form-grid-2">
+                <Field label="Назва">
+                  <input
+                    className="er-input"
+                    value={form.name}
+                    onChange={(event) => updateField('name', event.target.value)}
+                    placeholder={form.type === 'launch' ? 'Лонч продукту' : 'Universe Hiring Day'}
+                    required
+                  />
+                </Field>
+                <DateFields form={form} updateField={updateField} />
+                <Field label="Опис" full>
+                  <textarea
+                    className="er-input"
+                    value={form.description}
+                    onChange={(event) => updateField('description', event.target.value)}
+                  />
+                </Field>
+                <Field label="Ціль" full>
+                  <textarea
+                    className="er-input"
+                    value={form.goalText}
+                    onChange={(event) => updateField('goalText', event.target.value)}
+                  />
+                </Field>
+              </div>
+            </FormSection>
+          ) : null}
 
           {form.type === 'event' ? (
             <>
@@ -674,6 +981,11 @@ function ReportForm({ onClose, onCreated }) {
               disqualifyField={disqualifyField}
               updateTopChannel={updateTopChannel}
               toggleChannelTag={toggleChannelTag}
+              blockUi={internBlockUi}
+              onToggleBlock={toggleInternBlock}
+              onSetBlockMode={setInternBlockMode}
+              onUploadBlock={handleInternBlockUpload}
+              onGenerateRetro={handleGenerateInternshipRetro}
             />
           ) : null}
 
@@ -1143,10 +1455,45 @@ function InternshipFields({
   disqualifyField,
   updateTopChannel,
   toggleChannelTag,
+  blockUi,
+  onToggleBlock,
+  onSetBlockMode,
+  onUploadBlock,
+  onGenerateRetro,
 }) {
   return (
-    <>
-      <FormSection title="Бізнеси-замовники та найми">
+    <div className="er-blk-stack">
+      <p className="er-blk-intro">
+        Прикріпіть скріншот — AI розпізнає дані і заповнить блок. Або заповніть поля вручну.
+      </p>
+
+      <InternshipBlock
+        meta={INTERNSHIP_BLOCK_META[0]}
+        status={internshipBlockStatus('basic', form)}
+        open={blockUi.basic.open}
+        onToggle={() => onToggleBlock('basic')}
+      >
+        <div className="er-form-grid er-form-grid-2">
+          <Field label="Назва">
+            <input
+              className="er-input"
+              value={form.name}
+              onChange={(event) => updateField('name', event.target.value)}
+              placeholder="Creative Marketing Internship 6.0"
+            />
+          </Field>
+          <DateFields form={form} updateField={updateField} />
+          <Field label="Опис" full>
+            <textarea
+              className="er-input"
+              value={form.description}
+              onChange={(event) => updateField('description', event.target.value)}
+              placeholder="Коротко: для кого стажування і що входить"
+            />
+          </Field>
+        </div>
+
+        <h4 className="er-subheading">Бізнеси-замовники та цілі по наймах</h4>
         <div className="er-list-editor">
           {form.internBusinesses.map((business, index) => (
             <div className="er-list-row er-list-row-3" key={`business-${index}`}>
@@ -1191,10 +1538,7 @@ function InternshipFields({
           </button>
         </div>
         <div className="er-form-grid er-form-grid-2">
-          <Field
-            label="Загальна ціль по наймах"
-            info="Сума цілей по всіх бізнесах-замовниках"
-          >
+          <Field label="Загальна ціль по наймах" info="Сума цілей по всіх бізнесах-замовниках">
             <input
               className="er-input er-number-input er-readonly-input"
               value={numberInputValue(metrics.hireGoalTotal)}
@@ -1202,460 +1546,557 @@ function InternshipFields({
               aria-readonly="true"
             />
           </Field>
-          <Field label="Наймів усього">
-            <input
-              className="er-input er-number-input er-readonly-input"
-              value={numberInputValue(metrics.hiresTotal)}
-              readOnly
-              aria-readonly="true"
-            />
-          </Field>
-        </div>
-      </FormSection>
-
-      <FormSection title="Канали залучення">
-        <div className="er-chip-row">
-          {CHANNEL_TAG_OPTIONS.map((tag) => (
-            <button
-              type="button"
-              key={tag}
-              className={`er-chip ${form.internChannelTags.includes(tag) ? 'is-active' : ''}`}
-              onClick={() => toggleChannelTag(tag)}
-            >
-              {tag}
-            </button>
-          ))}
-        </div>
-        <div className="er-form-grid er-form-grid-2">
-          <Field label="Список Telegram-каналів" full>
-            <input
-              className="er-input"
-              value={form.internTgChannelList}
-              onChange={(event) => updateField('internTgChannelList', event.target.value)}
-              placeholder="@ugen_ua, @univwork, @internsgo…"
-            />
-          </Field>
-          <Field label="Email-розсилки" full>
-            <input
-              className="er-input"
-              value={form.internEmailLists}
-              onChange={(event) => updateField('internEmailLists', event.target.value)}
-              placeholder="Genesis Academy, бази рекрутерів, карʼєрні центри…"
-            />
-          </Field>
-        </div>
-        <h4 className="er-subheading">ТОП-5 каналів за результатом</h4>
-        <div className="er-form-grid er-form-grid-3">
-          {form.internTopChannels.map((channel, index) => (
-            <Field label={`#${index + 1}`} key={`top-channel-${index}`}>
-              <input
-                className="er-input"
-                value={channel}
-                onChange={(event) => updateTopChannel(index, event.target.value)}
-              />
-            </Field>
-          ))}
-        </div>
-        <h4 className="er-subheading">Заявки по джерелах</h4>
-        <div className="er-list-editor">
-          {form.internSources.map((source, index) => (
-            <div className="er-list-row er-list-row-2" key={`source-${index}`}>
-              <Field label="Джерело">
-                <input
-                  className="er-input"
-                  value={source.name}
-                  onChange={(event) => sourceField.update(index, 'name', event.target.value)}
-                />
-              </Field>
-              <Field label="Заявок">
-                <NumberInput
-                  value={source.applications}
-                  onChange={(value) => sourceField.update(index, 'applications', value)}
-                />
-              </Field>
-              {form.internSources.length > 1 ? (
-                <button
-                  type="button"
-                  className="er-icon-button er-resource-remove"
-                  onClick={() => sourceField.remove(index)}
-                  aria-label="Видалити джерело"
-                >
-                  <Trash2 className="er-trash-icon" />
-                </button>
-              ) : null}
-            </div>
-          ))}
-          <button
-            type="button"
-            className="er-link-button"
-            onClick={() => sourceField.add(emptySource())}
-          >
-            <Plus className="er-link-icon" />
-            Додати джерело
-          </button>
-        </div>
-      </FormSection>
-
-      <FormSection title="Аналітика сайту">
-        <div className="er-form-grid er-form-grid-3">
-          <Field label="Візитів на сайт">
-            <NumberInput
-              value={form.siteVisits}
-              onChange={(value) => updateField('siteVisits', value)}
-            />
-          </Field>
-          <Field label="Частка SMM, %">
-            <NumberInput
-              value={form.smmSharePct}
-              onChange={(value) => updateField('smmSharePct', value)}
-            />
-          </Field>
-          <Field label="Візитів у попередньому потоці">
-            <NumberInput
-              value={form.prevPeriodVisits}
-              onChange={(value) => updateField('prevPeriodVisits', value)}
-            />
-          </Field>
-          <Field
-            label="Зміна до попереднього потоку"
-            info="Відношення візитів цього потоку до попереднього"
-          >
-            <input
-              className="er-input er-readonly-input"
-              value={formatPercent(metrics.siteVisitChangePct, 0)}
-              readOnly
-              aria-readonly="true"
-            />
-          </Field>
-          <Field label="Гео">
-            <input
-              className="er-input"
-              value={form.geo}
-              onChange={(event) => updateField('geo', event.target.value)}
-            />
-          </Field>
-        </div>
-      </FormSection>
-
-      <CampaignSection
-        campaigns={form.campaigns}
-        metrics={metrics}
-        onAdd={addCampaign}
-        onRemove={removeCampaign}
-        onUpdate={updateCampaign}
-      />
-
-      <FormSection title="Креативи">
-        <div className="er-list-editor">
-          {form.internCreatives.map((creative, index) => (
-            <div className="er-list-row er-list-row-6" key={`creative-${index}`}>
-              <Field label="Назва">
-                <input
-                  className="er-input"
-                  value={creative.name}
-                  onChange={(event) => creativeField.update(index, 'name', event.target.value)}
-                />
-              </Field>
-              <Field label="Тип">
-                <input
-                  className="er-input"
-                  value={creative.kind}
-                  onChange={(event) => creativeField.update(index, 'kind', event.target.value)}
-                  placeholder="Static / Video"
-                />
-              </Field>
-              <Field label="Result">
-                <NumberInput
-                  value={creative.result}
-                  onChange={(value) => creativeField.update(index, 'result', value)}
-                />
-              </Field>
-              <Field label="CPA">
-                <NumberInput
-                  value={creative.cpa}
-                  onChange={(value) => creativeField.update(index, 'cpa', value)}
-                />
-              </Field>
-              <Field label="CPC">
-                <NumberInput
-                  value={creative.cpc}
-                  onChange={(value) => creativeField.update(index, 'cpc', value)}
-                />
-              </Field>
-              <Field label="CTR %">
-                <NumberInput
-                  value={creative.ctr}
-                  onChange={(value) => creativeField.update(index, 'ctr', value)}
-                />
-              </Field>
-              {form.internCreatives.length > 1 ? (
-                <button
-                  type="button"
-                  className="er-icon-button er-resource-remove"
-                  onClick={() => creativeField.remove(index)}
-                  aria-label="Видалити креатив"
-                >
-                  <Trash2 className="er-trash-icon" />
-                </button>
-              ) : null}
-            </div>
-          ))}
-          <button
-            type="button"
-            className="er-link-button"
-            onClick={() => creativeField.add(emptyCreative())}
-          >
-            <Plus className="er-link-icon" />
-            Додати креатив
-          </button>
-        </div>
-      </FormSection>
-
-      <FormSection title="Воронка найму">
-        <div className="er-form-grid er-form-grid-2">
-          <Field label="Джерело даних">
-            <input
-              className="er-input"
-              value={form.internFunnelSource}
-              onChange={(event) => updateField('internFunnelSource', event.target.value)}
-              placeholder="Recruitee, Ashby…"
-            />
-          </Field>
-          <Field label="Посилання на пайплайн">
-            <input
-              className="er-input"
-              value={form.internFunnelLink}
-              onChange={(event) => updateField('internFunnelLink', event.target.value)}
-              placeholder="https://"
-            />
-          </Field>
-        </div>
-        <h4 className="er-subheading">Етапи</h4>
-        <div className="er-list-editor">
-          {form.internFunnelStages.map((stage, index) => (
-            <div className="er-list-row er-list-row-2" key={`stage-${index}`}>
-              <Field label="Етап">
-                <input
-                  className="er-input"
-                  value={stage.stage}
-                  onChange={(event) => funnelField.update(index, 'stage', event.target.value)}
-                  placeholder="Applied, Test Task sent…"
-                />
-              </Field>
-              <Field label="Кількість">
-                <NumberInput
-                  value={stage.count}
-                  onChange={(value) => funnelField.update(index, 'count', value)}
-                />
-              </Field>
-              {form.internFunnelStages.length > 1 ? (
-                <button
-                  type="button"
-                  className="er-icon-button er-resource-remove"
-                  onClick={() => funnelField.remove(index)}
-                  aria-label="Видалити етап"
-                >
-                  <Trash2 className="er-trash-icon" />
-                </button>
-              ) : null}
-            </div>
-          ))}
-          <button
-            type="button"
-            className="er-link-button"
-            onClick={() => funnelField.add(emptyFunnelStage())}
-          >
-            <Plus className="er-link-icon" />
-            Додати етап
-          </button>
-        </div>
-        <div className="er-form-grid er-form-grid-2">
-          <Field
-            label="Конверсія перший → останній етап"
-            info="Останній етап / перший етап × 100"
-          >
-            <input
-              className="er-input er-readonly-input"
-              value={formatPercent(metrics.conversionOverall)}
-              readOnly
-              aria-readonly="true"
-            />
-          </Field>
-          <Field label="Sources of Hire">
-            <input
-              className="er-input"
-              value={form.sourcesOfHire}
-              onChange={(event) => updateField('sourcesOfHire', event.target.value)}
-            />
-          </Field>
-        </div>
-        <h4 className="er-subheading">Причини дискваліфікації</h4>
-        <div className="er-list-editor">
-          {form.internDisqualify.map((reason, index) => (
-            <div className="er-list-row er-list-row-2" key={`disqualify-${index}`}>
-              <Field label="Причина">
-                <input
-                  className="er-input"
-                  value={reason.reason}
-                  onChange={(event) => disqualifyField.update(index, 'reason', event.target.value)}
-                />
-              </Field>
-              <Field label="Кандидатів">
-                <NumberInput
-                  value={reason.count}
-                  onChange={(value) => disqualifyField.update(index, 'count', value)}
-                />
-              </Field>
-              {form.internDisqualify.length > 1 ? (
-                <button
-                  type="button"
-                  className="er-icon-button er-resource-remove"
-                  onClick={() => disqualifyField.remove(index)}
-                  aria-label="Видалити причину"
-                >
-                  <Trash2 className="er-trash-icon" />
-                </button>
-              ) : null}
-            </div>
-          ))}
-          <button
-            type="button"
-            className="er-link-button"
-            onClick={() => disqualifyField.add(emptyDisqualifyReason())}
-          >
-            <Plus className="er-link-icon" />
-            Додати причину
-          </button>
-        </div>
-      </FormSection>
-
-      <FormSection title="Бюджет">
-        <div className="er-form-grid er-form-grid-3">
-          <Field label="Витрати на промотування ($)">
-            <NumberInput
-              value={form.promoSpendUsd}
-              onChange={(value) => updateField('promoSpendUsd', value)}
-            />
-          </Field>
-          <Field label="Організаційні витрати ($)">
-            <NumberInput
-              value={form.orgSpendUsd}
-              onChange={(value) => updateField('orgSpendUsd', value)}
-            />
-          </Field>
-          <Field label="Інші витрати ($)">
-            <NumberInput
-              value={form.otherSpendUsd}
-              onChange={(value) => updateField('otherSpendUsd', value)}
-            />
-          </Field>
-          <Field
-            label="Загальний бюджет"
-            info="Сума витрат на промотування, організаційних та інших"
-          >
-            <input
-              className="er-input er-number-input er-readonly-input"
-              value={numberInputValue(metrics.totalBudget)}
-              readOnly
-              aria-readonly="true"
-            />
-          </Field>
-          <Field label="Валюта">
-            <input
-              className="er-input"
-              value={form.currency}
-              onChange={(event) => updateField('currency', event.target.value)}
-            />
-          </Field>
-        </div>
-      </FormSection>
-
-      <FormSection title="Результати та найми">
-        <div className="er-form-grid er-form-grid-3">
-          <Field label="Заявок" info="Береться з першого етапу воронки найму">
-            <input
-              className="er-input er-number-input er-readonly-input"
-              value={numberInputValue(metrics.applications)}
-              readOnly
-              aria-readonly="true"
-            />
-          </Field>
-          <Field label="Учасників стажування">
-            <NumberInput
-              value={form.participantsCount}
-              onChange={(value) => updateField('participantsCount', value)}
-            />
-          </Field>
-          <Field label="Наймів усього">
-            <input
-              className="er-input er-number-input er-readonly-input"
-              value={numberInputValue(metrics.hiresTotal)}
-              readOnly
-              aria-readonly="true"
-            />
-          </Field>
-          <Field label="CPA · за заявку" info="Загальний бюджет / кількість заявок">
-            <input
-              className="er-input er-readonly-input"
-              value={formatUsdUnit(metrics.cpa)}
-              readOnly
-              aria-readonly="true"
-            />
-          </Field>
-          <Field label="CPL · за учасника" info="Загальний бюджет / кількість учасників">
-            <input
-              className="er-input er-readonly-input"
-              value={formatUsdUnit(metrics.cpl)}
-              readOnly
-              aria-readonly="true"
-            />
-          </Field>
-          <Field label="CPH · за найм" info="Загальний бюджет / кількість наймів">
-            <input
-              className="er-input er-readonly-input"
-              value={metrics.hiresTotal ? formatUsdUnit(metrics.cph) : '—'}
-              readOnly
-              aria-readonly="true"
-            />
-          </Field>
-        </div>
-      </FormSection>
-
-      <FormSection title="Фідбек учасників">
-        <div className="er-form-grid er-form-grid-3">
-          <Field label="Форм отримано">
-            <NumberInput
-              value={form.formsReceived}
-              onChange={(value) => updateField('formsReceived', value)}
-            />
-          </Field>
-          <Field label="Розіслано форм">
-            <NumberInput
-              value={form.formsSent}
-              onChange={(value) => updateField('formsSent', value)}
-            />
-          </Field>
-          <Field label="Response rate" info="Форм отримано / розіслано × 100">
-            <input
-              className="er-input er-readonly-input"
-              value={formatPercent(metrics.responseRate)}
-              readOnly
-              aria-readonly="true"
-            />
-          </Field>
-          <Field label="Ключові цитати" full>
+          <Field label="Головна ціль" full>
             <textarea
               className="er-input"
-              value={form.keyQuotes}
-              onChange={(event) => updateField('keyQuotes', event.target.value)}
-              placeholder="2–3 цитати учасників"
+              value={form.goalText}
+              onChange={(event) => updateField('goalText', event.target.value)}
             />
           </Field>
         </div>
-      </FormSection>
+      </InternshipBlock>
 
-      <FormSection title="Висновки та ретро">
-        <div className="er-form-grid er-form-grid-2">
+      <InternshipBlock
+        meta={INTERNSHIP_BLOCK_META[1]}
+        status={internshipBlockStatus('channels', form)}
+        open={blockUi.channels.open}
+        onToggle={() => onToggleBlock('channels')}
+        fileName={blockUi.channels.mode === 'manual' ? blockUi.channels.fileName : ''}
+      >
+        <BlockAutoOrManual blockKey="channels" ui={blockUi.channels} onSetMode={onSetBlockMode} onUploadFile={onUploadBlock}>
+          <div className="er-chip-row">
+            {CHANNEL_TAG_OPTIONS.map((tag) => (
+              <button
+                type="button"
+                key={tag}
+                className={`er-chip ${form.internChannelTags.includes(tag) ? 'is-active' : ''}`}
+                onClick={() => toggleChannelTag(tag)}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+          <div className="er-form-grid er-form-grid-2">
+            <Field label="Список Telegram-каналів" full>
+              <input
+                className="er-input"
+                value={form.internTgChannelList}
+                onChange={(event) => updateField('internTgChannelList', event.target.value)}
+                placeholder="@ugen_ua, @univwork, @internsgo…"
+              />
+            </Field>
+            <Field label="Email-розсилки" full>
+              <input
+                className="er-input"
+                value={form.internEmailLists}
+                onChange={(event) => updateField('internEmailLists', event.target.value)}
+                placeholder="Genesis Academy, бази рекрутерів, карʼєрні центри…"
+              />
+            </Field>
+          </div>
+          <h4 className="er-subheading">ТОП-5 каналів за результатом</h4>
+          <div className="er-form-grid er-form-grid-3">
+            {form.internTopChannels.map((channel, index) => (
+              <Field label={`#${index + 1}`} key={`top-channel-${index}`}>
+                <input
+                  className="er-input"
+                  value={channel}
+                  onChange={(event) => updateTopChannel(index, event.target.value)}
+                />
+              </Field>
+            ))}
+          </div>
+          <h4 className="er-subheading">Заявки по джерелах</h4>
+          <div className="er-list-editor">
+            {form.internSources.map((source, index) => (
+              <div className="er-list-row er-list-row-2" key={`source-${index}`}>
+                <Field label="Джерело">
+                  <input
+                    className="er-input"
+                    value={source.name}
+                    onChange={(event) => sourceField.update(index, 'name', event.target.value)}
+                  />
+                </Field>
+                <Field label="Заявок">
+                  <NumberInput
+                    value={source.applications}
+                    onChange={(value) => sourceField.update(index, 'applications', value)}
+                  />
+                </Field>
+                {form.internSources.length > 1 ? (
+                  <button
+                    type="button"
+                    className="er-icon-button er-resource-remove"
+                    onClick={() => sourceField.remove(index)}
+                    aria-label="Видалити джерело"
+                  >
+                    <Trash2 className="er-trash-icon" />
+                  </button>
+                ) : null}
+              </div>
+            ))}
+            <button
+              type="button"
+              className="er-link-button"
+              onClick={() => sourceField.add(emptySource())}
+            >
+              <Plus className="er-link-icon" />
+              Додати джерело
+            </button>
+          </div>
+        </BlockAutoOrManual>
+      </InternshipBlock>
+
+      <InternshipBlock
+        meta={INTERNSHIP_BLOCK_META[2]}
+        status={internshipBlockStatus('siteAnalytics', form)}
+        open={blockUi.siteAnalytics.open}
+        onToggle={() => onToggleBlock('siteAnalytics')}
+        fileName={blockUi.siteAnalytics.mode === 'manual' ? blockUi.siteAnalytics.fileName : ''}
+      >
+        <BlockAutoOrManual
+          blockKey="siteAnalytics"
+          ui={blockUi.siteAnalytics}
+          onSetMode={onSetBlockMode}
+          onUploadFile={onUploadBlock}
+        >
+          <div className="er-form-grid er-form-grid-3">
+            <Field label="Візитів на сайт">
+              <NumberInput
+                value={form.siteVisits}
+                onChange={(value) => updateField('siteVisits', value)}
+              />
+            </Field>
+            <Field label="Частка SMM, %">
+              <NumberInput
+                value={form.smmSharePct}
+                onChange={(value) => updateField('smmSharePct', value)}
+              />
+            </Field>
+            <Field label="Візитів у попередньому потоці">
+              <NumberInput
+                value={form.prevPeriodVisits}
+                onChange={(value) => updateField('prevPeriodVisits', value)}
+              />
+            </Field>
+            <Field
+              label="Зміна до попереднього потоку"
+              info="Відношення візитів цього потоку до попереднього"
+            >
+              <input
+                className="er-input er-readonly-input"
+                value={formatPercent(metrics.siteVisitChangePct, 0)}
+                readOnly
+                aria-readonly="true"
+              />
+            </Field>
+            <Field label="Гео">
+              <input
+                className="er-input"
+                value={form.geo}
+                onChange={(event) => updateField('geo', event.target.value)}
+              />
+            </Field>
+          </div>
+        </BlockAutoOrManual>
+      </InternshipBlock>
+
+      <InternshipBlock
+        meta={INTERNSHIP_BLOCK_META[3]}
+        status={internshipBlockStatus('campaigns', form)}
+        open={blockUi.campaigns.open}
+        onToggle={() => onToggleBlock('campaigns')}
+        fileName={blockUi.campaigns.mode === 'manual' ? blockUi.campaigns.fileName : ''}
+      >
+        <BlockAutoOrManual
+          blockKey="campaigns"
+          ui={blockUi.campaigns}
+          onSetMode={onSetBlockMode}
+          onUploadFile={onUploadBlock}
+        >
+          <CampaignSection
+            campaigns={form.campaigns}
+            metrics={metrics}
+            onAdd={addCampaign}
+            onRemove={removeCampaign}
+            onUpdate={updateCampaign}
+          />
+          <h4 className="er-subheading">Креативи</h4>
+          <div className="er-list-editor">
+            {form.internCreatives.map((creative, index) => (
+              <div className="er-list-row er-list-row-6" key={`creative-${index}`}>
+                <Field label="Назва">
+                  <input
+                    className="er-input"
+                    value={creative.name}
+                    onChange={(event) => creativeField.update(index, 'name', event.target.value)}
+                  />
+                </Field>
+                <Field label="Тип">
+                  <input
+                    className="er-input"
+                    value={creative.kind}
+                    onChange={(event) => creativeField.update(index, 'kind', event.target.value)}
+                    placeholder="Static / Video"
+                  />
+                </Field>
+                <Field label="Result">
+                  <NumberInput
+                    value={creative.result}
+                    onChange={(value) => creativeField.update(index, 'result', value)}
+                  />
+                </Field>
+                <Field label="CPA">
+                  <NumberInput
+                    value={creative.cpa}
+                    onChange={(value) => creativeField.update(index, 'cpa', value)}
+                  />
+                </Field>
+                <Field label="CPC">
+                  <NumberInput
+                    value={creative.cpc}
+                    onChange={(value) => creativeField.update(index, 'cpc', value)}
+                  />
+                </Field>
+                <Field label="CTR %">
+                  <NumberInput
+                    value={creative.ctr}
+                    onChange={(value) => creativeField.update(index, 'ctr', value)}
+                  />
+                </Field>
+                {form.internCreatives.length > 1 ? (
+                  <button
+                    type="button"
+                    className="er-icon-button er-resource-remove"
+                    onClick={() => creativeField.remove(index)}
+                    aria-label="Видалити креатив"
+                  >
+                    <Trash2 className="er-trash-icon" />
+                  </button>
+                ) : null}
+              </div>
+            ))}
+            <button
+              type="button"
+              className="er-link-button"
+              onClick={() => creativeField.add(emptyCreative())}
+            >
+              <Plus className="er-link-icon" />
+              Додати креатив
+            </button>
+          </div>
+        </BlockAutoOrManual>
+      </InternshipBlock>
+
+      <InternshipBlock
+        meta={INTERNSHIP_BLOCK_META[4]}
+        status={internshipBlockStatus('funnel', form)}
+        open={blockUi.funnel.open}
+        onToggle={() => onToggleBlock('funnel')}
+        fileName={blockUi.funnel.mode === 'manual' ? blockUi.funnel.fileName : ''}
+      >
+        <BlockAutoOrManual blockKey="funnel" ui={blockUi.funnel} onSetMode={onSetBlockMode} onUploadFile={onUploadBlock}>
+          <div className="er-form-grid er-form-grid-2">
+            <Field label="Джерело даних">
+              <input
+                className="er-input"
+                value={form.internFunnelSource}
+                onChange={(event) => updateField('internFunnelSource', event.target.value)}
+                placeholder="Recruitee, Ashby…"
+              />
+            </Field>
+            <Field label="Посилання на пайплайн">
+              <input
+                className="er-input"
+                value={form.internFunnelLink}
+                onChange={(event) => updateField('internFunnelLink', event.target.value)}
+                placeholder="https://"
+              />
+            </Field>
+          </div>
+          <h4 className="er-subheading">Етапи</h4>
+          <div className="er-list-editor">
+            {form.internFunnelStages.map((stage, index) => (
+              <div className="er-list-row er-list-row-2" key={`stage-${index}`}>
+                <Field label="Етап">
+                  <input
+                    className="er-input"
+                    value={stage.stage}
+                    onChange={(event) => funnelField.update(index, 'stage', event.target.value)}
+                    placeholder="Applied, Test Task sent…"
+                  />
+                </Field>
+                <Field label="Кількість">
+                  <NumberInput
+                    value={stage.count}
+                    onChange={(value) => funnelField.update(index, 'count', value)}
+                  />
+                </Field>
+                {form.internFunnelStages.length > 1 ? (
+                  <button
+                    type="button"
+                    className="er-icon-button er-resource-remove"
+                    onClick={() => funnelField.remove(index)}
+                    aria-label="Видалити етап"
+                  >
+                    <Trash2 className="er-trash-icon" />
+                  </button>
+                ) : null}
+              </div>
+            ))}
+            <button
+              type="button"
+              className="er-link-button"
+              onClick={() => funnelField.add(emptyFunnelStage())}
+            >
+              <Plus className="er-link-icon" />
+              Додати етап
+            </button>
+          </div>
+          <div className="er-form-grid er-form-grid-2">
+            <Field
+              label="Конверсія перший → останній етап"
+              info="Останній етап / перший етап × 100"
+            >
+              <input
+                className="er-input er-readonly-input"
+                value={formatPercent(metrics.conversionOverall)}
+                readOnly
+                aria-readonly="true"
+              />
+            </Field>
+            <Field label="Sources of Hire">
+              <input
+                className="er-input"
+                value={form.sourcesOfHire}
+                onChange={(event) => updateField('sourcesOfHire', event.target.value)}
+              />
+            </Field>
+          </div>
+          <h4 className="er-subheading">Причини дискваліфікації</h4>
+          <div className="er-list-editor">
+            {form.internDisqualify.map((reason, index) => (
+              <div className="er-list-row er-list-row-2" key={`disqualify-${index}`}>
+                <Field label="Причина">
+                  <input
+                    className="er-input"
+                    value={reason.reason}
+                    onChange={(event) =>
+                      disqualifyField.update(index, 'reason', event.target.value)
+                    }
+                  />
+                </Field>
+                <Field label="Кандидатів">
+                  <NumberInput
+                    value={reason.count}
+                    onChange={(value) => disqualifyField.update(index, 'count', value)}
+                  />
+                </Field>
+                {form.internDisqualify.length > 1 ? (
+                  <button
+                    type="button"
+                    className="er-icon-button er-resource-remove"
+                    onClick={() => disqualifyField.remove(index)}
+                    aria-label="Видалити причину"
+                  >
+                    <Trash2 className="er-trash-icon" />
+                  </button>
+                ) : null}
+              </div>
+            ))}
+            <button
+              type="button"
+              className="er-link-button"
+              onClick={() => disqualifyField.add(emptyDisqualifyReason())}
+            >
+              <Plus className="er-link-icon" />
+              Додати причину
+            </button>
+          </div>
+        </BlockAutoOrManual>
+      </InternshipBlock>
+
+      <InternshipBlock
+        meta={INTERNSHIP_BLOCK_META[5]}
+        status={internshipBlockStatus('budget', form)}
+        open={blockUi.budget.open}
+        onToggle={() => onToggleBlock('budget')}
+        fileName={blockUi.budget.mode === 'manual' ? blockUi.budget.fileName : ''}
+      >
+        <BlockAutoOrManual blockKey="budget" ui={blockUi.budget} onSetMode={onSetBlockMode} onUploadFile={onUploadBlock}>
+          <div className="er-form-grid er-form-grid-3">
+            <Field label="Витрати на промотування ($)">
+              <NumberInput
+                value={form.promoSpendUsd}
+                onChange={(value) => updateField('promoSpendUsd', value)}
+              />
+            </Field>
+            <Field label="Організаційні витрати ($)">
+              <NumberInput
+                value={form.orgSpendUsd}
+                onChange={(value) => updateField('orgSpendUsd', value)}
+              />
+            </Field>
+            <Field label="Інші витрати ($)">
+              <NumberInput
+                value={form.otherSpendUsd}
+                onChange={(value) => updateField('otherSpendUsd', value)}
+              />
+            </Field>
+            <Field
+              label="Загальний бюджет"
+              info="Сума витрат на промотування, організаційних та інших"
+            >
+              <input
+                className="er-input er-number-input er-readonly-input"
+                value={numberInputValue(metrics.totalBudget)}
+                readOnly
+                aria-readonly="true"
+              />
+            </Field>
+            <Field label="Валюта">
+              <input
+                className="er-input"
+                value={form.currency}
+                onChange={(event) => updateField('currency', event.target.value)}
+              />
+            </Field>
+          </div>
+        </BlockAutoOrManual>
+      </InternshipBlock>
+
+      <InternshipBlock
+        meta={INTERNSHIP_BLOCK_META[6]}
+        status={internshipBlockStatus('results', form)}
+        open={blockUi.results.open}
+        onToggle={() => onToggleBlock('results')}
+        fileName={blockUi.results.mode === 'manual' ? blockUi.results.fileName : ''}
+      >
+        <BlockAutoOrManual blockKey="results" ui={blockUi.results} onSetMode={onSetBlockMode} onUploadFile={onUploadBlock}>
+          <div className="er-form-grid er-form-grid-3">
+            <Field label="Заявок" info="Береться з першого етапу воронки найму">
+              <input
+                className="er-input er-number-input er-readonly-input"
+                value={numberInputValue(metrics.applications)}
+                readOnly
+                aria-readonly="true"
+              />
+            </Field>
+            <Field label="Учасників стажування">
+              <NumberInput
+                value={form.participantsCount}
+                onChange={(value) => updateField('participantsCount', value)}
+              />
+            </Field>
+            <Field label="Наймів усього">
+              <input
+                className="er-input er-number-input er-readonly-input"
+                value={numberInputValue(metrics.hiresTotal)}
+                readOnly
+                aria-readonly="true"
+              />
+            </Field>
+            <Field label="CPA · за заявку" info="Загальний бюджет / кількість заявок">
+              <input
+                className="er-input er-readonly-input"
+                value={formatUsdUnit(metrics.cpa)}
+                readOnly
+                aria-readonly="true"
+              />
+            </Field>
+            <Field label="CPL · за учасника" info="Загальний бюджет / кількість учасників">
+              <input
+                className="er-input er-readonly-input"
+                value={formatUsdUnit(metrics.cpl)}
+                readOnly
+                aria-readonly="true"
+              />
+            </Field>
+            <Field label="CPH · за найм" info="Загальний бюджет / кількість наймів">
+              <input
+                className="er-input er-readonly-input"
+                value={metrics.hiresTotal ? formatUsdUnit(metrics.cph) : '—'}
+                readOnly
+                aria-readonly="true"
+              />
+            </Field>
+          </div>
+        </BlockAutoOrManual>
+      </InternshipBlock>
+
+      <InternshipBlock
+        meta={INTERNSHIP_BLOCK_META[7]}
+        status={internshipBlockStatus('feedback', form)}
+        open={blockUi.feedback.open}
+        onToggle={() => onToggleBlock('feedback')}
+        fileName={blockUi.feedback.mode === 'manual' ? blockUi.feedback.fileName : ''}
+      >
+        <BlockAutoOrManual
+          blockKey="feedback"
+          ui={blockUi.feedback}
+          onSetMode={onSetBlockMode}
+          onUploadFile={onUploadBlock}
+        >
+          <div className="er-form-grid er-form-grid-3">
+            <Field label="Форм отримано">
+              <NumberInput
+                value={form.formsReceived}
+                onChange={(value) => updateField('formsReceived', value)}
+              />
+            </Field>
+            <Field label="Розіслано форм">
+              <NumberInput
+                value={form.formsSent}
+                onChange={(value) => updateField('formsSent', value)}
+              />
+            </Field>
+            <Field label="Response rate" info="Форм отримано / розіслано × 100">
+              <input
+                className="er-input er-readonly-input"
+                value={formatPercent(metrics.responseRate)}
+                readOnly
+                aria-readonly="true"
+              />
+            </Field>
+            <Field label="Ключові цитати" full>
+              <textarea
+                className="er-input"
+                value={form.keyQuotes}
+                onChange={(event) => updateField('keyQuotes', event.target.value)}
+                placeholder="2–3 цитати учасників"
+              />
+            </Field>
+          </div>
+        </BlockAutoOrManual>
+      </InternshipBlock>
+
+      <InternshipBlock
+        meta={INTERNSHIP_BLOCK_META[8]}
+        status={internshipBlockStatus('retro', form)}
+        open={blockUi.retro.open}
+        onToggle={() => onToggleBlock('retro')}
+      >
+        <div className="er-retro-gen">
+          <button
+            type="button"
+            className="er-button er-button-ghost"
+            onClick={onGenerateRetro}
+            disabled={blockUi.retro.busy}
+          >
+            {blockUi.retro.busy ? (
+              <span className="er-spinner" />
+            ) : (
+              <Sparkles className="er-button-icon" />
+            )}
+            {blockUi.retro.busy ? 'Генерую…' : 'Згенерувати з блоків 01–08'}
+          </button>
+          <p className="er-mini">
+            AI сформулює що працювало, що ні, розбір аудиторії та наступні кроки — на основі
+            заповнених блоків.
+          </p>
+          {blockUi.retro.error ? <p className="er-form-error">{blockUi.retro.error}</p> : null}
+        </div>
+        <div className="er-form-grid er-form-grid-2 er-retro-fields">
           <Field label="Що працювало">
             <textarea
               className="er-input"
@@ -1703,8 +2144,131 @@ function InternshipFields({
             />
           </Field>
         </div>
-      </FormSection>
+      </InternshipBlock>
+    </div>
+  )
+}
+
+function InternshipBlock({ meta, status, open, onToggle, fileName, children }) {
+  return (
+    <div className={`er-blk ${open ? 'on' : ''}`}>
+      <div
+        className="er-blk-h"
+        onClick={onToggle}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') onToggle()
+        }}
+      >
+        <span className="er-chev">
+          <ChevronRight />
+        </span>
+        <span className="er-blk-n">{meta.number}</span>
+        <span className="er-blk-t">{meta.title}</span>
+        {fileName ? (
+          <span className="er-blk-file">
+            <FileText className="er-blk-file-icon" />
+            {fileName}
+          </span>
+        ) : null}
+        <span className={`er-blk-st ${status === 'done' ? 'done' : ''}`}>
+          {status === 'done' ? 'заповнено' : 'порожньо'}
+        </span>
+      </div>
+      {open ? <div className="er-blk-body">{children}</div> : null}
+    </div>
+  )
+}
+
+function BlockAutoOrManual({ blockKey, ui, onSetMode, onUploadFile, children }) {
+  if (ui.mode !== 'manual') {
+    return (
+      <>
+        <ScreenshotDropzone
+          content={BLOCK_DROPZONE_CONTENT[blockKey]}
+          busy={ui.busy}
+          error={ui.error}
+          onFile={(file) => onUploadFile(blockKey, file)}
+        />
+        <div className="er-or">
+          <span>або</span>
+        </div>
+        <div className="er-manual">
+          <button
+            type="button"
+            className="er-button er-button-ghost"
+            onClick={() => onSetMode(blockKey, 'manual')}
+          >
+            Заповнити вручну
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <>
+      {ui.fileName ? (
+        <div className="er-attached">
+          <Sparkles className="er-badge-icon" />
+          <span>Розпізнано AI · поля нижче заповнені автоматично, можна відкоригувати</span>
+          <button
+            type="button"
+            className="er-link-button"
+            onClick={() => onSetMode(blockKey, 'auto')}
+          >
+            Прикріпити скріншот замість цього
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="er-link-button er-back-to-auto"
+          onClick={() => onSetMode(blockKey, 'auto')}
+        >
+          <RotateCcw className="er-link-icon" />
+          Прикріпити скріншот замість цього
+        </button>
+      )}
+      {children}
     </>
+  )
+}
+
+function ScreenshotDropzone({ content, busy, error, onFile }) {
+  const inputRef = useRef(null)
+
+  function handleChange(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (file) onFile(file)
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        className="er-hero-drop"
+        onClick={() => inputRef.current?.click()}
+        disabled={busy}
+      >
+        <span className="er-hd-ic">
+          {busy ? <span className="er-spinner-dark" /> : <ImagePlus className="er-drop-icon" />}
+        </span>
+        <span className="er-hd-t">{busy ? 'Розпізнаю…' : content.title}</span>
+        <span className="er-hd-s">{content.subtitle}</span>
+        <span className="er-hd-f">{content.formats}</span>
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={INTERNSHIP_BLOCK_ACCEPT}
+        className="er-hidden-input"
+        onChange={handleChange}
+      />
+      {error ? <p className="er-form-error">{error}</p> : null}
+    </div>
   )
 }
 

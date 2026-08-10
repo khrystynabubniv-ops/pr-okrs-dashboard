@@ -1049,6 +1049,281 @@ textarea.er-input {
   overflow-wrap: anywhere;
 }
 
+.er-blk-intro {
+  margin: -8px 0 16px;
+  color: var(--er-muted);
+  font-size: 13px;
+}
+
+.er-blk-stack {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.er-blk {
+  border: 1px solid var(--er-line);
+  border-radius: 12px;
+  background: var(--er-surface);
+  padding: 14px 16px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.er-blk.on {
+  border-color: var(--er-accent-soft);
+  box-shadow: var(--shadow-active-toggle);
+  padding-bottom: 18px;
+}
+
+.er-blk-h {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.er-blk.on .er-blk-h {
+  margin-bottom: 16px;
+}
+
+.er-chev {
+  display: flex;
+  flex: none;
+  color: var(--er-muted);
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.er-chev svg {
+  width: 15px;
+  height: 15px;
+}
+
+.er-blk.on .er-chev {
+  color: var(--er-accent);
+  transform: rotate(90deg);
+}
+
+.er-blk-n {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--er-accent-soft);
+  color: var(--er-accent-d);
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.er-blk-t {
+  color: var(--er-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.er-blk-file {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  background: var(--er-accent-soft);
+  padding: 4px 8px;
+  color: var(--er-accent-d);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.er-blk-file-icon {
+  width: 11px;
+  height: 11px;
+}
+
+.er-blk-st {
+  flex: none;
+  margin-left: auto;
+  border-radius: 6px;
+  background: var(--er-card-soft);
+  padding: 4px 8px;
+  color: var(--er-muted);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.er-blk-st.done {
+  background: var(--er-good-soft);
+  color: var(--er-good);
+}
+
+.er-blk-body {
+  padding-top: 2px;
+}
+
+.er-hero-drop {
+  display: grid;
+  width: 100%;
+  justify-items: center;
+  gap: 3px;
+  border: 1px dashed var(--er-accent-soft);
+  border-radius: 12px;
+  background: var(--er-accent-soft);
+  padding: 22px 18px;
+  text-align: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.er-hero-drop:not(:disabled):hover {
+  border-color: var(--er-accent);
+}
+
+.er-hero-drop:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.er-hd-ic {
+  display: flex;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 7px;
+  border: 1px solid var(--er-line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--er-accent);
+}
+
+.er-drop-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.er-hd-t {
+  color: var(--er-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.er-hd-s {
+  max-width: 400px;
+  color: var(--er-ink);
+  opacity: 0.72;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.er-hd-f {
+  margin-top: 6px;
+  color: var(--er-muted);
+  font-family: var(--font-display);
+  font-size: 10.5px;
+}
+
+.er-hidden-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.er-spinner-dark {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--er-line);
+  border-top-color: var(--er-accent);
+  border-radius: 999px;
+  animation: erSpin 0.7s linear infinite;
+}
+
+.er-or {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 13px 0;
+}
+
+.er-or::before,
+.er-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--er-line);
+}
+
+.er-or span {
+  color: var(--er-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.er-manual {
+  display: flex;
+  justify-content: center;
+}
+
+.er-attached {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  border: 1px solid var(--er-accent-soft);
+  border-radius: 11px;
+  background: var(--er-accent-soft);
+  padding: 10px 12px;
+  color: var(--er-accent-d);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.er-attached span {
+  flex: 1;
+}
+
+.er-attached .er-link-button {
+  flex: none;
+  font-size: 11.5px;
+}
+
+.er-back-to-auto {
+  display: inline-flex;
+  margin-bottom: 14px;
+}
+
+.er-retro-gen {
+  border: 1px dashed var(--er-accent-soft);
+  border-radius: 11px;
+  background: var(--er-card-soft);
+  padding: 14px;
+}
+
+.er-retro-fields {
+  margin-top: 16px;
+}
+
+.er-mini {
+  margin: 8px 0 0;
+  color: var(--er-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 @keyframes erModalIn {
   from {
     opacity: 0;
