@@ -2690,7 +2690,7 @@ function ReportDetail({ report, onClose }) {
             </div>
           </section>
 
-          {normalized.campaigns.length ? (
+          {normalized.campaigns.length && normalized.type !== 'internship' ? (
             <section className="er-detail-section">
               <div className="er-detail-section-head">
                 <h3>Промо-кампанії</h3>
@@ -2705,16 +2705,18 @@ function ReportDetail({ report, onClose }) {
           ) : null}
 
           {normalized.type === 'internship' ? (
-            <InternshipDetailBlocks report={normalized} metrics={metrics} />
+            <InternshipResultBlocks report={normalized} metrics={metrics} />
           ) : null}
 
-          <section className="er-detail-info-grid">
-            <InfoCard title="Опис" text={normalized.description} />
-            <InfoCard title="Ціль" text={normalized.goalText} />
-            {infoCardsForType(normalized, metrics).map((item) => (
-              <InfoCard title={item.title} text={item.text} key={item.title} />
-            ))}
-          </section>
+          {normalized.type !== 'internship' ? (
+            <section className="er-detail-info-grid">
+              <InfoCard title="Опис" text={normalized.description} />
+              <InfoCard title="Ціль" text={normalized.goalText} />
+              {infoCardsForType(normalized, metrics).map((item) => (
+                <InfoCard title={item.title} text={item.text} key={item.title} />
+              ))}
+            </section>
+          ) : null}
         </div>
       </div>
     </div>
@@ -2882,63 +2884,285 @@ function LaunchDetailBlocks({ report, metrics }) {
   )
 }
 
-function InternshipDetailBlocks({ report, metrics }) {
+function InternshipResultBlocks({ report, metrics }) {
   return (
-    <>
-      {report.internBusinesses.length ? (
-        <section className="er-detail-section">
-          <div className="er-detail-section-head">
-            <h3>Найми по бізнесах</h3>
-            <CodeBadge />
-          </div>
-          <div className="er-detail-info-grid">
-            {report.internBusinesses.map((business, index) => (
-              <InfoCard
-                title={business.name || 'Без назви'}
-                text={`Ціль ${formatWhole(business.hireGoal)} · Найнято ${formatWhole(business.hiresActual)}`}
-                key={`business-detail-${index}`}
-              />
+    <div className="er-blk-stack">
+      <DetailBlock
+        meta={INTERNSHIP_BLOCK_META[0]}
+        status={internshipBlockStatus('basic', report)}
+      >
+        <div className="er-detail-info-grid">
+          <InfoCard title="Опис" text={report.description} />
+          <InfoCard title="Ціль" text={report.goalText} />
+        </div>
+        {report.internBusinesses.length ? (
+          <>
+            <h4 className="er-subheading">Бізнеси-замовники та цілі по наймах</h4>
+            <div className="er-detail-info-grid">
+              {report.internBusinesses.map((business, index) => (
+                <InfoCard
+                  title={business.name || 'Без назви'}
+                  text={`Ціль ${formatWhole(business.hireGoal)} · Найнято ${formatWhole(business.hiresActual)}`}
+                  key={`business-result-${index}`}
+                />
+              ))}
+            </div>
+          </>
+        ) : null}
+      </DetailBlock>
+
+      <DetailBlock
+        meta={INTERNSHIP_BLOCK_META[1]}
+        status={internshipBlockStatus('channels', report)}
+      >
+        {report.internChannelTags.length ? (
+          <div className="er-chip-row">
+            {report.internChannelTags.map((tag) => (
+              <span className="er-chip is-active" key={tag}>
+                {tag}
+              </span>
             ))}
           </div>
-        </section>
-      ) : null}
+        ) : null}
+        <div className="er-detail-info-grid">
+          <InfoCard title="Telegram-канали" text={report.internTgChannelList} />
+          <InfoCard title="Email-розсилки" text={report.internEmailLists} />
+        </div>
+        {report.internTopChannels.some(Boolean) ? (
+          <>
+            <h4 className="er-subheading">ТОП-5 каналів за результатом</h4>
+            <div className="er-detail-info-grid">
+              {report.internTopChannels
+                .map((channel, index) => ({ channel, index }))
+                .filter((item) => item.channel)
+                .map((item) => (
+                  <InfoCard title={`#${item.index + 1}`} text={item.channel} key={`top-channel-${item.index}`} />
+                ))}
+            </div>
+          </>
+        ) : null}
+        {report.internSources.some((source) => source.name) ? (
+          <>
+            <h4 className="er-subheading">Заявки по джерелах</h4>
+            <SimpleStatTable
+              rows={report.internSources.filter((source) => source.name)}
+              columns={[
+                { label: 'Джерело', render: (source) => source.name },
+                {
+                  label: 'Заявок',
+                  align: 'right',
+                  render: (source) => formatWhole(source.applications),
+                },
+              ]}
+            />
+          </>
+        ) : null}
+      </DetailBlock>
 
-      {metrics.funnel.length ? (
-        <section className="er-detail-section">
-          <div className="er-detail-section-head">
-            <h3>Воронка найму</h3>
-            <span className="er-mini-badge">Конверсія авто</span>
-          </div>
-          <FunnelChart funnel={metrics.funnel} />
-          <p className="er-muted er-funnel-foot">
-            Конверсія {report.internFunnelStages[0]?.stage || 'перший етап'} →{' '}
-            {report.internFunnelStages[report.internFunnelStages.length - 1]?.stage ||
-              'останній етап'}
-            : {formatPercent(metrics.conversionOverall)}
-          </p>
-        </section>
-      ) : null}
+      <DetailBlock
+        meta={INTERNSHIP_BLOCK_META[2]}
+        status={internshipBlockStatus('siteAnalytics', report)}
+      >
+        <div className="er-detail-metric-grid">
+          <DetailMetric label="Візитів на сайт" value={formatWhole(report.siteVisits)} />
+          <DetailMetric label="Частка SMM" value={formatPercent(report.smmSharePct, 0)} />
+          <DetailMetric
+            label="Візитів у попер. потоці"
+            value={formatWhole(report.prevPeriodVisits)}
+          />
+          <DetailMetric
+            label="Зміна до попер. потоку"
+            value={formatPercent(metrics.siteVisitChangePct, 0)}
+          />
+        </div>
+        <div className="er-detail-info-grid">
+          <InfoCard title="Гео" text={report.geo} />
+        </div>
+      </DetailBlock>
 
-      {report.internCreatives.some((creative) => creative.name) ? (
-        <section className="er-detail-section">
-          <div className="er-detail-section-head">
-            <h3>Креативи</h3>
-            <span className="er-mini-badge">Прикріплено вручну</span>
-          </div>
-          <CreativesTable creatives={report.internCreatives} />
-        </section>
-      ) : null}
+      <DetailBlock
+        meta={INTERNSHIP_BLOCK_META[3]}
+        status={internshipBlockStatus('campaigns', report)}
+      >
+        {report.campaigns.length ? (
+          <CampaignsTable campaigns={metrics.campaigns} />
+        ) : (
+          <p className="er-muted">Кампанії не додані.</p>
+        )}
+        {report.internCreatives.some((creative) => creative.name) ? (
+          <>
+            <h4 className="er-subheading">Креативи</h4>
+            <CreativesTable creatives={report.internCreatives} />
+          </>
+        ) : null}
+        {report.internCreativeMedia.length ? (
+          <>
+            <h4 className="er-subheading">Найкращі креативи</h4>
+            <MediaGallery items={report.internCreativeMedia} />
+          </>
+        ) : null}
+      </DetailBlock>
 
-      {report.internCreativeMedia.length ? (
-        <section className="er-detail-section">
-          <div className="er-detail-section-head">
-            <h3>Найкращі креативи</h3>
-            <span className="er-mini-badge">Прикріплено вручну</span>
-          </div>
-          <MediaGallery items={report.internCreativeMedia} />
-        </section>
-      ) : null}
-    </>
+      <DetailBlock
+        meta={INTERNSHIP_BLOCK_META[4]}
+        status={internshipBlockStatus('funnel', report)}
+      >
+        {metrics.funnel.length ? (
+          <>
+            <FunnelChart funnel={metrics.funnel} />
+            <p className="er-muted er-funnel-foot">
+              Конверсія {report.internFunnelStages[0]?.stage || 'перший етап'} →{' '}
+              {report.internFunnelStages[report.internFunnelStages.length - 1]?.stage ||
+                'останній етап'}
+              : {formatPercent(metrics.conversionOverall)}
+            </p>
+          </>
+        ) : (
+          <p className="er-muted">Етапи воронки не додані.</p>
+        )}
+        <div className="er-detail-info-grid">
+          <InfoCard title="Джерело даних" text={report.internFunnelSource} />
+          <InfoCard title="Sources of Hire" text={report.sourcesOfHire} />
+        </div>
+        {report.internDisqualify.some((reason) => reason.reason) ? (
+          <>
+            <h4 className="er-subheading">Причини дискваліфікації</h4>
+            <SimpleStatTable
+              rows={report.internDisqualify.filter((reason) => reason.reason)}
+              columns={[
+                { label: 'Причина', render: (reason) => reason.reason },
+                {
+                  label: 'Кандидатів',
+                  align: 'right',
+                  render: (reason) => formatWhole(reason.count),
+                },
+              ]}
+            />
+          </>
+        ) : null}
+      </DetailBlock>
+
+      <DetailBlock
+        meta={INTERNSHIP_BLOCK_META[5]}
+        status={internshipBlockStatus('budget', report)}
+      >
+        <div className="er-detail-metric-grid">
+          <DetailMetric label="Промотування" value={formatUsd(report.promoSpendUsd)} />
+          <DetailMetric label="Організаційні" value={formatUsd(report.orgSpendUsd)} />
+          <DetailMetric label="Інші витрати" value={formatUsd(report.otherSpendUsd)} />
+          <DetailMetric label="Загальний бюджет" value={formatUsd(metrics.totalBudget)} />
+        </div>
+      </DetailBlock>
+
+      <DetailBlock
+        meta={INTERNSHIP_BLOCK_META[6]}
+        status={internshipBlockStatus('results', report)}
+      >
+        <div className="er-detail-metric-grid">
+          <DetailMetric label="Заявок" value={formatWhole(metrics.applications)} />
+          <DetailMetric label="Учасників" value={formatWhole(report.participantsCount)} />
+          <DetailMetric
+            label="Наймів"
+            value={metrics.hiresTotal ? formatWhole(metrics.hiresTotal) : '—'}
+            tone={metrics.hiresTotal ? 'good' : undefined}
+          />
+          <DetailMetric label="CPA" value={formatUsdUnit(metrics.cpa)} />
+          <DetailMetric label="CPL" value={formatUsdUnit(metrics.cpl)} />
+          <DetailMetric
+            label="CPH"
+            value={metrics.hiresTotal ? formatUsdUnit(metrics.cph) : '—'}
+          />
+        </div>
+      </DetailBlock>
+
+      <DetailBlock
+        meta={INTERNSHIP_BLOCK_META[7]}
+        status={internshipBlockStatus('feedback', report)}
+      >
+        <div className="er-detail-metric-grid">
+          <DetailMetric label="Форм отримано" value={formatWhole(report.formsReceived)} />
+          <DetailMetric label="Розіслано форм" value={formatWhole(report.formsSent)} />
+          <DetailMetric label="Response rate" value={formatPercent(metrics.responseRate)} />
+        </div>
+        <div className="er-detail-info-grid">
+          <InfoCard title="Ключові цитати" text={report.keyQuotes} />
+        </div>
+      </DetailBlock>
+
+      <DetailBlock
+        meta={INTERNSHIP_BLOCK_META[8]}
+        status={internshipBlockStatus('retro', report)}
+      >
+        <div className="er-detail-info-grid">
+          <InfoCard title="Що працювало" text={report.whatWorked} />
+          <InfoCard title="Що не працювало" text={report.whatDidntWork} />
+          <InfoCard title="Аудиторія промо" text={report.audienceNotes} />
+          <InfoCard title="Наступні кроки" text={report.nextSteps} />
+          <InfoCard title="Статус цілей" text={report.goalsStatus} />
+          <InfoCard title="Порівняння з потоком" text={report.cohortComparison} />
+        </div>
+      </DetailBlock>
+    </div>
+  )
+}
+
+function DetailBlock({ meta, status, children }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className={`er-blk ${open ? 'on' : ''}`}>
+      <div
+        className="er-blk-h"
+        onClick={() => setOpen((current) => !current)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') setOpen((current) => !current)
+        }}
+      >
+        <span className="er-chev">
+          <ChevronRight />
+        </span>
+        <span className="er-blk-n">{meta.number}</span>
+        <span className="er-blk-t">{meta.title}</span>
+        <span className={`er-blk-st ${status === 'done' ? 'done' : ''}`}>
+          {status === 'done' ? 'заповнено' : 'порожньо'}
+        </span>
+      </div>
+      {open ? <div className="er-blk-body">{children}</div> : null}
+    </div>
+  )
+}
+
+function SimpleStatTable({ rows, columns }) {
+  return (
+    <div className="er-campaign-table-wrap">
+      <table className="er-campaign-table">
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th className={column.align === 'right' ? 'er-align-right' : ''} key={column.label}>
+                {column.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={index}>
+              {columns.map((column) => (
+                <td
+                  className={column.align === 'right' ? 'er-align-right er-metric-cell' : ''}
+                  key={column.label}
+                >
+                  {column.render(row)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
