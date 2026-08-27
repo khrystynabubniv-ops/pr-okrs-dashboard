@@ -970,6 +970,10 @@ textarea.er-input {
   margin: 0;
 }
 
+.er-info-card p + p {
+  margin-top: 8px;
+}
+
 .er-ai-grid ul {
   display: grid;
   gap: 7px;

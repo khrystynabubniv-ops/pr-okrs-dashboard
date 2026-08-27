@@ -3387,12 +3387,33 @@ function DetailMetric({ label, value, tone }) {
 }
 
 function InfoCard({ title, text }) {
+  const paragraphs = splitIntoParagraphs(text)
+
   return (
     <div className="er-info-card">
       <h4>{title}</h4>
-      <p>{text || '—'}</p>
+      {paragraphs.length ? (
+        paragraphs.map((paragraph, index) => <p key={index}>{paragraph}</p>)
+      ) : (
+        <p>—</p>
+      )}
     </div>
   )
+}
+
+// Splits long-form text into separate paragraphs so multi-point AI/manual
+// notes (retro fields, descriptions) read as a list instead of one dense
+// block — breaks on existing newlines, or on sentence boundaries followed
+// by a capitalized word (so numbers/abbreviations like "$9.07" or "18–24"
+// aren't split).
+function splitIntoParagraphs(text) {
+  const trimmed = String(text || '').trim()
+  if (!trimmed) return []
+
+  return trimmed
+    .split(/\n+|(?<=[.!?])\s+(?=[А-ЯЄІЇҐA-Z])/)
+    .map((part) => part.trim())
+    .filter(Boolean)
 }
 
 function ReportTypeTag({ type }) {
