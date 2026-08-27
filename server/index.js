@@ -4966,7 +4966,7 @@ function buildLiveSmmTrends(media, accountInsights, followActions, monthKey) {
     {
       key: 'er',
       title: 'Середній ER',
-      metricLabel: 'Взаємодії / охоплення за 7 днів',
+      metricLabel: 'Взаємодії / підписники на початок місяця',
       unit: '%',
       periodLabel,
       data: buckets.map((bucket, index) => ({

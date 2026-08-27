@@ -300,7 +300,7 @@ export function getSmmMonthData(month) {
       {
         key: 'er',
         title: 'Середній ER',
-        metricLabel: 'Взаємодії / охоплення за 7 днів',
+        metricLabel: 'Взаємодії / підписники на початок місяця',
         unit: '%',
         periodLabel: 'Останні 12 тижнів',
         data: weeklyTrends.er.map((value, index) => ({
