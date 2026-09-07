@@ -4458,8 +4458,16 @@ async function fetchMetaInsights(config, nodeId, metricBatches, params = {}) {
 async function fetchMetaInsightBatch(config, nodeId, batch, params) {
   try {
     return await fetchMetaInsightMetrics(config, nodeId, batch, params)
-  } catch {
-    if (batch.length <= 1) return {}
+  } catch (error) {
+    // Meta's app-level rate limit (#4 Application request limit reached, is_transient)
+    // must never be retried by fanning out into more parallel requests — that amplifies
+    // the exact problem it's reacting to and prolongs the throttle. Give up for this
+    // batch immediately instead.
+    if (batch.length <= 1 || error?.metaRateLimited) return {}
+
+    // Brief pause before retrying per-metric so a genuine transient blip doesn't turn
+    // into an instant burst of parallel requests against the same app/token.
+    await delay(boundedInteger(process.env.META_INSIGHT_RETRY_DELAY_MS, 300, 0, 5000))
 
     const settled = await Promise.allSettled(
       batch.map((metric) => fetchMetaInsightMetrics(config, nodeId, [metric], params)),
@@ -4470,6 +4478,10 @@ async function fetchMetaInsightBatch(config, nodeId, batch, params) {
       return accumulator
     }, {})
   }
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function fetchMetaInsightMetrics(config, nodeId, metrics, params) {
@@ -4540,7 +4552,9 @@ async function fetchMetaJsonUrl(config, url, message) {
   const body = await response.text()
 
   if (!response.ok) {
-    throw createHttpError(502, metaHttpErrorMessage(message, body, config))
+    const httpError = createHttpError(502, metaHttpErrorMessage(message, body, config))
+    httpError.metaRateLimited = isMetaRateLimitError(body)
+    throw httpError
   }
 
   return parseMetaJsonBody(body)
@@ -4548,6 +4562,10 @@ async function fetchMetaJsonUrl(config, url, message) {
 
 function metaHttpErrorMessage(fallbackMessage, body, config) {
   const errorMessage = metaResponseErrorMessage(body)
+
+  if (isMetaRateLimitError(body)) {
+    return 'Meta тимчасово обмежила кількість запитів для цього додатку (rate limit, is_transient). Це не помилка налаштувань — зачекайте кілька хвилин і спробуйте ще раз.'
+  }
 
   if (/session has expired|error validating access token|access token.*expired|code.?190/i.test(errorMessage)) {
     return 'Meta access token протермінований або недійсний. Згенеруйте новий Facebook User/Page access token у Graph API Explorer і оновіть META_ACCESS_TOKEN у Railway Variables.'
@@ -4573,6 +4591,15 @@ function metaResponseErrorMessage(body) {
     return textValue(JSON.parse(body)?.error?.message)
   } catch {
     return ''
+  }
+}
+
+function isMetaRateLimitError(body) {
+  try {
+    const error = JSON.parse(body)?.error
+    return error?.code === 4 || error?.is_transient === true
+  } catch {
+    return false
   }
 }
 
