@@ -13,6 +13,9 @@ export const BACKUP_TABLES = [
   'board_reports',
   'event_reports',
   'linkedin_report_data',
+  'promo_snapshots',
+  'promo_analyses',
+  'promo_creative_comments',
   'integration_sync_runs',
 ]
 

@@ -131,6 +131,11 @@ function invalidateApiCacheForMutation(path) {
     return
   }
 
+  if (key.startsWith('/api/promo')) {
+    invalidateApiCache('/api/promo')
+    return
+  }
+
   if (key.startsWith('/api/event-reports')) {
     invalidateApiCache('/api/event-reports')
     return

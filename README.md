@@ -84,6 +84,11 @@ SMM_EMPLOYEE_COUNT=310
 GOOGLE_SERVICE_ACCOUNT_JSON=
 GOOGLE_SERVICE_ACCOUNT_EMAIL=
 GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=
+META_AD_ACCOUNT_ID=
+META_FOLLOW_ACTION_TYPES=follow,onsite_conversion.follow
+META_ADS_TIMEOUT_MS=45000
+META_PROMO_MAX_PAGES=40
+PROMO_SNAPSHOT_TTL_HOURS=24
 ```
 
 `NOTION_FOCUS_DB` можна залишити порожнім: тоді сервер створить базу `Comms Tool Monthly Focus` через Notion API. Якщо заданий `NOTION_PARENT_PAGE_ID`, база буде створена під цією сторінкою; інакше сервер спробує створити її на workspace-рівні. Після першого створення краще додати цей ID у Railway Variables як `NOTION_FOCUS_DB`.
@@ -101,6 +106,32 @@ GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=
 `MAILCHIMP_API_KEY` вмикає email-метрики у Dashboard і Board Report Generator. Сервер бере Mailchimp Marketing API `/reports` і `/reports/{campaign_id}` за вибраний та попередній місяць, а для health бази використовує `/lists/{list_id}` і `/lists/{list_id}/growth-history`. `MAILCHIMP_SERVER_PREFIX` — це `usX` із Mailchimp URL або суфікса API key; якщо ключ має вигляд `...-us19`, сервер визначить prefix автоматично. `MAILCHIMP_LIST_ID` або `MAILCHIMP_AUDIENCE_ID` можна не задавати, якщо Mailchimp віддає `recipients.list_id` у campaign reports: сервер підхопить його сам. Вручну ця змінна потрібна тільки для місяців без кампаній або якщо API не повертає list id, але треба показувати розмір бази й net new growth. `MAILCHIMP_BASE_URL` потрібен лише для нестандартного base URL. `MAILCHIMP_FETCH_REPORT_DETAILS=false` вимикає detail-запити, якщо треба зменшити навантаження на API. `VITE_MAILCHIMP_DASHBOARD_URL` робить Mailchimp-блок клікабельним.
 
 Для збереження Board Report у Notion потрібен `NOTION_REPORTS_PARENT_PAGE_ID` або `NOTION_PARENT_PAGE_ID`.
+
+## Meta Ads (Promo page)
+
+Сторінка «Промо» (`/promo`) показує щомісячний звіт по рекламному кабінету Meta Ads: метрики, графік по тижнях, креативи по кампаніях, AI-аналіз «що працює / що ні» і коментарі команди.
+
+Змінні:
+
+- `META_ACCESS_TOKEN` — той самий токен, що й для SMM, але він має мати дозвіл **`ads_read`** (і користувач токена має доступ до рекламного кабінету). Без цього сторінка покаже помилку «Токен Meta не має доступу до рекламного кабінету (ads_read)».
+- `META_AD_ACCOUNT_ID` — ID рекламного кабінету у форматі `act_XXXX`.
+- `META_FOLLOW_ACTION_TYPES` — `action_type` із `actions`, які рахуються як нові підписники Instagram (через кому). Значення за замовчуванням треба звірити у Graph API Explorer для ваших кампаній на підписку.
+- `PROMO_SNAPSHOT_TTL_HOURS` — через скільки годин snapshot поточного місяця оновлюється у фоні (за замовчуванням 24). Місяці, що завершились понад 7 днів тому, самі не оновлюються; кнопка «Оновити» синхронізує будь-який місяць.
+- `META_ADS_TIMEOUT_MS`, `META_PROMO_MAX_PAGES` — таймаут запитів до Marketing API і ліміт сторінок insights.
+
+Як це працює:
+
+- Тип кампанії береться з назви: `UNI | Вакансія | AI Motion Designer | 11.2026`. Другий сегмент — `Вакансія`, `Підписники` або `Awareness`; усе інше — «Не розпізнано». Мапа типів — `CAMPAIGN_TYPES` у `server/promo/calc.js`, пороги міток креативів — `LABEL_THRESHOLDS` там само.
+- Дані за місяць зберігаються в Postgres (`promo_snapshots`), тому сторінка працює, навіть якщо токен Meta протермінувався: тоді показуються останні дані зі жовтим банером. AI-аналіз (`promo_analyses`) і коментарі (`promo_creative_comments`, прив'язані до `ad_id`) теж у БД; для сторінки потрібен `DATABASE_URL`.
+- AI-аналіз використовує OpenRouter (`OPENROUTER_MODEL`, має підтримувати зображення) із запасним Anthropic, як і звіти по івентах.
+
+### Перепідключення Meta
+
+1. У [Graph API Explorer](https://developers.facebook.com/tools/explorer/) оберіть додаток, додайте дозволи `ads_read` та ті, що потрібні для SMM, і згенеруйте токен (бажано long-lived).
+2. Оновіть `META_ACCESS_TOKEN` у Railway Variables і перезапустіть сервіс.
+3. На сторінці «Промо» натисніть «Оновити».
+
+Перевірити поля можна запитом: `GET /{META_AD_ACCOUNT_ID}/insights?level=ad&date_preset=last_30d&fields=ad_id,actions,video_play_actions,video_p25_watched_actions,video_thruplay_watched_actions&limit=5`.
 
 ## Database
 

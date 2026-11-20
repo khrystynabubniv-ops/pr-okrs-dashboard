@@ -8,6 +8,7 @@ import {
   Gauge,
   LogIn,
   LogOut,
+  Megaphone,
   Target,
 } from 'lucide-react'
 import { InstagramIcon } from './icons/InstagramIcon'
@@ -24,6 +25,7 @@ const navSections = [
     items: [
       { to: '/smm', label: 'Instagram / SMM', icon: InstagramIcon },
       { to: '/reports/linkedin', label: 'Personal Brands', icon: BarChart3 },
+      { to: '/promo', label: 'Промо', icon: Megaphone },
     ],
   },
   {
@@ -49,11 +51,13 @@ const pageTitles = {
   '/monthly': 'Monthly Focus',
   '/events': 'Events',
   '/reports/events': 'Звіти по івентах',
+  '/promo': 'Промо',
   '/reports/linkedin': 'Personal Brands',
   '/linkedin-report': 'Personal Brands',
 }
 
 const pageEyebrows = {
+  '/promo': 'Talent Marketing',
   '/reports/linkedin': 'Channels · Personal Brands',
   '/linkedin-report': 'Channels · Personal Brands',
 }
@@ -65,6 +69,7 @@ const widePagePaths = new Set([
   '/monthly',
   '/events',
   '/reports/events',
+  '/promo',
   '/reports/linkedin',
   '/linkedin-report',
 ])

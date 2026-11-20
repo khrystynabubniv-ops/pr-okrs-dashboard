@@ -41,6 +41,7 @@ import {
   updateStoredKpiGoalValue,
   upsertStoredKpiGoalFromExternal,
 } from './db/index.js'
+import { registerPromoRoutes } from './promo/routes.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -4212,6 +4213,56 @@ function getMetaInstagramConfig() {
   }
 }
 
+// Meta Ads (Marketing API) config for the Promo page. Same token as the SMM
+// integration, but it needs the `ads_read` permission and an ad account id.
+function getMetaAdsConfig() {
+  const accessToken = textValue(
+    process.env.META_ACCESS_TOKEN ||
+      process.env.META_GRAPH_ACCESS_TOKEN ||
+      process.env.FACEBOOK_ACCESS_TOKEN,
+  )
+  const rawAccountId = textValue(process.env.META_AD_ACCOUNT_ID)
+
+  if (!accessToken) {
+    throw createHttpError(
+      503,
+      'META_ACCESS_TOKEN не налаштований. Додайте Meta access token (з дозволом ads_read) у Railway Variables або локальний .env.',
+    )
+  }
+
+  if (!rawAccountId) {
+    throw createHttpError(
+      503,
+      'META_AD_ACCOUNT_ID не налаштований. Додайте ID рекламного кабінету у форматі act_XXXX у Railway Variables або локальний .env.',
+    )
+  }
+
+  const accountId = rawAccountId.startsWith('act_') ? rawAccountId : `act_${rawAccountId}`
+  const version = normalizeMetaGraphVersion(
+    process.env.META_GRAPH_VERSION ||
+      process.env.GRAPH_API_VERSION ||
+      META_GRAPH_DEFAULT_VERSION,
+  )
+
+  return {
+    accessToken,
+    accountId,
+    accountNumber: accountId.replace(/^act_/, ''),
+    version,
+    baseUrl: `https://graph.facebook.com/${version}`,
+    timeoutMs: boundedInteger(
+      process.env.META_ADS_TIMEOUT_MS || process.env.META_GRAPH_TIMEOUT_MS,
+      45000,
+      1000,
+      120000,
+    ),
+    followActionTypes: textValue(process.env.META_FOLLOW_ACTION_TYPES || 'follow,onsite_conversion.follow')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean),
+  }
+}
+
 function normalizeMetaGraphVersion(value) {
   const text = textValue(value) || META_GRAPH_DEFAULT_VERSION
   return text.startsWith('v') ? text : `v${text}`
@@ -4554,6 +4605,9 @@ async function fetchMetaJsonUrl(config, url, message) {
   if (!response.ok) {
     const httpError = createHttpError(502, metaHttpErrorMessage(message, body, config))
     httpError.metaRateLimited = isMetaRateLimitError(body)
+    // Raw Meta error info for callers that map errors themselves (Promo / Ads API).
+    httpError.metaErrorCode = metaResponseErrorCode(body)
+    httpError.metaErrorMessage = metaResponseErrorMessage(body)
     throw httpError
   }
 
@@ -4591,6 +4645,15 @@ function metaResponseErrorMessage(body) {
     return textValue(JSON.parse(body)?.error?.message)
   } catch {
     return ''
+  }
+}
+
+function metaResponseErrorCode(body) {
+  try {
+    const code = Number(JSON.parse(body)?.error?.code)
+    return Number.isFinite(code) ? code : null
+  } catch {
+    return null
   }
 }
 
@@ -6159,6 +6222,96 @@ async function generateEventReportViaOpenRouter(facts) {
   return parseEventReportAiResponse(content)
 }
 
+function isAiConfigured() {
+  return Boolean(
+    process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY,
+  )
+}
+
+// Generic "prompt (+ optional images) -> JSON object" call. Same provider rules as
+// generateEventReportAi: OpenRouter by default, Anthropic as the fallback.
+// images: [{ mediaType: 'image/jpeg', base64: '...' }]
+async function generateJsonViaAi({ system, text, images = [], maxTokens = 3500, temperature = 0.2 }) {
+  const preferredProvider = String(process.env.EVENT_REPORTS_AI_PROVIDER || '')
+    .trim()
+    .toLowerCase()
+  const anthropicKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY
+
+  if (preferredProvider !== 'anthropic' && process.env.OPENROUTER_API_KEY) {
+    const model =
+      process.env.OPENROUTER_MODEL || process.env.ANTHROPIC_MODEL || 'anthropic/claude-sonnet-4.6'
+    const userContent = images.length
+      ? [
+          { type: 'text', text },
+          ...images.map((image) => ({
+            type: 'image_url',
+            image_url: { url: `data:${image.mediaType};base64,${image.base64}` },
+          })),
+        ]
+      : text
+    const apiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': process.env.APP_BASE_URL || 'http://localhost:5173',
+        'X-OpenRouter-Title': 'Comms Tool',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        temperature,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: userContent },
+        ],
+      }),
+      signal: AbortSignal.timeout(120000),
+    })
+
+    if (!apiResponse.ok) {
+      throw createHttpError(502, 'OpenRouter не повернув аналіз.', await apiResponse.text())
+    }
+
+    const payload = await apiResponse.json()
+    return { json: parseJsonObject(payload.choices?.[0]?.message?.content || ''), model }
+  }
+
+  if (anthropicKey) {
+    const model = process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest'
+    const anthropic = new Anthropic({ apiKey: anthropicKey })
+    const message = await anthropic.messages.create({
+      model,
+      max_tokens: maxTokens,
+      temperature,
+      system,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            ...images.map((image) => ({
+              type: 'image',
+              source: { type: 'base64', media_type: image.mediaType, data: image.base64 },
+            })),
+            { type: 'text', text },
+          ],
+        },
+      ],
+    })
+    const output = message.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+
+    return { json: parseJsonObject(output), model }
+  }
+
+  throw createHttpError(
+    503,
+    'AI-ключ не налаштований. Додайте OPENROUTER_API_KEY або ANTHROPIC_API_KEY у змінні середовища.',
+  )
+}
+
 function eventReportAiSystemPrompt() {
   return [
     'Ти senior Communications/PR аналітик. Пиши українською, дуже стисло, business-facing і по факту.',
@@ -7117,6 +7270,17 @@ app.delete('/api/coverage/competitors/:id', requireAuth, asyncHandler(async (req
   const deleted = await deleteCompetitorCoverage(request.params.id)
   response.json({ ok: deleted })
 }))
+
+registerPromoRoutes(app, {
+  asyncHandler,
+  createHttpError,
+  requireAuth,
+  getMetaAdsConfig,
+  metaUrl,
+  fetchMetaJsonUrl,
+  generateJsonViaAi,
+  isAiConfigured,
+})
 
 app.get('/api/event-reports', asyncHandler(async (_request, response) => {
   response.json(await listEventReports())
