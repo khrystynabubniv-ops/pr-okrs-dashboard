@@ -2,6 +2,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import {
   PROMO_TYPES,
   appliesWord,
+  vacancyChartModel,
   formatCompactNumber,
   formatDelta,
   formatInt,
@@ -83,7 +84,7 @@ export function PromoKpis({ report }) {
   )
 }
 
-function WeekTooltip({ active, payload, label, currency }) {
+function WeekTooltip({ active, payload, label, currency, names }) {
   if (!active || !payload?.length) return null
 
   const rows = payload.filter((item) => item.value > 0)
@@ -96,7 +97,7 @@ function WeekTooltip({ active, payload, label, currency }) {
       {rows.map((item) => (
         <div key={item.dataKey}>
           <i style={{ background: item.color }} />
-          {PROMO_TYPES[item.dataKey]?.label}
+          {names[item.dataKey]}
           <b>{formatMoney(item.value, currency)}</b>
         </div>
       ))}
@@ -117,27 +118,44 @@ function typeResult(row, currency) {
 
 export function PromoDynamics({ report }) {
   const { weeks, byType, currency } = report
-  const data = weeks.labels.map((week, index) => ({
-    week,
-    ...Object.fromEntries(Object.keys(PROMO_TYPES).map((type) => [type, weeks.series[type][index]])),
-  }))
+  const perVacancy = report.type === 'vac' && weeks.vacancies?.order.length > 0
+
+  // Per vacancy ("Вакансії" filter) or per campaign type (everything else).
+  const model = perVacancy
+    ? vacancyChartModel(weeks)
+    : {
+        bars: weeks.types.map((type) => ({
+          dataKey: type,
+          label: PROMO_TYPES[type].label,
+          color: PROMO_TYPES[type].color,
+        })),
+        data: weeks.labels.map((week, index) => ({
+          week,
+          ...Object.fromEntries(Object.keys(PROMO_TYPES).map((type) => [type, weeks.series[type][index]])),
+        })),
+      }
+  const names = Object.fromEntries(model.bars.map((bar) => [bar.dataKey, bar.label]))
 
   return (
     <Panel
       title="Динаміка"
-      aside={<span className="pr-panel-note">витрати по тижнях за типом кампанії</span>}
+      aside={
+        <span className="pr-panel-note">
+          {perVacancy ? 'витрати по тижнях за вакансіями' : 'витрати по тижнях за типом кампанії'}
+        </span>
+      }
     >
       <div className="pr-legend">
-        {weeks.types.map((type) => (
-          <span key={type}>
-            <i style={{ background: PROMO_TYPES[type].color }} />
-            {PROMO_TYPES[type].label}
+        {model.bars.map((bar) => (
+          <span key={bar.dataKey}>
+            <i style={{ background: bar.color }} />
+            {bar.label}
           </span>
         ))}
       </div>
-      <div className="pr-chart" role="img" aria-label="Витрати по тижнях за типом кампанії">
+      <div className="pr-chart" role="img" aria-label="Витрати по тижнях">
         <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barCategoryGap="32%">
+          <BarChart data={model.data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barCategoryGap="32%">
             <CartesianGrid vertical={false} stroke="var(--line)" />
             <XAxis dataKey="week" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: 'var(--muted)' }} />
             <YAxis
@@ -147,14 +165,17 @@ export function PromoDynamics({ report }) {
               tick={{ fontSize: 12, fill: 'var(--muted)' }}
               tickFormatter={(value) => formatMoney(value, currency)}
             />
-            <Tooltip cursor={{ fill: 'var(--hover-soft)' }} content={<WeekTooltip currency={currency} />} />
-            {weeks.types.map((type, index) => (
+            <Tooltip
+              cursor={{ fill: 'var(--hover-soft)' }}
+              content={<WeekTooltip currency={currency} names={names} />}
+            />
+            {model.bars.map((bar, index) => (
               <Bar
-                key={type}
-                dataKey={type}
+                key={bar.dataKey}
+                dataKey={bar.dataKey}
                 stackId="spend"
-                fill={PROMO_TYPES[type].color}
-                radius={index === weeks.types.length - 1 ? [5, 5, 0, 0] : 0}
+                fill={bar.color}
+                radius={index === model.bars.length - 1 ? [5, 5, 0, 0] : 0}
                 isAnimationActive={false}
               />
             ))}
@@ -163,51 +184,106 @@ export function PromoDynamics({ report }) {
       </div>
 
       <div className="pr-table-shell">
-        <table className="er-table pr-table pr-table-types">
-          <thead>
-            <tr>
-              <th>Тип</th>
-              <th className="er-align-right">Кампаній</th>
-              <th className="er-align-right">Витрачено</th>
-              <th className="er-align-right">Кліки</th>
-              <th className="er-align-right">CTR</th>
-              <th className="er-align-right">Ціна кліку</th>
-              <th className="er-align-right">Результат</th>
-            </tr>
-          </thead>
-          <tbody>
-            {byType.map((row) => (
-              <tr key={row.type}>
-                <td data-label="Тип">
-                  <TypeTag type={row.type} plural />
-                </td>
-                <td className="er-align-right er-metric-cell" data-label="Кампаній">
-                  {row.campaigns}
-                </td>
-                <td className="er-align-right er-metric-cell" data-label="Витрачено">
-                  {formatMoney(row.spend, currency)}
-                </td>
-                <td className="er-align-right er-metric-cell" data-label="Кліки">
-                  {formatInt(row.clicks)}
-                </td>
-                <td className="er-align-right er-metric-cell" data-label="CTR">
-                  {formatPercent(row.ctr)}
-                </td>
-                <td className="er-align-right er-metric-cell" data-label="Ціна кліку">
-                  {formatUnitMoney(row.cpc, currency)}
-                </td>
-                <td className="er-align-right er-metric-cell" data-label="Результат">
-                  {typeResult(row, currency)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {perVacancy ? <VacancyTable report={report} /> : <TypeTable byType={byType} currency={currency} />}
       </div>
       <p className="pr-hint">
         Тип кампанії визначається за назвою: <code>UNI | Вакансія | Назва | 11.2026</code>. Другий сегмент —
         Вакансія, Підписники або Awareness; кампанії без такого шаблону потрапляють у «Не розпізнано».
       </p>
     </Panel>
+  )
+}
+
+function VacancyTable({ report }) {
+  const { currency, vacancies } = report
+
+  return (
+    <table className="er-table pr-table pr-table-types">
+      <thead>
+        <tr>
+          <th>Вакансія</th>
+          <th>Платформи</th>
+          <th className="er-align-right">Витрачено</th>
+          <th className="er-align-right">Кліки</th>
+          <th className="er-align-right">CTR</th>
+          <th className="er-align-right">Ціна кліку</th>
+          <th className="er-align-right">Еплаї</th>
+        </tr>
+      </thead>
+      <tbody>
+        {[...vacancies]
+          .sort((a, b) => b.spend - a.spend)
+          .map((vacancy) => (
+            <tr key={vacancy.key}>
+              <td data-label="Вакансія">
+                <span className="er-table-title">{vacancy.title}</span>
+              </td>
+              <td data-label="Платформи" className="er-muted">
+                {vacancy.platforms.map((block) => block.label).join(' + ')}
+              </td>
+              <td className="er-align-right er-metric-cell" data-label="Витрачено">
+                {formatMoney(vacancy.spend, currency)}
+              </td>
+              <td className="er-align-right er-metric-cell" data-label="Кліки">
+                {formatInt(vacancy.clicks)}
+              </td>
+              <td className="er-align-right er-metric-cell" data-label="CTR">
+                {formatPercent(vacancy.ctr)}
+              </td>
+              <td className="er-align-right er-metric-cell" data-label="Ціна кліку">
+                {formatUnitMoney(vacancy.cpc, currency)}
+              </td>
+              <td className="er-align-right er-metric-cell" data-label="Еплаї">
+                {vacancy.applies === null ? '—' : formatInt(vacancy.applies)}
+              </td>
+            </tr>
+          ))}
+      </tbody>
+    </table>
+  )
+}
+
+function TypeTable({ byType, currency }) {
+  return (
+    <table className="er-table pr-table pr-table-types">
+      <thead>
+        <tr>
+          <th>Тип</th>
+          <th className="er-align-right">Кампаній</th>
+          <th className="er-align-right">Витрачено</th>
+          <th className="er-align-right">Кліки</th>
+          <th className="er-align-right">CTR</th>
+          <th className="er-align-right">Ціна кліку</th>
+          <th className="er-align-right">Результат</th>
+        </tr>
+      </thead>
+      <tbody>
+        {byType.map((row) => (
+          <tr key={row.type}>
+            <td data-label="Тип">
+              <TypeTag type={row.type} plural />
+            </td>
+            <td className="er-align-right er-metric-cell" data-label="Кампаній">
+              {row.campaigns}
+            </td>
+            <td className="er-align-right er-metric-cell" data-label="Витрачено">
+              {formatMoney(row.spend, currency)}
+            </td>
+            <td className="er-align-right er-metric-cell" data-label="Кліки">
+              {formatInt(row.clicks)}
+            </td>
+            <td className="er-align-right er-metric-cell" data-label="CTR">
+              {formatPercent(row.ctr)}
+            </td>
+            <td className="er-align-right er-metric-cell" data-label="Ціна кліку">
+              {formatUnitMoney(row.cpc, currency)}
+            </td>
+            <td className="er-align-right er-metric-cell" data-label="Результат">
+              {typeResult(row, currency)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }

@@ -63,7 +63,8 @@ test('Meta and LinkedIn campaigns of one vacancy become one card with a block pe
   const vacancies = buildVacancies(campaigns, { monthKey: '2026-11', today: '2026-11-20' })
   const motion = vacancies.find((vacancy) => vacancy.key === 'ai motion designer')
 
-  assert.equal(vacancies.length, 2)
+  // Two more LinkedIn-only vacancies come from the unnamed-by-template LinkedIn campaigns.
+  assert.equal(vacancies.length, 4)
   assert.deepEqual(motion.platforms.map((block) => block.platform), ['meta', 'linkedin'])
 
   const [meta, linkedin] = motion.platforms
@@ -110,19 +111,20 @@ test('applies drive cost per apply; missing applies give null', () => {
   assert.equal(analyst.costPerApply, null)
 })
 
-test('LinkedIn shows up in totals for all and vac only, never for subs', () => {
+test('every LinkedIn campaign is a vacancy; subscribers and awareness stay Meta-only', () => {
   const all = buildReport({ snapshot, typeFilter: 'all', today: '2026-11-20', linkedinConfigured: true })
   const vac = buildReport({ snapshot, typeFilter: 'vac', today: '2026-11-20', linkedinConfigured: true })
   const subs = buildReport({ snapshot, typeFilter: 'subs', today: '2026-11-20', linkedinConfigured: true })
 
-  const linkedinSpend = 15 * 12 + 2 * 5
+  const linkedinTemplated = 15 * 12 + 2 * 5
+  const linkedinOther = 2 * 3 + 2 * 2 // "Legacy brand campaign" and a "Підписники"-named campaign
   const metaVacSpend = 17 * 20 + 17 * 1 + 3 * 10
-  assert.equal(vac.kpis.spend, metaVacSpend + linkedinSpend)
+  assert.equal(vac.kpis.spend, metaVacSpend + linkedinTemplated + linkedinOther)
 
-  // Unrecognized LinkedIn campaigns (legacy name, non-vacancy type) land in "other" with the platform.
-  const other = all.otherCampaigns.filter((campaign) => campaign.type === 'other')
-  assert.deepEqual(other.map((campaign) => campaign.platform), ['linkedin', 'linkedin'])
-  assert.equal(all.unrecognized, 2)
+  // Names without the template still become vacancies (named after the campaign).
+  assert.ok(vac.vacancies.some((vacancy) => vacancy.title === 'Legacy brand campaign'))
+  assert.equal(all.unrecognized, 0)
+  assert.ok(all.otherCampaigns.every((campaign) => campaign.platform === 'meta'))
   assert.equal(vac.otherCampaigns.length, 0)
 
   // Subscribers filter: Meta only.
@@ -132,7 +134,7 @@ test('LinkedIn shows up in totals for all and vac only, never for subs', () => {
 
   // The weekly chart's vacancy column includes LinkedIn.
   const vacTotal = vac.weeks.series.vac.reduce((a, b) => a + b, 0)
-  assert.equal(vacTotal, metaVacSpend + linkedinSpend)
+  assert.equal(vacTotal, vac.kpis.spend)
 })
 
 test('KPI applies and the vacancies row of the type table', () => {
@@ -144,13 +146,13 @@ test('KPI applies and the vacancies row of the type table', () => {
   })
 
   assert.equal(report.kpis.applies, 46)
-  assert.equal(report.kpis.vacanciesCount, 2)
-  assert.equal(report.kpis.vacanciesMissingApplies, 1)
+  assert.equal(report.kpis.vacanciesCount, 4)
+  assert.equal(report.kpis.vacanciesMissingApplies, 3)
 
   const row = report.byType.find((item) => item.type === 'vac')
   assert.equal(row.applies, 46)
   assert.deepEqual(row.platforms, ['Meta Ads', 'LinkedIn'])
-  assert.match(report.did[0].text, /Meta: .*LinkedIn для 1 вакансії/)
+  assert.match(report.did[0].text, /Meta: .*LinkedIn для 3 вакансій/)
 })
 
 test('without LinkedIn data the report works as before and reports the status', () => {
@@ -243,8 +245,31 @@ test('vacancies that ran on Meta come first; LinkedIn-only vacancies go below th
   }
   const vacancies = buildVacancies(buildCampaigns(mixed, 'vac'), { monthKey: '2026-11', today: '2026-11-20' })
 
-  assert.deepEqual(vacancies.map((vacancy) => vacancy.key), ['ai motion designer', 'data analyst', 'linkedin only role'])
-  assert.deepEqual(vacancies[2].platforms.map((block) => block.platform), ['linkedin'])
+  const keys = vacancies.map((vacancy) => vacancy.key)
+  assert.deepEqual(keys.slice(0, 2), ['ai motion designer', 'data analyst'])
+  assert.equal(keys[2], 'linkedin only role') // biggest LinkedIn-only spend goes first among them
+  assert.ok(vacancies.slice(2).every((vacancy) => vacancy.platforms.every((block) => block.platform === 'linkedin')))
   // On a vacancy that ran on both, Meta stays above LinkedIn.
   assert.deepEqual(vacancies[0].platforms.map((block) => block.platform), ['meta', 'linkedin'])
+})
+
+test('with the vacancy filter the weekly chart is split per vacancy', () => {
+  const report = buildReport({ snapshot, typeFilter: 'vac', today: '2026-11-20' })
+  const { order, series } = report.weeks.vacancies
+
+  assert.ok(order.map((item) => item.key).includes('ai motion designer'))
+  assert.ok(order.map((item) => item.key).includes('data analyst'))
+  // Meta + LinkedIn spend of the vacancy lands in one series; the sum matches the type series.
+  const motionTotal = series['ai motion designer'].reduce((a, b) => a + b, 0)
+  assert.equal(motionTotal, 17 * 20 + 17 * 1 + 15 * 12 + 2 * 5)
+  const everything = Object.values(series).flat().reduce((a, b) => a + b, 0)
+  assert.equal(everything, report.weeks.series.vac.reduce((a, b) => a + b, 0))
+
+  // Other filters keep the per-type chart.
+  assert.equal(buildReport({ snapshot, typeFilter: 'all', today: '2026-11-20' }).weeks.vacancies, null)
+
+  // Vacancy rows carry CTR and CPC for the table.
+  const motion = report.vacancies.find((vacancy) => vacancy.key === 'ai motion designer')
+  assert.equal(motion.impressions > 0, true)
+  assert.equal(motion.cpc, motion.spend / motion.clicks)
 })

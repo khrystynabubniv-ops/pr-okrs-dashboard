@@ -260,11 +260,13 @@ export function vacancyKey(title) {
     .trim()
 }
 
-// LinkedIn campaigns follow the same name template, but only vacancies are tracked there:
-// anything else (other types or a name that does not parse) stays "Не розпізнано".
+// We only run vacancies on LinkedIn, so every LinkedIn campaign is a vacancy. The vacancy name comes
+// from the template when it is used, otherwise from the ad name or, failing that, the campaign name.
 function resolveCampaignType(platform, name) {
   const parsed = parseCampaignName(name)
-  if (platform === 'linkedin' && parsed.type !== 'vac') return { type: 'other', title: String(name || '').trim() }
+  if (platform === 'linkedin') {
+    return { type: 'vac', title: parsed.type === 'vac' ? parsed.title : String(name || '').trim() }
+  }
   return parsed
 }
 
@@ -279,6 +281,13 @@ function platformSources(snapshot) {
   }
 
   return sources
+}
+
+// Vacancy name of an ad in a vacancy campaign: from the template campaign, else from the ad name.
+function vacancyTitleFor(platform, campaignName, adName, resolvedTitle) {
+  if (isTemplatedVacancy(campaignName)) return resolvedTitle
+  // A LinkedIn campaign without the template is usually named after the vacancy itself.
+  return parseAdVacancy(adName) || (platform === 'linkedin' && resolvedTitle) || UNDEFINED_VACANCY
 }
 
 // Vacancy campaigns are grouped by (platform, vacancy), because one campaign can hold many vacancies
@@ -308,11 +317,7 @@ function groupPlatformCampaigns({ platform, rows, ads, campaignReach }, typeFilt
     if (typeFilter !== 'all' && resolved.type !== typeFilter) return
 
     const isVacancy = resolved.type === 'vac'
-    const vacancyTitle = isVacancy
-      ? isTemplatedVacancy(ad.campaignName)
-        ? resolved.title
-        : parseAdVacancy(ad.name) || UNDEFINED_VACANCY
-      : ''
+    const vacancyTitle = isVacancy ? vacancyTitleFor(platform, ad.campaignName, ad.name, resolved.title) : ''
     const groupKey = isVacancy ? `vac:${vacancyKey(vacancyTitle)}` : `campaign:${campaignId}`
 
     if (!groups.has(groupKey)) {
@@ -454,6 +459,7 @@ export function buildVacancies(campaigns, { applies = {}, monthKey, today = toda
 
       const spend = blocks.reduce((sum, block) => sum + block.spend, 0)
       const clicks = blocks.reduce((sum, block) => sum + block.clicks, 0)
+      const impressions = blocks.reduce((sum, block) => sum + block.impressions, 0)
       const start = blocks.map((block) => block.start).filter(Boolean).sort()[0] || ''
       const lastDate = blocks.map((block) => block.lastDate).filter(Boolean).sort().at(-1) || ''
       const running = blocks.some((block) => block.start && block.end === null)
@@ -468,6 +474,9 @@ export function buildVacancies(campaigns, { applies = {}, monthKey, today = toda
         days: start && lastDate ? daysBetween(start, lastDate) + 1 : 0,
         spend,
         clicks,
+        impressions,
+        ctr: impressions ? (clicks / impressions) * 100 : 0,
+        cpc: clicks ? spend / clicks : 0,
         applies: hasApplies ? entered : null,
         costPerApply: hasApplies && entered > 0 ? spend / entered : null,
         platforms: blocks,
@@ -503,21 +512,47 @@ export function buildDeltas(current, previous) {
 export function buildWeeks(snapshot, typeFilter, range) {
   const weeks = weeksInRange(range)
   const series = Object.fromEntries(TYPE_ORDER.map((type) => [type, weeks.map(() => 0)]))
+  const byVacancy = new Map()
 
   platformSources(snapshot).forEach((source) => {
     source.rows.forEach((row) => {
-      const type = resolveCampaignType(source.platform, source.ads[row.adId]?.campaignName).type
-      if (typeFilter !== 'all' && type !== typeFilter) return
+      const ad = source.ads[row.adId]
+      const resolved = resolveCampaignType(source.platform, ad?.campaignName)
+      if (typeFilter !== 'all' && resolved.type !== typeFilter) return
 
       const index = weeks.findIndex((week) => row.date >= week.start && row.date <= week.end)
-      if (index !== -1) series[type][index] += Number(row.spend) || 0
+      if (index === -1) return
+      const spend = Number(row.spend) || 0
+      series[resolved.type][index] += spend
+
+      // With the "Вакансії" filter the chart is split per vacancy instead of per type.
+      if (typeFilter === 'vac') {
+        const title = vacancyTitleFor(source.platform, ad?.campaignName, ad?.name, resolved.title)
+        const key = vacancyKey(title)
+        if (!byVacancy.has(key)) byVacancy.set(key, { key, title, total: 0, values: weeks.map(() => 0) })
+        const entry = byVacancy.get(key)
+        entry.values[index] += spend
+        entry.total += spend
+      }
     })
   })
+
+  const vacancies =
+    typeFilter === 'vac'
+      ? (() => {
+          const sorted = [...byVacancy.values()].sort((a, b) => b.total - a.total)
+          return {
+            order: sorted.map(({ key, title, total }) => ({ key, title, total })),
+            series: Object.fromEntries(sorted.map((entry) => [entry.key, entry.values])),
+          }
+        })()
+      : null
 
   return {
     labels: weeks.map((week) => week.label),
     series,
     types: TYPE_ORDER.filter((type) => series[type].some((value) => value > 0)),
+    vacancies,
   }
 }
 

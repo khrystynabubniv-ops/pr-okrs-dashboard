@@ -25,6 +25,48 @@ export const PROMO_TYPES = {
   other: { label: 'Не розпізнано', singular: 'Без типу', color: '#d3d4de', tagClass: 'pr-tag pr-tag-mute' },
 }
 
+// Chart colors for the per-vacancy view ("Вакансії" filter); extra vacancies are grouped into "Інші".
+export const VACANCY_COLORS = [
+  '#6560e8',
+  '#58aee0',
+  '#e38bab',
+  '#f0a35e',
+  '#5fc3a1',
+  '#b08cf0',
+  '#e0c455',
+  '#8a8ca0',
+]
+export const VACANCY_OTHERS_COLOR = '#d3d4de'
+
+// Weekly series per vacancy -> chart rows, legend and tooltip names (top 8 + "Інші").
+export function vacancyChartModel(weeks) {
+  const { order, series } = weeks.vacancies
+  const shown = order.slice(0, VACANCY_COLORS.length)
+  const rest = order.slice(VACANCY_COLORS.length)
+  const bars = shown.map((item, index) => ({
+    dataKey: `v${index}`,
+    label: item.title,
+    color: VACANCY_COLORS[index],
+    values: series[item.key],
+  }))
+
+  if (rest.length) {
+    bars.push({
+      dataKey: 'vOthers',
+      label: `Інші вакансії (${rest.length})`,
+      color: VACANCY_OTHERS_COLOR,
+      values: weeks.labels.map((_, week) => rest.reduce((sum, item) => sum + series[item.key][week], 0)),
+    })
+  }
+
+  const data = weeks.labels.map((week, index) => ({
+    week,
+    ...Object.fromEntries(bars.map((bar) => [bar.dataKey, bar.values[index]])),
+  }))
+
+  return { bars, data }
+}
+
 export const CREATIVE_LABELS = {
   leader: { text: 'лідер', tone: 'good' },
   retest: { text: 'перетестувати', tone: 'accent' },
