@@ -266,6 +266,23 @@ export function initials(name) {
 
 export const PLATFORM_LABELS = { meta: 'Meta Ads', linkedin: 'LinkedIn' }
 
+// Bullets of an AI block. Analyses saved before the bullet format carry one paragraph:
+// it is split into sentences so old results read the same way.
+export function pointsOf(item, textField) {
+  if (Array.isArray(item?.points) && item.points.length) return item.points
+
+  return String(item?.[textField] || '')
+    .split(/(?<=[.!?])\s+(?=[А-ЯІЇЄҐA-Z«"(])/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
+// "МАСШТАБУВАТИ: ..." → { lead: 'МАСШТАБУВАТИ', rest: '...' }.
+export function splitLead(text) {
+  const match = /^([А-ЯІЇЄҐA-Z][А-ЯІЇЄҐA-Z' ]{3,}):\s+([\s\S]*)$/.exec(String(text || ''))
+  return match ? { lead: match[1], rest: match[2] } : { lead: '', rest: String(text || '') }
+}
+
 // Placeholder text for ads without a preview (LinkedIn does not always give one).
 export const KIND_LABELS = {
   photo: 'Single image',

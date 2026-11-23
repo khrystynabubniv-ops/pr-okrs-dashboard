@@ -1,5 +1,5 @@
 import { RefreshCw } from 'lucide-react'
-import { CREATIVE_LABELS, findCreative, formatAnalysisDate } from '../../lib/promo'
+import { CREATIVE_LABELS, findCreative, formatAnalysisDate, pointsOf, splitLead } from '../../lib/promo'
 import { AiBadge, Panel, PlatformIcon } from './PromoParts'
 
 function ExampleButton({ example, report, onOpen }) {
@@ -39,9 +39,11 @@ function Finding({ finding, report, onOpen }) {
           <ExampleButton key={`${example.platform || 'meta'}:${example.ad_id}`} example={example} report={report} onOpen={onOpen} />
         ))}
       </div>
-      <p>
-        <b>Висновок:</b> {finding.conclusion}
-      </p>
+      <ul className="pr-points">
+        {pointsOf(finding, 'conclusion').map((point) => (
+          <li key={point}>{point}</li>
+        ))}
+      </ul>
     </article>
   )
 }
@@ -64,6 +66,23 @@ function Column({ title, tone, findings, report, onOpen }) {
   )
 }
 
+function leadTone(lead) {
+  if (lead.startsWith('МАСШТАБ') || lead.startsWith('ПОВТОР')) return 'good'
+  if (lead.startsWith('ЗУПИН') || lead.startsWith('НЕ ')) return 'warn'
+  return 'accent'
+}
+
+function RecItem({ text }) {
+  const { lead, rest } = splitLead(text)
+
+  return (
+    <li>
+      {lead ? <b className={`pr-rec-lead pr-rec-lead-${leadTone(lead)}`}>{lead}</b> : null}
+      {rest}
+    </li>
+  )
+}
+
 function RecCard({ title, items }) {
   if (!items?.length) return null
 
@@ -72,7 +91,7 @@ function RecCard({ title, items }) {
       <h4>{title}</h4>
       <ul>
         {items.map((item) => (
-          <li key={item}>{item}</li>
+          <RecItem key={item} text={item} />
         ))}
       </ul>
     </div>

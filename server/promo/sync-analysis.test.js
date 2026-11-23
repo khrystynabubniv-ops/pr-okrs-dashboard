@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { validateAnalysis } from './analysis.js'
+import { splitSentences, validateAnalysis } from './analysis.js'
 import { mapAdsError, normalizeCreative, parseInsightRow } from './sync.js'
 
 const createHttpError = (status, message) => Object.assign(new Error(message), { status })
@@ -66,16 +66,16 @@ const campaigns = [
 test('validateAnalysis drops unknown ad_ids, recomputes metrics and enforces the utm tip', () => {
   const result = validateAnalysis(
     {
-      key: [{ title: 'Висновок', text: 'Текст' }],
+      key: [{ title: 'Висновок', points: ['Перше', 'Друге'] }],
       works: [
         {
           kind: 'visual',
           title: 'Людина в дії',
-          conclusion: 'CTR вищий',
+          points: ['CTR вищий'],
           examples: [{ ad_id: '1', metric: 'вигадано' }, { ad_id: '999' }],
         },
       ],
-      fails: [{ kind: 'text', title: 'Без прикладів', conclusion: 'x', examples: [{ ad_id: '999' }] }],
+      fails: [{ kind: 'text', title: 'Без прикладів', points: ['x'], examples: [{ ad_id: '999' }] }],
       recs: { brief: ['ТЗ'], scale_stop_retest: [], measure: ['Дивитись CTR'] },
     },
     campaigns,
@@ -123,4 +123,27 @@ test('validateAnalysis keeps platform: same ad_id on LinkedIn only counts when i
     result.fails[0].examples.map((example) => `${example.platform}:${example.ad_id}`),
     ['linkedin:8', 'meta:7'],
   )
+})
+
+test('validateAnalysis turns an old paragraph into bullets and keeps points as they are', () => {
+  const result = validateAnalysis(
+    {
+      key: [
+        { title: 'Абзац', text: 'Кампанія зібрала CTR 14.17% при витраті $344.4. Це в 7 разів вище. Далі йде третє.' },
+        { title: 'Булети', points: ['Один', 'Два'] },
+      ],
+      works: [],
+      fails: [],
+      recs: {},
+    },
+    campaigns,
+  )
+
+  assert.deepEqual(result.key[0].points, [
+    'Кампанія зібрала CTR 14.17% при витраті $344.4.',
+    'Це в 7 разів вище.',
+    'Далі йде третє.',
+  ])
+  assert.deepEqual(result.key[1].points, ['Один', 'Два'])
+  assert.deepEqual(splitSentences('CTR 1.8% при $8.48. Не тестувати.'), ['CTR 1.8% при $8.48.', 'Не тестувати.'])
 })

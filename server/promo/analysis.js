@@ -20,8 +20,10 @@ const SYSTEM_PROMPT = [
   'Аналізуй і візуал (прев\'ю додані як зображення, підписані ad_id), і текст оголошення. Стиль висновків: «Реальна людина в дії + чекліст "Ти наш кандидат, якщо"», «Студійний портрет без контексту — CTR 1.7% проти 15.7%», «AI лише для сцен, обличчя — реалістичні».',
   'У прикладах використовуй ТІЛЬКИ пари platform + ad_id зі вхідних даних (platform: meta або linkedin). Креативи є з двох платформ: Meta Ads і LinkedIn. Якщо є обидві, порівнюй їх (вартість кліку, CTR, які ролі де працюють), але не вигадуй причин, яких немає в даних.',
   'Поверни тільки валідний JSON без markdown і code fence за схемою:',
-  '{"key":[{"title":"...","text":"..."}],"works":[{"kind":"visual|text","title":"...","examples":[{"platform":"meta|linkedin","ad_id":"..."}],"conclusion":"..."}],"fails":[{"kind":"visual|text","title":"...","examples":[{"platform":"meta|linkedin","ad_id":"..."}],"conclusion":"..."}],"recs":{"brief":["..."],"scale_stop_retest":["..."],"measure":["..."]}}',
+  '{"key":[{"title":"...","points":["..."]}],"works":[{"kind":"visual|text","title":"...","examples":[{"platform":"meta|linkedin","ad_id":"..."}],"points":["..."]}],"fails":[{"kind":"visual|text","title":"...","examples":[{"platform":"meta|linkedin","ad_id":"..."}],"points":["..."]}],"recs":{"brief":["..."],"scale_stop_retest":["..."],"measure":["..."]}}',
   'key: 3–5 пунктів (якщо даних мало — менше). works і fails: до 4 кожен, у кожному 1–2 приклади. recs.brief — що закладати в ТЗ; recs.scale_stop_retest — що масштабувати, зупинити, перетестувати; recs.measure — як міряти далі.',
+  'Формат тексту: це читають швидко, тому ніяких абзаців. points — 2–4 короткі булети, кожен одна думка до 120 символів, з конкретною цифрою (де це доречно). Кожен елемент recs — теж один короткий булет до 150 символів (одна дія). Не повторюй title у points.',
+  'Кожен елемент recs.scale_stop_retest починай з дієслова великими літерами і двокрапки: «МАСШТАБУВАТИ: …», «ЗУПИНИТИ: …», «ПЕРЕТЕСТУВАТИ: …».',
   'Для типів «Підписники» і «Awareness», де даних мало, замість brief/scale_stop_retest можна дати recs.repeat («Повторюємо») і recs.dont_repeat («Не повторюємо»), recs.measure залиш.',
   'Креативи однієї вакансії можуть бути розділені на A/B-тести (поле ab_test_group: З CV / Без CV, General / Lookalike): порівнюй групи між собою, а лідерів і слабких визнач усередині групи.',
   'Якщо даних замало для висновку — чесно скажи про це, а не вигадуй.',
@@ -112,9 +114,28 @@ function exampleMetric(creative) {
     : `${ctr} · ${creative.cpc ? `${creative.cpc.toFixed(2)}/клік` : 'без кліків'}`
 }
 
+// Sentences become separate bullets (the model sometimes returns a paragraph anyway).
+export function splitSentences(text) {
+  return String(text || '')
+    .split(/(?<=[.!?])\s+(?=[А-ЯІЇЄҐA-Z«"(])/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
+function readPoints(item, textField, limit = 4) {
+  const fromPoints = Array.isArray(item?.points)
+    ? item.points.map((point) => trimText(point, 200)).filter(Boolean)
+    : []
+  const points = fromPoints.length
+    ? fromPoints
+    : splitSentences(trimText(item?.[textField], 800)).map((part) => trimText(part, 200))
+
+  return points.slice(0, limit)
+}
+
 function cleanList(value, limit = 6) {
   return Array.isArray(value)
-    ? value.map((item) => trimText(item, 400)).filter(Boolean).slice(0, limit)
+    ? value.map((item) => trimText(item, 300)).filter(Boolean).slice(0, limit)
     : []
 }
 
@@ -132,8 +153,8 @@ export function validateAnalysis(raw, campaigns) {
   )
 
   const key = (Array.isArray(raw.key) ? raw.key : [])
-    .map((item) => ({ title: trimText(item?.title, 160), text: trimText(item?.text, 600) }))
-    .filter((item) => item.title && item.text)
+    .map((item) => ({ title: trimText(item?.title, 160), points: readPoints(item, 'text') }))
+    .filter((item) => item.title && item.points.length)
     .slice(0, 5)
 
   const findings = (list) =>
@@ -141,7 +162,7 @@ export function validateAnalysis(raw, campaigns) {
       .map((item) => ({
         kind: item?.kind === 'text' ? 'text' : 'visual',
         title: trimText(item?.title, 160),
-        conclusion: trimText(item?.conclusion, 600),
+        points: readPoints(item, 'conclusion'),
         examples: (Array.isArray(item?.examples) ? item.examples : [])
           .map((example) => ({
             platform: example?.platform === 'linkedin' ? 'linkedin' : 'meta',
@@ -159,7 +180,7 @@ export function validateAnalysis(raw, campaigns) {
             metric: exampleMetric(creativesById.get(`${example.platform}:${example.adId}`)),
           })),
       }))
-      .filter((item) => item.title && item.conclusion && item.examples.length)
+      .filter((item) => item.title && item.points.length && item.examples.length)
       .slice(0, 4)
 
   const works = findings(raw.works)

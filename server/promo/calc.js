@@ -758,6 +758,29 @@ export function describeLinkedIn(snapshot, configured) {
   }
 }
 
+// Per-platform totals for the KPI tiles; only platforms that have data are listed.
+function platformTotals(campaigns) {
+  const result = {}
+
+  ;['meta', 'linkedin'].forEach((platform) => {
+    const own = campaigns.filter((campaign) => (campaign.platform || 'meta') === platform)
+    if (!own.length) return
+
+    const totals = totalsOf(own)
+    result[platform] = {
+      spend: totals.spend,
+      impressions: totals.impressions,
+      clicks: totals.clicks,
+      ctr: totals.ctr,
+      cpc: totals.cpc,
+      follows: totals.follows,
+      reach: totals.reach,
+    }
+  })
+
+  return result
+}
+
 export function buildReport({
   snapshot,
   previousSnapshot,
@@ -787,6 +810,7 @@ export function buildReport({
     kpis: {
       ...totals,
       deltas: buildDeltas(totals, previousTotals),
+      byPlatform: platformTotals(campaigns),
       previousMonth: previousSnapshot?.month || previousMonthKey(monthKey),
       applies: vacancies.reduce((sum, vacancy) => sum + (vacancy.applies || 0), 0),
       vacanciesCount: vacancies.length,

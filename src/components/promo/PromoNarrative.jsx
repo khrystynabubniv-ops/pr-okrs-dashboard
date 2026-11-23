@@ -1,4 +1,4 @@
-import { pluralUk } from '../../lib/promo'
+import { pluralUk, pointsOf } from '../../lib/promo'
 import { AiBadge, CodeBadge, Panel } from './PromoParts'
 
 export function PromoDid({ report }) {
@@ -38,7 +38,11 @@ export function PromoKey({ report, analysis }) {
               <span className="pr-key-number">{index + 1}</span>
               <div>
                 <h3>{item.title}</h3>
-                <p>{item.text}</p>
+                <ul className="pr-points">
+                  {pointsOf(item, 'text').map((point) => (
+                    <li key={point}>{point}</li>
+                  ))}
+                </ul>
               </div>
             </article>
           ))}

@@ -233,6 +233,29 @@
   font-weight: 500;
 }
 
+.pr-kpi-split {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.pr-kpi-split span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pr-kpi-split b {
+  margin-left: auto;
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- dynamics ---------- */
 
 .pr-legend {
@@ -363,11 +386,19 @@
   line-height: 1.35;
 }
 
-.pr-key-item p {
-  margin: 4px 0 0;
+.pr-points {
+  display: grid;
+  gap: 5px;
+  margin: 6px 0 0;
+  padding-left: 18px;
+  list-style: disc;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.pr-points li::marker {
+  color: var(--accent-d);
 }
 
 /* ---------- campaigns and creatives ---------- */
@@ -838,12 +869,37 @@ button.pr-preview:focus-visible {
 
 .pr-rec ul {
   display: grid;
-  gap: 7px;
+  gap: 9px;
   margin: 0;
   padding-left: 18px;
+  list-style: disc;
   color: var(--ink);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.pr-rec li::marker {
+  color: var(--accent-d);
+}
+
+.pr-rec-lead {
+  display: block;
+  margin-bottom: 1px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.pr-rec-lead-good {
+  color: var(--good);
+}
+
+.pr-rec-lead-warn {
+  color: var(--warn);
+}
+
+.pr-rec-lead-accent {
+  color: var(--accent-d);
 }
 
 /* ---------- creative modal ---------- */

@@ -1,5 +1,6 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
+  PLATFORM_LABELS,
   PROMO_TYPES,
   appliesWord,
   vacancyChartModel,
@@ -10,30 +11,62 @@ import {
   formatPercent,
   formatUnitMoney,
 } from '../../lib/promo'
-import { CodeBadge, Panel, TypeTag } from './PromoParts'
+import { CodeBadge, Panel, PlatformIcon, TypeTag } from './PromoParts'
+
+// Platforms shown under a tile: the ones with data, plus LinkedIn (as 0) when it is connected
+// and the filter can contain vacancies, so a missing LinkedIn is visible rather than silent.
+function splitPlatforms(report) {
+  const present = report.kpis.byPlatform || {}
+  const linkedinExpected =
+    (report.type === 'all' || report.type === 'vac') && report.linkedin?.status !== 'not_configured'
+  const platforms = ['meta', 'linkedin'].filter(
+    (platform) => present[platform] || (platform === 'linkedin' && linkedinExpected),
+  )
+
+  return platforms.length > 1 || (platforms.length === 1 && platforms[0] === 'linkedin') ? platforms : []
+}
 
 function kpiTiles(report) {
   const { kpis, currency, type } = report
   const previous = kpis.previousMonth
   const deltas = kpis.deltas || {}
+  const platforms = splitPlatforms(report)
+  const split = (format, key) =>
+    platforms.map((platform) => {
+      const data = kpis.byPlatform?.[platform]
+      return { platform, text: data ? format(data[key]) : '—' }
+    })
 
   const tiles = [
-    { label: 'Витрачено', value: formatMoney(kpis.spend, currency), delta: formatDelta(deltas.spend, previous) },
+    {
+      label: 'Витрачено',
+      value: formatMoney(kpis.spend, currency),
+      delta: formatDelta(deltas.spend, previous),
+      split: split((value) => formatMoney(value, currency), 'spend'),
+    },
     {
       label: 'Покази',
       value: formatCompactNumber(kpis.impressions),
       delta: formatDelta(deltas.impressions, previous),
+      split: split(formatCompactNumber, 'impressions'),
     },
-    { label: 'Кліки', value: formatInt(kpis.clicks), delta: formatDelta(deltas.clicks, previous) },
+    {
+      label: 'Кліки',
+      value: formatInt(kpis.clicks),
+      delta: formatDelta(deltas.clicks, previous),
+      split: split(formatInt, 'clicks'),
+    },
     {
       label: 'CTR',
       value: formatPercent(kpis.ctr),
       delta: formatDelta(deltas.ctr, previous, { kind: 'points' }),
+      split: split(formatPercent, 'ctr'),
     },
     {
       label: 'Ціна кліку',
       value: formatUnitMoney(kpis.cpc, currency),
       delta: formatDelta(deltas.cpc, previous, { inverse: true }),
+      split: split((value) => formatUnitMoney(value, currency), 'cpc'),
     },
   ]
 
@@ -77,6 +110,17 @@ export function PromoKpis({ report }) {
             ) : (
               <em className="pr-delta pr-delta-none">{tile.hint || 'немає даних за попередній місяць'}</em>
             )}
+            {tile.split?.length ? (
+              <div className="pr-kpi-split">
+                {tile.split.map((item) => (
+                  <span key={item.platform}>
+                    <PlatformIcon platform={item.platform} />
+                    {PLATFORM_LABELS[item.platform]}
+                    <b>{item.text}</b>
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
         ))}
       </div>

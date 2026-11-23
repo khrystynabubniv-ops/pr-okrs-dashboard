@@ -123,6 +123,12 @@ test('every LinkedIn campaign is a vacancy; subscribers and awareness stay Meta-
   const metaVacSpend = 17 * 20 + 17 * 1 + 3 * 10
   assert.equal(vac.kpis.spend, metaVacSpend + linkedinTemplated + linkedinOther)
 
+  // KPI tiles carry a Meta / LinkedIn split that adds up to the total.
+  assert.equal(vac.kpis.byPlatform.meta.spend, metaVacSpend)
+  assert.equal(vac.kpis.byPlatform.linkedin.spend, linkedinTemplated + linkedinOther)
+  assert.equal(vac.kpis.byPlatform.linkedin.clicks + vac.kpis.byPlatform.meta.clicks, vac.kpis.clicks)
+  assert.deepEqual(Object.keys(subs.kpis.byPlatform), ['meta'])
+
   // Names without the template still become vacancies (named after the campaign).
   assert.ok(vac.vacancies.some((vacancy) => vacancy.title === 'Legacy brand campaign'))
   assert.equal(all.unrecognized, 0)
