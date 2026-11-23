@@ -1147,6 +1147,56 @@ button.pr-preview:focus-visible {
   font-weight: 600;
 }
 
+.pr-tests {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.pr-test + .pr-test {
+  border-top: 1px solid var(--line);
+}
+
+.pr-test-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 14px 16px 0;
+}
+
+.pr-test-kicker {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pr-test-tag {
+  border-radius: 999px;
+  background: var(--accent-soft);
+  padding: 3px 10px;
+  color: var(--accent-d);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pr-test-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pr-test-metrics b {
+  margin-left: 3px;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 13px;
+}
+
 .pr-platform-side .pr-campaign-name span {
   display: block;
 }

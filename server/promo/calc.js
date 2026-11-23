@@ -283,6 +283,61 @@ function platformSources(snapshot) {
   return sources
 }
 
+// A/B tests are encoded in the ad name after the vacancy: `..._cv` / `..._no_cv` (CV required or not)
+// and `..._general` / `..._лукалайк` (audience). Returns '' for a dimension the name does not mention.
+export function parseTestTags(adName) {
+  const parts = String(adName || '')
+    .split('_')
+    .map((part) => part.trim().toLowerCase())
+  const rest = parts.length >= 3 && AD_MONTH_TAG.test(parts[0]) ? parts.slice(2) : parts
+  const joined = `_${rest.join('_')}_`
+
+  const cv = /_no_?cv_/.test(joined) ? 'no_cv' : /_cv_/.test(joined) ? 'cv' : ''
+  const audience = /_(lookalikes?|lal|лукалайк[^_]*)_/.test(joined)
+    ? 'lookalike'
+    : /_(generals?|генерал[^_]*)_/.test(joined)
+      ? 'general'
+      : ''
+
+  return { cv, audience }
+}
+
+const TEST_LABELS = { cv: 'З CV', no_cv: 'Без CV', general: 'General', lookalike: 'Lookalike', other: 'Інше' }
+const TEST_ORDER = ['cv', 'no_cv', 'general', 'lookalike', 'other']
+
+// Splits the ads of one vacancy into test arms. A dimension is a test only when its values differ
+// between ads (cv vs no_cv, general vs lookalike); otherwise the vacancy stays one group.
+export function splitIntoTests(creatives) {
+  const tags = creatives.map((item) => parseTestTags(item.name))
+  const varies = (field) => new Set(tags.map((tag) => tag[field]).filter(Boolean)).size >= 2
+  const useCv = varies('cv')
+  const useAudience = varies('audience')
+
+  if (!useCv && !useAudience) return [{ key: 'all', label: '', creatives }]
+
+  const arms = new Map()
+  creatives.forEach((item, index) => {
+    const parts = [
+      useCv ? tags[index].cv || 'other' : '',
+      useAudience ? tags[index].audience || 'other' : '',
+    ].filter(Boolean)
+    const key = parts.join('|')
+
+    if (!arms.has(key)) {
+      arms.set(key, { key, label: parts.map((part) => TEST_LABELS[part]).join(' · '), order: parts.map((part) => TEST_ORDER.indexOf(part)), creatives: [] })
+    }
+    arms.get(key).creatives.push(item)
+  })
+
+  return [...arms.values()].sort((a, b) => {
+    for (let i = 0; i < Math.max(a.order.length, b.order.length); i += 1) {
+      const diff = (a.order[i] ?? 0) - (b.order[i] ?? 0)
+      if (diff) return diff
+    }
+    return 0
+  })
+}
+
 // Vacancy name of an ad in a vacancy campaign: from the template campaign, else from the ad name.
 function vacancyTitleFor(platform, campaignName, adName, resolvedTitle) {
   if (isTemplatedVacancy(campaignName)) return resolvedTitle
@@ -353,11 +408,35 @@ function groupPlatformCampaigns({ platform, rows, ads, campaignReach }, typeFilt
 
   return [...groups.values()].map((group) => {
     const totals = group.creatives.reduce((sum, item) => addRow(sum, item), emptyTotals())
-    const labeled = labelCreatives(group.creatives).sort((a, b) => b.spend - a.spend)
     const names = [...group.campaignNames].filter(Boolean)
     // Daily reach is not additive, so prefer Meta's campaign-level reach for the month.
     // Vacancy groups span campaigns and show no reach.
     const reach = group.reachSource ? campaignReach?.[group.reachSource] ?? totals.reach : 0
+
+    // Vacancy ads are split into A/B test arms; labels and budget shares are calculated per arm.
+    const arms = group.type === 'vac' ? splitIntoTests(group.creatives) : [{ key: 'all', label: '', creatives: group.creatives }]
+    const labeled = arms
+      .flatMap((arm) =>
+        labelCreatives(arm.creatives).map((item) => ({ ...item, test: arm.key, testLabel: arm.label })),
+      )
+      .sort((a, b) => b.spend - a.spend)
+    const tests =
+      arms.length > 1
+        ? arms.map((arm) => {
+            const members = labeled.filter((item) => item.test === arm.key)
+            const armTotals = withRatios(members.reduce((sum, item) => addRow(sum, item), emptyTotals()))
+            return {
+              key: arm.key,
+              label: arm.label,
+              spend: armTotals.spend,
+              clicks: armTotals.clicks,
+              impressions: armTotals.impressions,
+              ctr: armTotals.ctr,
+              cpc: armTotals.cpc,
+              adIds: members.map((item) => item.adId),
+            }
+          })
+        : []
 
     return {
       ...group,
@@ -367,6 +446,7 @@ function groupPlatformCampaigns({ platform, rows, ads, campaignReach }, typeFilt
       campaignRefs: [...group.campaignRefs],
       ...withRatios(totals),
       reach,
+      tests,
       creatives: labeled,
     }
   })
@@ -426,6 +506,7 @@ function platformBlock(platform, campaigns, monthKey, today) {
     platform,
     label: PLATFORM_LABELS[platform],
     campaigns: campaignNames,
+    tests: campaigns.flatMap((campaign) => campaign.tests || []),
     ...runWindow(firstDate, lastDate, monthKey, today),
     spend,
     clicks,

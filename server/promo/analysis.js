@@ -23,6 +23,7 @@ const SYSTEM_PROMPT = [
   '{"key":[{"title":"...","text":"..."}],"works":[{"kind":"visual|text","title":"...","examples":[{"platform":"meta|linkedin","ad_id":"..."}],"conclusion":"..."}],"fails":[{"kind":"visual|text","title":"...","examples":[{"platform":"meta|linkedin","ad_id":"..."}],"conclusion":"..."}],"recs":{"brief":["..."],"scale_stop_retest":["..."],"measure":["..."]}}',
   'key: 3–5 пунктів (якщо даних мало — менше). works і fails: до 4 кожен, у кожному 1–2 приклади. recs.brief — що закладати в ТЗ; recs.scale_stop_retest — що масштабувати, зупинити, перетестувати; recs.measure — як міряти далі.',
   'Для типів «Підписники» і «Awareness», де даних мало, замість brief/scale_stop_retest можна дати recs.repeat («Повторюємо») і recs.dont_repeat («Не повторюємо»), recs.measure залиш.',
+  'Креативи однієї вакансії можуть бути розділені на A/B-тести (поле ab_test_group: З CV / Без CV, General / Lookalike): порівнюй групи між собою, а лідерів і слабких визнач усередині групи.',
   'Якщо даних замало для висновку — чесно скажи про це, а не вигадуй.',
 ].join('\n')
 
@@ -45,6 +46,7 @@ function aiInput(campaigns, currency) {
     creatives: campaign.creatives.map((item) => ({
       platform: item.platform || 'meta',
       ad_id: item.adId,
+      ...(item.testLabel ? { ab_test_group: item.testLabel } : {}),
       name: item.name,
       format: item.creative?.kind || 'photo',
       ad_text: trimText([item.creative?.title, item.creative?.body].filter(Boolean).join('\n'), 1200),

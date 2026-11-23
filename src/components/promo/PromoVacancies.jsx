@@ -13,6 +13,8 @@ import { Panel, PlatformIcon, TypeTag } from './PromoParts'
 const UNDEFINED_VACANCY_KEY = 'вакансію не визначено'
 
 function PlatformBlock({ block, currency, onOpen }) {
+  // A/B tests of the vacancy (cv / no cv, general / lookalike): own metrics, labels and creatives each.
+  const tests = block.tests?.length > 1 ? block.tests : null
   const metrics = [
     { label: 'Витрачено', value: formatMoney(block.spend, currency) },
     { label: 'Кліки', value: formatInt(block.clicks) },
@@ -37,7 +39,40 @@ function PlatformBlock({ block, currency, onOpen }) {
         </p>
         <MetricTiles metrics={metrics} />
       </div>
-      <CreativeGrid creatives={block.creatives} type="vac" currency={currency} onOpen={onOpen} />
+      {tests ? (
+        <div className="pr-tests">
+          {tests.map((test) => (
+            <section className="pr-test" key={test.key}>
+              <header className="pr-test-head">
+                <span className="pr-test-kicker">Тест</span>
+                <span className="pr-test-tag">{test.label}</span>
+                <span className="pr-test-metrics">
+                  <span>
+                    Витрачено <b>{formatMoney(test.spend, currency)}</b>
+                  </span>
+                  <span>
+                    Кліки <b>{formatInt(test.clicks)}</b>
+                  </span>
+                  <span>
+                    CTR <b>{formatPercent(test.ctr)}</b>
+                  </span>
+                  <span>
+                    Ціна кліку <b>{formatUnitMoney(test.cpc, currency)}</b>
+                  </span>
+                </span>
+              </header>
+              <CreativeGrid
+                creatives={block.creatives.filter((creative) => test.adIds.includes(creative.adId))}
+                type="vac"
+                currency={currency}
+                onOpen={onOpen}
+              />
+            </section>
+          ))}
+        </div>
+      ) : (
+        <CreativeGrid creatives={block.creatives} type="vac" currency={currency} onOpen={onOpen} />
+      )}
     </div>
   )
 }

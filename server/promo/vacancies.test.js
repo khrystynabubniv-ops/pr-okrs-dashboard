@@ -5,6 +5,8 @@ import {
   buildReport,
   buildVacancies,
   parseAdVacancy,
+  parseTestTags,
+  splitIntoTests,
   parseCampaignName,
   vacancyKey,
 } from './calc.js'
@@ -227,8 +229,11 @@ test('one campaign with many vacancies is split into vacancy cards by ad name', 
   assert.equal(motion.platforms.length, 1)
   assert.equal(motion.platforms[0].creatives.length, 2)
   assert.deepEqual(motion.platforms[0].campaigns, ['Vacancies November26'])
-  // budget share is inside the vacancy: two equal ads -> 50% each, not 1/N of the whole campaign
-  assert.equal(Math.round(motion.platforms[0].creatives[0].sharePct), 50)
+  // cv / no_cv ads are two tests of one vacancy: each gets its own metrics, share and labels
+  const { tests } = motion.platforms[0]
+  assert.deepEqual(tests.map((test) => test.label), ['З CV', 'Без CV'])
+  assert.deepEqual(tests.map((test) => Math.round(test.spend)), [170, 170])
+  assert.ok(motion.platforms[0].creatives.every((item) => Math.round(item.sharePct) === 100 && item.label === 'leader'))
   assert.equal(motion.days, 17)
 
   // Vacancy filter now has data; subscribers/awareness do not pick these ads up.
@@ -276,4 +281,64 @@ test('with the vacancy filter the weekly chart is split per vacancy', () => {
   const motion = report.vacancies.find((vacancy) => vacancy.key === 'ai motion designer')
   assert.equal(motion.impressions > 0, true)
   assert.equal(motion.cpc, motion.spend / motion.clicks)
+})
+
+test('parseTestTags reads cv and audience from the ad name', () => {
+  assert.deepEqual(parseTestTags('nov26_AI Motion designer_concept1_stat_v1_cv'), { cv: 'cv', audience: '' })
+  assert.deepEqual(parseTestTags('nov26_AI Motion designer_concept1_stat_v1_no_cv'), { cv: 'no_cv', audience: '' })
+  assert.deepEqual(
+    parseTestTags('nov26_Middle/Senior User Acquisition Manager (Google Ads)_concept2_stat_v2_cv_лукалайк'),
+    { cv: 'cv', audience: 'lookalike' },
+  )
+  assert.deepEqual(
+    parseTestTags('nov26_Middle/Senior User Acquisition Manager (Google Ads)_concept2_stat_v1_cv_general'),
+    { cv: 'cv', audience: 'general' },
+  )
+  // "CV" inside the vacancy name is not a test tag
+  assert.deepEqual(parseTestTags('nov26_CV Reviewer_concept1_stat_v1'), { cv: '', audience: '' })
+})
+
+test('only dimensions that differ become tests', () => {
+  const ads = (names) => names.map((name, index) => ({ adId: String(index), name, spend: 10 + index, impressions: 2000, clicks: 40, ctr: 2 }))
+
+  // cv always "cv", audience varies -> two arms by audience
+  const audience = splitIntoTests(
+    ads([
+      'nov26_UA Manager_concept2_stat_v2_cv_лукалайк',
+      'nov26_UA Manager_concept2_stat_v1_cv_general',
+      'nov26_UA Manager_concept2_stat_v3_cv_general',
+    ]),
+  )
+  assert.deepEqual(audience.map((arm) => arm.label), ['General', 'Lookalike'])
+  assert.deepEqual(audience.map((arm) => arm.creatives.length), [2, 1])
+
+  // no varying dimension -> a single group, no tests
+  const single = splitIntoTests(ads(['nov26_X_concept1_stat_v1_cv', 'nov26_X_concept2_stat_v1_cv']))
+  assert.equal(single.length, 1)
+  assert.equal(single[0].label, '')
+})
+
+test('labels are calculated inside each test, not across the whole vacancy', () => {
+  const snap = {
+    month: '2026-11',
+    currency: 'USD',
+    fetchedAt: '2026-11-23T09:00:00.000Z',
+    ads: {
+      a: { campaignId: 'c', campaignName: 'Vacancies November26', name: 'nov26_AI Motion designer_concept1_stat_v1_cv' },
+      b: { campaignId: 'c', campaignName: 'Vacancies November26', name: 'nov26_AI Motion designer_concept2_stat_v1_cv' },
+      c: { campaignId: 'c', campaignName: 'Vacancies November26', name: 'nov26_AI Motion designer_concept1_stat_v1_no_cv' },
+      d: { campaignId: 'c', campaignName: 'Vacancies November26', name: 'nov26_AI Motion designer_concept2_stat_v1_no_cv' },
+    },
+    rows: [
+      ...rowsFor('a', 3, 10, 30, { impressions: 3000, clicks: 300 }), // cv: big spend, high CTR
+      ...rowsFor('b', 3, 10, 5, { impressions: 3000, clicks: 30 }), //  cv: small, low CTR -> weakest of cv
+      ...rowsFor('c', 3, 10, 1, { impressions: 3000, clicks: 90 }), // no_cv: tiny but the top of its own test
+      ...rowsFor('d', 3, 10, 0.5, { impressions: 3000, clicks: 30 }), // no_cv: weakest of its test
+    ],
+  }
+  const motion = buildReport({ snapshot: snap, typeFilter: 'vac', today: '2026-11-23' }).vacancies[0]
+  const label = (id) => motion.platforms[0].creatives.find((item) => item.adId === id).label
+
+  assert.deepEqual(motion.platforms[0].tests.map((test) => test.label), ['З CV', 'Без CV'])
+  assert.deepEqual([label('a'), label('b'), label('c'), label('d')], ['leader', 'weak', 'leader', 'weak'])
 })
