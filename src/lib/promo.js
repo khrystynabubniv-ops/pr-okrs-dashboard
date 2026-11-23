@@ -28,7 +28,7 @@ export const PROMO_TYPES = {
 export const CREATIVE_LABELS = {
   leader: { text: 'лідер', tone: 'good' },
   retest: { text: 'перетестувати', tone: 'accent' },
-  weak: { text: 'слабкий', tone: 'warn' },
+  weak: { text: 'найслабший', tone: 'warn' },
 }
 
 export const PROMO_README_URL =

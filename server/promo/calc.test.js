@@ -140,3 +140,17 @@ test('labelCreatives: an evenly split budget still gets a leader, and weak is ju
   assert.equal(byId.b, 'leader')
   assert.equal(byId.c, 'weak')
 })
+
+test('labelCreatives: exactly one weakest ad, the lowest CTR with enough impressions', () => {
+  const labeled = labelCreatives([
+    creative('lead', 100, 10000, 300), // 3.0%
+    creative('mid', 50, 6000, 150), // 2.5%
+    creative('low', 40, 5000, 80), // 1.6%
+    creative('tiny', 2, 400, 0), // too few impressions to judge
+  ])
+  const byId = Object.fromEntries(labeled.map((item) => [item.adId, item.label]))
+
+  assert.deepEqual(byId, { lead: 'leader', mid: '', low: 'weak', tiny: '' })
+  // A single ad has nothing to be weaker than.
+  assert.equal(labelCreatives([creative('solo', 10, 5000, 50)])[0].label, 'leader')
+})

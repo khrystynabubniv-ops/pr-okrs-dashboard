@@ -26,7 +26,6 @@ export const LABEL_THRESHOLDS = {
   leaderMinSharePct: 40,
   retestMinImpressions: 300,
   weakMinImpressions: 1000,
-  weakCtrRatio: 0.5,
 }
 
 function typeByKeyword(text) {
@@ -199,25 +198,28 @@ export function labelCreatives(creatives, thresholds = LABEL_THRESHOLDS) {
       item.spend > 0 && (item.spend === topSpend || item.sharePct >= thresholds.leaderMinSharePct),
   )
   const leaderCtr = leaders.length ? Math.max(...leaders.map((item) => item.ctr)) : null
+  const isRetest = (item) =>
+    leaderCtr !== null &&
+    item.impressions >= thresholds.retestMinImpressions &&
+    item.ctr >= leaderCtr
+
+  // The weakest ad of the group: the lowest CTR among the ads that got enough impressions
+  // (leaders and "retest" ads excluded). Needs at least two ads in the group to be meaningful.
+  const candidates = withShare.filter(
+    (item) =>
+      !leaders.includes(item) && !isRetest(item) && item.impressions >= thresholds.weakMinImpressions,
+  )
+  const weakest =
+    creatives.length >= 2 && leaders.length
+      ? candidates.reduce((worst, item) => (!worst || item.ctr < worst.ctr ? item : worst), null)
+      : null
 
   return withShare.map((item) => {
     let label = ''
 
-    if (leaders.includes(item)) {
-      label = 'leader'
-    } else if (
-      leaderCtr !== null &&
-      item.impressions >= thresholds.retestMinImpressions &&
-      item.ctr >= leaderCtr
-    ) {
-      label = 'retest'
-    } else if (
-      leaderCtr !== null &&
-      item.impressions >= thresholds.weakMinImpressions &&
-      item.ctr < leaderCtr * thresholds.weakCtrRatio
-    ) {
-      label = 'weak'
-    }
+    if (leaders.includes(item)) label = 'leader'
+    else if (isRetest(item)) label = 'retest'
+    else if (item === weakest) label = 'weak'
 
     return { ...item, label }
   })
