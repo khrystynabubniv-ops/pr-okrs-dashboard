@@ -228,3 +228,23 @@ test('one campaign with many vacancies is split into vacancy cards by ad name', 
   // Vacancy filter now has data; subscribers/awareness do not pick these ads up.
   assert.equal(buildReport({ snapshot: container, typeFilter: 'subs', today: '2026-11-23' }).counts.creatives, 0)
 })
+
+test('vacancies that ran on Meta come first; LinkedIn-only vacancies go below them', () => {
+  const mixed = {
+    ...snapshot,
+    linkedin: {
+      ...snapshot.linkedin,
+      ads: {
+        ...snapshot.linkedin.ads,
+        only: { campaignId: 'lc9', campaignName: 'UNI | Вакансія | LinkedIn Only Role | 11.2026', name: 'LI only' },
+      },
+      rows: [...snapshot.linkedin.rows, ...rowsFor('only', 3, 19, 500)], // biggest spend overall
+    },
+  }
+  const vacancies = buildVacancies(buildCampaigns(mixed, 'vac'), { monthKey: '2026-11', today: '2026-11-20' })
+
+  assert.deepEqual(vacancies.map((vacancy) => vacancy.key), ['ai motion designer', 'data analyst', 'linkedin only role'])
+  assert.deepEqual(vacancies[2].platforms.map((block) => block.platform), ['linkedin'])
+  // On a vacancy that ran on both, Meta stays above LinkedIn.
+  assert.deepEqual(vacancies[0].platforms.map((block) => block.platform), ['meta', 'linkedin'])
+})

@@ -191,7 +191,13 @@ export function labelCreatives(creatives, thresholds = LABEL_THRESHOLDS) {
     ...item,
     sharePct: campaignSpend ? (item.spend / campaignSpend) * 100 : 0,
   }))
-  const leaders = withShare.filter((item) => item.sharePct >= thresholds.leaderMinSharePct)
+  // The biggest spender of the group is always a leader (Meta gave it the budget), even when the
+  // budget is spread evenly; any other ad above the share threshold is a leader too.
+  const topSpend = Math.max(0, ...withShare.map((item) => item.spend))
+  const leaders = withShare.filter(
+    (item) =>
+      item.spend > 0 && (item.spend === topSpend || item.sharePct >= thresholds.leaderMinSharePct),
+  )
   const leaderCtr = leaders.length ? Math.max(...leaders.map((item) => item.ctr)) : null
 
   return withShare.map((item) => {
@@ -465,7 +471,12 @@ export function buildVacancies(campaigns, { applies = {}, monthKey, today = toda
         platforms: blocks,
       }
     })
-    .sort((a, b) => b.spend - a.spend)
+    .sort((a, b) => {
+      // Vacancies that ran on Meta (alone or with LinkedIn) first, LinkedIn-only ones below them.
+      const aMeta = a.platforms.some((block) => block.platform === 'meta') ? 0 : 1
+      const bMeta = b.platforms.some((block) => block.platform === 'meta') ? 0 : 1
+      return aMeta - bMeta || b.spend - a.spend
+    })
 }
 
 function pctChange(current, previous) {

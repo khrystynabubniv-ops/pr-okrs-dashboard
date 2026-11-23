@@ -127,3 +127,16 @@ test('buildReport computes subscriber cost and deltas only as percentages', () =
   const subs = buildReport({ snapshot, typeFilter: 'subs', today: '2026-11-19' })
   assert.equal(subs.kpis.cpf, 0.25)
 })
+
+test('labelCreatives: an evenly split budget still gets a leader, and weak is judged against it', () => {
+  const labeled = labelCreatives([
+    creative('a', 82, 4500, 80), // top spender, CTR 1.8%
+    creative('b', 82, 5200, 130), // equal spend, CTR 2.5%
+    creative('c', 30, 3000, 20), // CTR 0.7%: under half of the leader's CTR
+  ])
+  const byId = Object.fromEntries(labeled.map((item) => [item.adId, item.label]))
+
+  assert.equal(byId.a, 'leader')
+  assert.equal(byId.b, 'leader')
+  assert.equal(byId.c, 'weak')
+})
