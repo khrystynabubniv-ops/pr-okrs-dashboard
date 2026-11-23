@@ -1,6 +1,7 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   PROMO_TYPES,
+  appliesWord,
   formatCompactNumber,
   formatDelta,
   formatInt,
@@ -9,8 +10,6 @@ import {
   formatUnitMoney,
 } from '../../lib/promo'
 import { CodeBadge, Panel, TypeTag } from './PromoParts'
-
-const NO_ASHBY_HINT = 'Інтеграції з Ashby ще немає'
 
 function kpiTiles(report) {
   const { kpis, currency, type } = report
@@ -38,7 +37,14 @@ function kpiTiles(report) {
   ]
 
   if (type === 'vac') {
-    tiles.push({ label: 'Заявки в Ashby', value: '—', hint: NO_ASHBY_HINT })
+    const missing = kpis.vacanciesMissingApplies
+    tiles.push({
+      label: 'Еплаї',
+      value: kpis.vacanciesCount && missing < kpis.vacanciesCount ? formatInt(kpis.applies) : '—',
+      hint: missing
+        ? `не внесено для ${missing} ${missing === 1 ? 'вакансії' : 'вакансій'}`
+        : 'вносяться вручну по вакансіях',
+    })
   } else if (type === 'aw') {
     tiles.push({
       label: 'Охоплення',
@@ -99,6 +105,9 @@ function WeekTooltip({ active, payload, label, currency }) {
 }
 
 function typeResult(row, currency) {
+  if (row.type === 'vac') {
+    return row.applies ? `${appliesWord(row.applies)} · ${row.platforms.join(' + ')}` : '—'
+  }
   if (row.type === 'subs') {
     return row.follows ? `+${formatInt(row.follows)} · ${formatUnitMoney(row.cpf, currency)}/підп.` : '—'
   }

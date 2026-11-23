@@ -10,7 +10,7 @@ import {
 
 const MAX_IMAGES = 8
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024
-const ALLOWED_IMAGE_HOST = /(^|\.)(fbcdn\.net|facebook\.com|fbsbx\.com|cdninstagram\.com)$/i
+const ALLOWED_IMAGE_HOST = /(^|\.)(fbcdn\.net|facebook\.com|fbsbx\.com|cdninstagram\.com|licdn\.com)$/i
 const UTM_MEASURE_TIP =
   'Додавати в посилання кожного оголошення utm_content з назвою оголошення — тоді заявки в Ashby можна буде рахувати по креативах, а не лише по кампанії.'
 
@@ -18,9 +18,9 @@ const SYSTEM_PROMPT = [
   'Ти senior performance/creative аналітик в employer branding команді. Пиши українською, конкретно, з цифрами, без води і загальних порад.',
   'Критичне правило: усі числа вже пораховані кодом у JSON. Не рахуй і не вигадуй нові числа, використовуй лише ті, що є у вхідних даних.',
   'Аналізуй і візуал (прев\'ю додані як зображення, підписані ad_id), і текст оголошення. Стиль висновків: «Реальна людина в дії + чекліст "Ти наш кандидат, якщо"», «Студійний портрет без контексту — CTR 1.7% проти 15.7%», «AI лише для сцен, обличчя — реалістичні».',
-  'У прикладах використовуй ТІЛЬКИ ad_id зі вхідних даних.',
+  'У прикладах використовуй ТІЛЬКИ пари platform + ad_id зі вхідних даних (platform: meta або linkedin). Креативи є з двох платформ: Meta Ads і LinkedIn. Якщо є обидві, порівнюй їх (вартість кліку, CTR, які ролі де працюють), але не вигадуй причин, яких немає в даних.',
   'Поверни тільки валідний JSON без markdown і code fence за схемою:',
-  '{"key":[{"title":"...","text":"..."}],"works":[{"kind":"visual|text","title":"...","examples":[{"ad_id":"..."}],"conclusion":"..."}],"fails":[{"kind":"visual|text","title":"...","examples":[{"ad_id":"..."}],"conclusion":"..."}],"recs":{"brief":["..."],"scale_stop_retest":["..."],"measure":["..."]}}',
+  '{"key":[{"title":"...","text":"..."}],"works":[{"kind":"visual|text","title":"...","examples":[{"platform":"meta|linkedin","ad_id":"..."}],"conclusion":"..."}],"fails":[{"kind":"visual|text","title":"...","examples":[{"platform":"meta|linkedin","ad_id":"..."}],"conclusion":"..."}],"recs":{"brief":["..."],"scale_stop_retest":["..."],"measure":["..."]}}',
   'key: 3–5 пунктів (якщо даних мало — менше). works і fails: до 4 кожен, у кожному 1–2 приклади. recs.brief — що закладати в ТЗ; recs.scale_stop_retest — що масштабувати, зупинити, перетестувати; recs.measure — як міряти далі.',
   'Для типів «Підписники» і «Awareness», де даних мало, замість brief/scale_stop_retest можна дати recs.repeat («Повторюємо») і recs.dont_repeat («Не повторюємо»), recs.measure залиш.',
   'Якщо даних замало для висновку — чесно скажи про це, а не вигадуй.',
@@ -32,6 +32,7 @@ function trimText(value, max) {
 
 function aiInput(campaigns, currency) {
   return campaigns.map((campaign) => ({
+    platform: campaign.platform || 'meta',
     campaign: campaign.title,
     full_name: campaign.name,
     type: CAMPAIGN_TYPES[campaign.type].label,
@@ -42,6 +43,7 @@ function aiInput(campaigns, currency) {
     ...(campaign.follows ? { followers: campaign.follows, cost_per_follower: Number(campaign.cpf.toFixed(2)) } : {}),
     currency,
     creatives: campaign.creatives.map((item) => ({
+      platform: item.platform || 'meta',
       ad_id: item.adId,
       name: item.name,
       format: item.creative?.kind || 'photo',
@@ -93,7 +95,9 @@ async function collectImages(campaigns) {
     const image = await downloadImage(item.creative.thumbnailUrl)
     if (!image) continue
     images.push(image)
-    captions.push(`Зображення ${images.length}: ad_id ${item.adId} (${item.label})`)
+    captions.push(
+      `Зображення ${images.length}: platform ${item.platform || 'meta'}, ad_id ${item.adId} (${item.label})`,
+    )
   }
 
   return { images, captions }
@@ -118,7 +122,10 @@ export function validateAnalysis(raw, campaigns) {
 
   const creativesById = new Map(
     campaigns.flatMap((campaign) =>
-      campaign.creatives.map((item) => [item.adId, { ...item, campaignTitle: campaign.title }]),
+      campaign.creatives.map((item) => [
+        `${item.platform || 'meta'}:${item.adId}`,
+        { ...item, campaignTitle: campaign.title },
+      ]),
     ),
   )
 
@@ -134,10 +141,21 @@ export function validateAnalysis(raw, campaigns) {
         title: trimText(item?.title, 160),
         conclusion: trimText(item?.conclusion, 600),
         examples: (Array.isArray(item?.examples) ? item.examples : [])
-          .map((example) => String(example?.ad_id ?? ''))
-          .filter((adId, index, all) => creativesById.has(adId) && all.indexOf(adId) === index)
+          .map((example) => ({
+            platform: example?.platform === 'linkedin' ? 'linkedin' : 'meta',
+            adId: String(example?.ad_id ?? ''),
+          }))
+          .filter(
+            (example, index, all) =>
+              creativesById.has(`${example.platform}:${example.adId}`) &&
+              all.findIndex((other) => other.platform === example.platform && other.adId === example.adId) === index,
+          )
           .slice(0, 2)
-          .map((adId) => ({ ad_id: adId, metric: exampleMetric(creativesById.get(adId)) })),
+          .map((example) => ({
+            platform: example.platform,
+            ad_id: example.adId,
+            metric: exampleMetric(creativesById.get(`${example.platform}:${example.adId}`)),
+          })),
       }))
       .filter((item) => item.title && item.conclusion && item.examples.length)
       .slice(0, 4)

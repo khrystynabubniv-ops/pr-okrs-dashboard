@@ -7,6 +7,7 @@
 //   4. video lengths via ?ids=...            (optional, failures are ignored)
 
 import { monthRange, todayIso } from './calc.js'
+import { createLinkedInClient, getLinkedInConfig } from './linkedin.js'
 
 const INSIGHT_FIELDS = [
   'campaign_id',
@@ -121,6 +122,7 @@ export function createPromoSync({
 }) {
   const inflight = new Map()
   const lastErrors = new Map()
+  const linkedinClient = createLinkedInClient({ createHttpError })
 
   async function fetchPaged(config, firstUrl, message) {
     const rows = []
@@ -220,6 +222,43 @@ export function createPromoSync({
     }
   }
 
+  // LinkedIn is optional and independent: whatever happens here, the Meta part of the snapshot is saved.
+  // On failure the previous LinkedIn data is kept (marked as stale with its own date).
+  async function syncLinkedInPart(monthKey, range, metaCurrency) {
+    const config = getLinkedInConfig()
+    if (!config) return undefined
+
+    const previous = (await store.getSnapshot(monthKey))?.linkedin
+    const kept = previous
+      ? {
+          currency: previous.currency,
+          campaigns: previous.campaigns || {},
+          ads: previous.ads || {},
+          rows: previous.rows || [],
+          asOf: previous.asOf,
+        }
+      : { campaigns: {}, ads: {}, rows: [] }
+
+    try {
+      const data = await linkedinClient.syncLinkedIn(config, range)
+
+      if (data.currency !== metaCurrency) {
+        return {
+          status: 'error',
+          message: `Валюта LinkedIn-кабінету (${data.currency}) відрізняється від Meta (${metaCurrency}): суми не можна об'єднати.`,
+          campaigns: {},
+          ads: {},
+          rows: [],
+        }
+      }
+
+      return { status: 'ok', asOf: new Date().toISOString(), ...data }
+    } catch (error) {
+      console.error('LinkedIn sync failed:', error.message)
+      return { ...kept, status: 'error', message: error.message }
+    }
+  }
+
   async function runSync(monthKey) {
     const config = getMetaAdsConfig()
     const range = monthRange(monthKey, todayIso())
@@ -285,13 +324,17 @@ export function createPromoSync({
         })
       }
 
+      const currency = rawRows.find((row) => row.account_currency)?.account_currency || 'USD'
+      const linkedin = await syncLinkedInPart(monthKey, range, currency)
+
       return await store.saveSnapshot(monthKey, {
-        currency: rawRows.find((row) => row.account_currency)?.account_currency || 'USD',
+        currency,
         rows,
         ads,
         campaignReach,
         videoMetrics,
         range,
+        ...(linkedin ? { linkedin } : {}),
       })
     } catch (error) {
       throw mapAdsError(error, { createHttpError })

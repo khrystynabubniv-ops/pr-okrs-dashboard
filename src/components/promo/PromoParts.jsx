@@ -1,6 +1,12 @@
 import { useState } from 'react'
 import { Code2, ImageOff, Play, Sparkles } from 'lucide-react'
-import { CREATIVE_LABELS, PROMO_TYPES, formatDuration } from '../../lib/promo'
+import {
+  CREATIVE_LABELS,
+  KIND_LABELS,
+  PLATFORM_LABELS,
+  PROMO_TYPES,
+  formatDuration,
+} from '../../lib/promo'
 
 export function CodeBadge() {
   return (
@@ -64,7 +70,7 @@ export function CreativePreview({ creative, label = true, large = false, onClick
       ) : (
         <span className="pr-preview-empty">
           <ImageOff />
-          Немає прев’ю
+          {creative.platform === 'linkedin' ? KIND_LABELS[creative.kind] || 'Оголошення' : 'Немає прев’ю'}
         </span>
       )}
       {label && creative.label ? (
@@ -92,6 +98,23 @@ export function CreativePreview({ creative, label = true, large = false, onClick
     <button type="button" className={className} onClick={onClick} aria-label={ariaLabel}>
       {content}
     </button>
+  )
+}
+
+export function PlatformIcon({ platform }) {
+  return (
+    <span className={`pr-platform-icon pr-platform-${platform}`} aria-hidden="true">
+      {platform === 'linkedin' ? 'in' : 'M'}
+    </span>
+  )
+}
+
+export function PlatformBadge({ platform }) {
+  return (
+    <span className="pr-platform-badge">
+      <PlatformIcon platform={platform} />
+      {PLATFORM_LABELS[platform]}
+    </span>
   )
 }
 

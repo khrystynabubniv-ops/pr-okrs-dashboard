@@ -58,7 +58,7 @@ const campaigns = [
   {
     title: 'AI Motion Designer',
     creatives: [
-      { adId: '1', name: 'A', ctr: 15.7, cpc: 0.2, follows: 0, clicks: 10, label: 'leader' },
+      { adId: '1', platform: 'meta', name: 'A', ctr: 15.7, cpc: 0.2, follows: 0, clicks: 10, label: 'leader' },
     ],
   },
 ]
@@ -81,11 +81,46 @@ test('validateAnalysis drops unknown ad_ids, recomputes metrics and enforces the
     campaigns,
   )
 
-  assert.deepEqual(result.works[0].examples, [{ ad_id: '1', metric: 'CTR 15.7% · 0.20/клік' }])
+  assert.deepEqual(result.works[0].examples, [
+    { platform: 'meta', ad_id: '1', metric: 'CTR 15.7% · 0.20/клік' },
+  ])
   assert.equal(result.fails.length, 0)
   assert.ok(result.recs.measure.some((tip) => tip.includes('utm_content')))
 })
 
 test('validateAnalysis rejects an answer with no usable findings', () => {
   assert.throws(() => validateAnalysis({ key: [], works: [], fails: [] }, campaigns))
+})
+
+test('validateAnalysis keeps platform: same ad_id on LinkedIn only counts when it exists there', () => {
+  const both = [
+    {
+      title: 'Data Analyst',
+      creatives: [
+        { adId: '7', platform: 'meta', name: 'M', ctr: 5, cpc: 0.1, follows: 0, clicks: 10, label: 'leader' },
+        { adId: '8', platform: 'linkedin', name: 'L', ctr: 0.5, cpc: 2, follows: 0, clicks: 3, label: '' },
+      ],
+    },
+  ]
+  const result = validateAnalysis(
+    {
+      key: [{ title: 'Платформи', text: 'LinkedIn дорожчий' }],
+      works: [],
+      fails: [
+        {
+          kind: 'text',
+          title: 'LinkedIn клік у 20× дорожчий',
+          conclusion: 'Лишаємо для senior',
+          examples: [{ platform: 'linkedin', ad_id: '8' }, { platform: 'linkedin', ad_id: '7' }, { ad_id: '7' }],
+        },
+      ],
+      recs: {},
+    },
+    both,
+  )
+
+  assert.deepEqual(
+    result.fails[0].examples.map((example) => `${example.platform}:${example.ad_id}`),
+    ['linkedin:8', 'meta:7'],
+  )
 })

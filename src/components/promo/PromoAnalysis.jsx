@@ -1,16 +1,17 @@
 import { RefreshCw } from 'lucide-react'
 import { CREATIVE_LABELS, findCreative, formatAnalysisDate } from '../../lib/promo'
-import { AiBadge, Panel } from './PromoParts'
+import { AiBadge, Panel, PlatformIcon } from './PromoParts'
 
 function ExampleButton({ example, report, onOpen }) {
-  const found = findCreative(report, example.ad_id)
+  const platform = example.platform || 'meta'
+  const found = findCreative(report, platform, example.ad_id)
   if (!found) return null
 
-  const { creative, campaign } = found
+  const { creative, context } = found
   const label = CREATIVE_LABELS[creative.label]?.text
 
   return (
-    <button type="button" className="pr-example" onClick={() => onOpen(creative, campaign)}>
+    <button type="button" className="pr-example" onClick={() => onOpen(creative)}>
       <span className="pr-example-thumb">
         {creative.thumbnailUrl ? (
           <img src={creative.thumbnailUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />
@@ -19,7 +20,7 @@ function ExampleButton({ example, report, onOpen }) {
       <span className="pr-example-name">
         {creative.name}
         <small>
-          {campaign.title}
+          <PlatformIcon platform={platform} /> {context.title}
           {label ? ` · ${label}` : ''}
         </small>
       </span>
@@ -35,7 +36,7 @@ function Finding({ finding, report, onOpen }) {
       <h4>{finding.title}</h4>
       <div className="pr-examples">
         {finding.examples.map((example) => (
-          <ExampleButton key={example.ad_id} example={example} report={report} onOpen={onOpen} />
+          <ExampleButton key={`${example.platform || 'meta'}:${example.ad_id}`} example={example} report={report} onOpen={onOpen} />
         ))}
       </div>
       <p>

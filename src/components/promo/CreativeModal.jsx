@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, Trash2, X } from 'lucide-react'
 import { apiRequest } from '../../lib/api'
 import {
+  PLATFORM_LABELS,
+  commentsPath,
   formatAnalysisDate,
   formatCompactNumber,
   formatInt,
@@ -37,7 +39,7 @@ function fullMetrics(creative, currency) {
   return metrics
 }
 
-function Comments({ adId, focus, onCountChange }) {
+function Comments({ platform, adId, focus, onCountChange }) {
   const [comments, setComments] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [draft, setDraft] = useState('')
@@ -55,11 +57,11 @@ function Comments({ adId, focus, onCountChange }) {
   useEffect(() => {
     let active = true
 
-    apiRequest(`/api/promo/creatives/${encodeURIComponent(adId)}/comments`, { forceRefresh: true })
+    apiRequest(commentsPath(platform, adId), { forceRefresh: true })
       .then((payload) => {
         if (!active) return
         setComments(payload.comments || [])
-        countChangeRef.current(adId, (payload.comments || []).length)
+        countChangeRef.current(platform, adId, (payload.comments || []).length)
       })
       .catch((requestError) => {
         if (active) setLoadError(requestError.message)
@@ -68,7 +70,7 @@ function Comments({ adId, focus, onCountChange }) {
     return () => {
       active = false
     }
-  }, [adId])
+  }, [platform, adId])
 
   useEffect(() => {
     if (focus && comments) {
@@ -85,14 +87,14 @@ function Comments({ adId, focus, onCountChange }) {
     setError('')
 
     try {
-      const payload = await apiRequest(`/api/promo/creatives/${encodeURIComponent(adId)}/comments`, {
+      const payload = await apiRequest(commentsPath(platform, adId), {
         method: 'POST',
         body: JSON.stringify({ text }),
       })
       const next = [...(comments || []), payload.comment]
       setComments(next)
       setDraft('')
-      onCountChange(adId, next.length)
+      onCountChange(platform, adId, next.length)
     } catch (requestError) {
       setError(requestError.message)
     } finally {
@@ -104,12 +106,12 @@ function Comments({ adId, focus, onCountChange }) {
     setError('')
 
     try {
-      await apiRequest(`/api/promo/creatives/${encodeURIComponent(adId)}/comments/${comment.id}`, {
+      await apiRequest(commentsPath(platform, adId, comment.id), {
         method: 'DELETE',
       })
       const next = comments.filter((item) => item.id !== comment.id)
       setComments(next)
-      onCountChange(adId, next.length)
+      onCountChange(platform, adId, next.length)
     } catch (requestError) {
       setError(requestError.message)
     }
@@ -186,7 +188,7 @@ function Comments({ adId, focus, onCountChange }) {
   )
 }
 
-export function CreativeModal({ creative, campaign, report, focusComments, onClose, onCountChange }) {
+export function CreativeModal({ creative, context, report, focusComments, onClose, onCountChange }) {
   useEffect(() => {
     function handleKeyDown(event) {
       if (event.key === 'Escape') onClose()
@@ -197,6 +199,11 @@ export function CreativeModal({ creative, campaign, report, focusComments, onClo
   }, [onClose])
 
   const text = [creative.title, creative.body].filter(Boolean).join('\n\n')
+  // "AI Motion Designer · LinkedIn" for vacancies, the campaign name (+ platform) otherwise.
+  const heading =
+    context.type === 'vac' || context.platform === 'linkedin'
+      ? `${context.title} · ${PLATFORM_LABELS[context.platform]}`
+      : context.title
 
   return (
     <div
@@ -209,8 +216,8 @@ export function CreativeModal({ creative, campaign, report, focusComments, onClo
         <div className="er-modal-head">
           <div className="er-detail-title-group">
             <div className="er-detail-meta">
-              <TypeTag type={campaign.type} />
-              <span>{campaign.title}</span>
+              <TypeTag type={context.type} />
+              <span>{heading}</span>
               <LabelPill label={creative.label} />
             </div>
             <h2>{creative.name}</h2>
@@ -239,13 +246,18 @@ export function CreativeModal({ creative, campaign, report, focusComments, onClo
                   rel="noreferrer"
                 >
                   <ExternalLink className="er-button-icon" />
-                  Відкрити в Ads Manager
+                  {context.platform === 'linkedin' ? 'Відкрити в Campaign Manager' : 'Відкрити в Ads Manager'}
                 </a>
               ) : null}
             </div>
           </div>
 
-          <Comments adId={creative.adId} focus={focusComments} onCountChange={onCountChange} />
+          <Comments
+            platform={creative.platform}
+            adId={creative.adId}
+            focus={focusComments}
+            onCountChange={onCountChange}
+          />
         </div>
       </div>
     </div>

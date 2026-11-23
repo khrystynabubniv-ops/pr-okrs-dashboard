@@ -1,7 +1,17 @@
 // Express routes for the Promo Results page (mounted from server/index.js).
 
-import { buildReport, isMonthKey, normalizeTypeFilter, previousMonthKey, todayIso } from './calc.js'
+import {
+  PLATFORMS,
+  buildCampaigns,
+  buildReport,
+  isMonthKey,
+  normalizeTypeFilter,
+  previousMonthKey,
+  todayIso,
+  vacancyKey,
+} from './calc.js'
 import { createPromoAnalysis } from './analysis.js'
+import { getLinkedInConfig } from './linkedin.js'
 import { createPromoStore } from './store.js'
 import { createPromoSync } from './sync.js'
 
@@ -9,6 +19,7 @@ const SYNC_RETRY_COOLDOWN_MS = 10 * 60 * 1000
 const LIVE_MONTH_GRACE_DAYS = 7 // Meta keeps adjusting numbers for a few days after month end
 const AD_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 const MAX_COMMENT_LENGTH = 2000
+const MAX_APPLIES = 100000
 
 export function registerPromoRoutes(app, deps) {
   const { asyncHandler, createHttpError, requireAuth, generateJsonViaAi, isAiConfigured } = deps
@@ -25,6 +36,12 @@ export function registerPromoRoutes(app, deps) {
     const month = String(request.query.month || '').trim()
     if (!isMonthKey(month)) throw createHttpError(400, 'Передайте month у форматі YYYY-MM.')
     return month
+  }
+
+  function readPlatform(request) {
+    const platform = String(request.query.platform || 'meta').trim().toLowerCase()
+    if (!PLATFORMS.includes(platform)) throw createHttpError(400, 'platform має бути meta або linkedin.')
+    return platform
   }
 
   // Only the current month (and the first days of the next one) is refreshed automatically.
@@ -59,7 +76,11 @@ export function registerPromoRoutes(app, deps) {
     }
 
     const age = Date.now() - Date.parse(snapshot.fetchedAt)
-    if (isLiveMonth(monthKey) && age > ttlMs() && !sync.isSyncing(monthKey) && !recentlyFailed(monthKey)) {
+    // A snapshot saved before LinkedIn was connected has no `linkedin` part: fill it in once.
+    const missingLinkedIn = Boolean(getLinkedInConfig()) && snapshot.linkedin === undefined
+    const due = age > ttlMs() || missingLinkedIn
+
+    if (isLiveMonth(monthKey) && due && !sync.isSyncing(monthKey) && !recentlyFailed(monthKey)) {
       syncAndAnalyse(monthKey).catch(() => {}) // failure is remembered by sync and surfaced as staleReason
     }
 
@@ -85,47 +106,81 @@ export function registerPromoRoutes(app, deps) {
     }
   }
 
-  function adsManagerUrl(adId) {
+  function adUrl(platform, creative) {
+    if (platform === 'linkedin') {
+      const account = getLinkedInConfig()?.accountId
+      return account && creative.campaignId
+        ? `https://www.linkedin.com/campaignmanager/accounts/${encodeURIComponent(account)}/campaigns/${encodeURIComponent(creative.campaignId)}`
+        : ''
+    }
+
     const account = String(process.env.META_AD_ACCOUNT_ID || '').replace(/^act_/, '')
     return account
-      ? `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${encodeURIComponent(account)}&selected_ad_ids=${encodeURIComponent(adId)}`
+      ? `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${encodeURIComponent(account)}&selected_ad_ids=${encodeURIComponent(creative.adId)}`
       : ''
   }
 
+  function presentCreative(item, counts) {
+    return {
+      adId: item.adId,
+      platform: item.platform,
+      campaignId: item.campaignId,
+      name: item.name,
+      kind: item.creative.kind || 'photo',
+      objectType: item.creative.objectType || '',
+      thumbnailUrl: item.creative.thumbnailUrl || '',
+      durationSec: item.creative.durationSec || 0,
+      title: item.creative.title || '',
+      body: item.creative.body || '',
+      status: item.status,
+      adsManagerUrl: adUrl(item.platform, item),
+      spend: item.spend,
+      sharePct: item.sharePct,
+      impressions: item.impressions,
+      clicks: item.clicks,
+      ctr: item.ctr,
+      cpc: item.cpc,
+      follows: item.follows,
+      cpf: item.cpf,
+      hookRate: item.hookRate,
+      holdRate: item.holdRate,
+      label: item.label,
+      commentsCount: counts[`${item.platform}:${item.adId}`] || 0,
+    }
+  }
+
   async function presentReport({ snapshot, previousSnapshot, type, staleReason }) {
-    const report = buildReport({ snapshot, previousSnapshot, typeFilter: type })
-    const adIds = report.campaigns.flatMap((campaign) => campaign.creatives.map((item) => item.adId))
-    const counts = await store.commentCounts(adIds)
+    const applies = await store.listApplies(snapshot.month)
+    const report = buildReport({
+      snapshot,
+      previousSnapshot,
+      typeFilter: type,
+      applies,
+      linkedinConfigured: Boolean(getLinkedInConfig()),
+    })
+    const creatives = report.campaigns.flatMap((campaign) => campaign.creatives)
+    const counts = await store.commentCounts(
+      creatives.map((item) => ({ platform: item.platform, adId: item.adId })),
+    )
+
+    // `campaigns` stays internal: the response carries vacancies and the other campaigns.
+    const { campaigns: _internal, ...rest } = report
+    void _internal
 
     return {
-      ...report,
+      ...rest,
       staleReason: staleReason || '',
       videoMetrics: Boolean(snapshot.videoMetrics),
-      campaigns: report.campaigns.map((campaign) => ({
-        ...campaign,
-        creatives: campaign.creatives.map((item) => ({
-          adId: item.adId,
-          name: item.name,
-          kind: item.creative.kind || 'photo',
-          thumbnailUrl: item.creative.thumbnailUrl || '',
-          durationSec: item.creative.durationSec || 0,
-          title: item.creative.title || '',
-          body: item.creative.body || '',
-          status: item.status,
-          adsManagerUrl: adsManagerUrl(item.adId),
-          spend: item.spend,
-          sharePct: item.sharePct,
-          impressions: item.impressions,
-          clicks: item.clicks,
-          ctr: item.ctr,
-          cpc: item.cpc,
-          follows: item.follows,
-          cpf: item.cpf,
-          hookRate: item.hookRate,
-          holdRate: item.holdRate,
-          label: item.label,
-          commentsCount: counts[item.adId] || 0,
+      vacancies: report.vacancies.map((vacancy) => ({
+        ...vacancy,
+        platforms: vacancy.platforms.map((block) => ({
+          ...block,
+          creatives: block.creatives.map((item) => presentCreative(item, counts)),
         })),
+      })),
+      otherCampaigns: report.otherCampaigns.map((campaign) => ({
+        ...campaign,
+        creatives: campaign.creatives.map((item) => presentCreative(item, counts)),
       })),
     }
   }
@@ -155,6 +210,36 @@ export function registerPromoRoutes(app, deps) {
 
     const previousSnapshot = await loadPreviousSnapshot(month)
     response.json(await presentReport({ snapshot, previousSnapshot, type, staleReason }))
+  }))
+
+  app.put('/api/promo/vacancies/:vacancyKey/applies', requireAuth, asyncHandler(async (request, response) => {
+    const month = readMonth(request)
+    const key = vacancyKey(request.params.vacancyKey)
+    const raw = request.body?.applies
+    let applies = null
+
+    if (raw !== null && raw !== undefined && raw !== '') {
+      applies = Number(raw)
+      if (!Number.isInteger(applies) || applies < 0 || applies > MAX_APPLIES) {
+        throw createHttpError(400, 'Еплаї мають бути цілим числом від 0.')
+      }
+    }
+
+    const snapshot = await store.getSnapshot(month)
+    const vacancy = snapshot
+      ? buildCampaigns(snapshot, 'vac').find((campaign) => vacancyKey(campaign.title) === key)
+      : null
+    if (!vacancy) throw createHttpError(404, 'Вакансію не знайдено серед кампаній цього місяця.')
+
+    const saved = await store.setApplies({
+      monthKey: month,
+      vacancyKey: key,
+      title: vacancy.title,
+      applies,
+      userId: request.user?.id,
+    })
+
+    response.json({ key, applies: saved })
   }))
 
   app.get('/api/promo/analysis', asyncHandler(async (request, response) => {
@@ -191,7 +276,7 @@ export function registerPromoRoutes(app, deps) {
   }
 
   app.get('/api/promo/creatives/:adId/comments', asyncHandler(async (request, response) => {
-    const comments = await store.listComments(readAdId(request))
+    const comments = await store.listComments(readPlatform(request), readAdId(request))
     const userId = request.user?.id || null
 
     response.json({
@@ -203,6 +288,7 @@ export function registerPromoRoutes(app, deps) {
   }))
 
   app.post('/api/promo/creatives/:adId/comments', requireAuth, asyncHandler(async (request, response) => {
+    const platform = readPlatform(request)
     const adId = readAdId(request)
     const text = String(request.body?.text || '').trim()
 
@@ -212,6 +298,7 @@ export function registerPromoRoutes(app, deps) {
     }
 
     const comment = await store.addComment({
+      platform,
       adId,
       authorId: request.user?.id || null,
       authorName: request.user?.name || request.user?.email || 'Команда',
@@ -223,6 +310,7 @@ export function registerPromoRoutes(app, deps) {
 
   app.delete('/api/promo/creatives/:adId/comments/:id', requireAuth, asyncHandler(async (request, response) => {
     const result = await store.deleteComment({
+      platform: readPlatform(request),
       adId: readAdId(request),
       id: String(request.params.id || ''),
       userId: request.user?.id || null,

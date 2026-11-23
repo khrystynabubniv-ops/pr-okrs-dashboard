@@ -1,14 +1,5 @@
-import { MessageSquare } from 'lucide-react'
-import {
-  campaignMetrics,
-  campaignMonthWord,
-  commentsLabel,
-  creativeMetrics,
-  formatMoney,
-  formatInt,
-  pluralUk,
-} from '../../lib/promo'
-import { AiBadge, CodeBadge, CreativePreview, Panel, TypeTag } from './PromoParts'
+import { pluralUk } from '../../lib/promo'
+import { AiBadge, CodeBadge, Panel } from './PromoParts'
 
 export function PromoDid({ report }) {
   return (
@@ -55,88 +46,6 @@ export function PromoKey({ report, analysis }) {
       ) : (
         <p className="pr-quiet">Для цього типу кампаній за обраний місяць висновків ще немає</p>
       )}
-    </Panel>
-  )
-}
-
-function CreativeCard({ creative, campaign, currency, onOpen }) {
-  const metrics = creativeMetrics(creative, campaign.type, currency)
-
-  return (
-    <article className="pr-creative">
-      <CreativePreview
-        creative={creative}
-        onClick={() => onOpen(creative, campaign)}
-        ariaLabel={`Прев’ю: ${creative.name}`}
-      />
-      <div>
-        <h4 className="pr-creative-name">{creative.name}</h4>
-        <p className="pr-creative-share">
-          {formatMoney(creative.spend, currency)} · {Math.round(creative.sharePct)}% бюджету
-        </p>
-      </div>
-      <div className="pr-creative-metrics">
-        {metrics.map((metric) => (
-          <div key={metric.label}>
-            <span>{metric.label}</span>
-            <strong>{metric.value}</strong>
-          </div>
-        ))}
-      </div>
-      <button
-        type="button"
-        className={`pr-comment-chip${creative.commentsCount ? ' has' : ''}`}
-        onClick={() => onOpen(creative, campaign, { focusComments: true })}
-      >
-        <MessageSquare />
-        {commentsLabel(creative.commentsCount)}
-      </button>
-    </article>
-  )
-}
-
-export function PromoCampaigns({ report, onOpen }) {
-  const { currency } = report
-
-  return (
-    <Panel title="Креативи по кампаніях" aside={<span className="pr-panel-note">клік по прев’ю відкриває деталі</span>}>
-      <div className="pr-campaigns">
-        {report.campaigns.map((campaign) => (
-          <div className="pr-campaign" key={campaign.id}>
-            <div className="pr-campaign-head">
-              <TypeTag type={campaign.type} />
-              <h3>
-                {campaign.title}
-                {campaign.type !== 'other' ? ` · ${campaignMonthWord(report.month)}` : ''}
-              </h3>
-              <p className="pr-campaign-name">{campaign.name}</p>
-              <div className="pr-campaign-metrics">
-                {campaignMetrics(campaign, currency).map((metric) => (
-                  <div key={metric.label}>
-                    <span>{metric.label}</span>
-                    <strong>{metric.value}</strong>
-                  </div>
-                ))}
-              </div>
-              <p className="pr-campaign-count">
-                {formatInt(campaign.creatives.length)}{' '}
-                {pluralUk(campaign.creatives.length, 'креатив', 'креативи', 'креативів')}
-              </p>
-            </div>
-            <div className="pr-creatives">
-              {campaign.creatives.map((creative) => (
-                <CreativeCard
-                  key={creative.adId}
-                  creative={creative}
-                  campaign={campaign}
-                  currency={currency}
-                  onOpen={onOpen}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
     </Panel>
   )
 }

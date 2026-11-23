@@ -210,7 +210,100 @@ export function formatMoney(value, currency = 'USD') {
   })}`
 }
 
-// ---------- report ----------
+// ---------- platforms, campaigns, vacancies ----------
+
+export const PLATFORMS = ['meta', 'linkedin']
+const PLATFORM_LABELS = { meta: 'Meta Ads', linkedin: 'LinkedIn' }
+
+// "AI  Motion «Designer»" -> "ai motion designer": one vacancy across platforms.
+export function vacancyKey(title) {
+  return String(title || '')
+    .toLowerCase()
+    .replace(/["'“”„«»‘’`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// LinkedIn campaigns follow the same name template, but only vacancies are tracked there:
+// anything else (other types or a name that does not parse) stays "Не розпізнано".
+function resolveCampaignType(platform, name) {
+  const parsed = parseCampaignName(name)
+  if (platform === 'linkedin' && parsed.type !== 'vac') return { type: 'other', title: String(name || '').trim() }
+  return parsed
+}
+
+function platformSources(snapshot) {
+  const sources = [
+    { platform: 'meta', rows: snapshot?.rows || [], ads: snapshot?.ads || {}, campaignReach: snapshot?.campaignReach },
+  ]
+  const linkedin = snapshot?.linkedin
+
+  if (linkedin && Array.isArray(linkedin.rows) && linkedin.rows.length) {
+    sources.push({ platform: 'linkedin', rows: linkedin.rows, ads: linkedin.ads || {}, campaignReach: null })
+  }
+
+  return sources
+}
+
+function groupPlatformCampaigns({ platform, rows, ads, campaignReach }, typeFilter) {
+  const byAd = new Map()
+
+  rows.forEach((row) => {
+    if (!byAd.has(row.adId)) byAd.set(row.adId, { totals: emptyTotals(), first: '', last: '' })
+    const entry = byAd.get(row.adId)
+    addRow(entry.totals, row)
+
+    if ((Number(row.spend) || 0) > 0) {
+      if (!entry.first || row.date < entry.first) entry.first = row.date
+      if (!entry.last || row.date > entry.last) entry.last = row.date
+    }
+  })
+
+  const byCampaign = new Map()
+
+  byAd.forEach((entry, adId) => {
+    const ad = ads[adId] || {}
+    const campaignId = ad.campaignId || `unknown-${adId}`
+    const resolved = resolveCampaignType(platform, ad.campaignName)
+
+    if (typeFilter !== 'all' && resolved.type !== typeFilter) return
+
+    if (!byCampaign.has(campaignId)) {
+      byCampaign.set(campaignId, {
+        id: campaignId,
+        platform,
+        name: ad.campaignName || '',
+        title: resolved.title,
+        type: resolved.type,
+        creatives: [],
+        firstDate: '',
+        lastDate: '',
+      })
+    }
+
+    const campaign = byCampaign.get(campaignId)
+    campaign.creatives.push({
+      adId,
+      platform,
+      campaignId,
+      name: ad.name || adId,
+      ...withRatios(entry.totals),
+      creative: ad.creative || {},
+      status: ad.effectiveStatus || ad.status || '',
+    })
+    if (entry.first && (!campaign.firstDate || entry.first < campaign.firstDate)) campaign.firstDate = entry.first
+    if (entry.last && (!campaign.lastDate || entry.last > campaign.lastDate)) campaign.lastDate = entry.last
+  })
+
+  return [...byCampaign.values()].map((campaign) => {
+    const totals = campaign.creatives.reduce((sum, item) => addRow(sum, item), emptyTotals())
+    const labeled = labelCreatives(campaign.creatives).sort((a, b) => b.spend - a.spend)
+    // Daily reach is not additive, so prefer Meta's campaign-level reach for the month.
+    const reach = campaignReach?.[campaign.id] ?? totals.reach
+
+    return { ...campaign, ...withRatios(totals), reach, creatives: labeled }
+  })
+}
 
 function sortCampaigns(campaigns) {
   return campaigns.sort((a, b) =>
@@ -220,57 +313,10 @@ function sortCampaigns(campaigns) {
   )
 }
 
-// Group snapshot rows into campaigns > creatives with totals and labels.
+// Meta + LinkedIn campaigns of the selected type. LinkedIn never carries "subs"/"aw",
+// so those filters naturally show Meta only.
 export function buildCampaigns(snapshot, typeFilter = 'all') {
-  const ads = snapshot?.ads || {}
-  const byAd = new Map()
-
-  ;(snapshot?.rows || []).forEach((row) => {
-    if (!byAd.has(row.adId)) byAd.set(row.adId, emptyTotals())
-    addRow(byAd.get(row.adId), row)
-  })
-
-  const byCampaign = new Map()
-
-  byAd.forEach((totals, adId) => {
-    const ad = ads[adId] || {}
-    const campaignId = ad.campaignId || `unknown-${adId}`
-    const parsed = parseCampaignName(ad.campaignName)
-
-    if (typeFilter !== 'all' && parsed.type !== typeFilter) return
-
-    if (!byCampaign.has(campaignId)) {
-      byCampaign.set(campaignId, {
-        id: campaignId,
-        name: ad.campaignName || '',
-        title: parsed.title,
-        type: parsed.type,
-        creatives: [],
-      })
-    }
-
-    byCampaign.get(campaignId).creatives.push({
-      adId,
-      name: ad.name || adId,
-      ...withRatios(totals),
-      creative: ad.creative || {},
-      status: ad.effectiveStatus || ad.status || '',
-    })
-  })
-
-  const campaigns = [...byCampaign.values()].map((campaign) => {
-    const totals = campaign.creatives.reduce(
-      (sum, item) => addRow(sum, item),
-      emptyTotals(),
-    )
-    const labeled = labelCreatives(campaign.creatives).sort((a, b) => b.spend - a.spend)
-
-    // Daily reach is not additive, so prefer Meta's campaign-level reach for the month.
-    const reach = snapshot?.campaignReach?.[campaign.id] ?? totals.reach
-
-    return { ...campaign, ...withRatios(totals), reach, creatives: labeled }
-  })
-
+  const campaigns = platformSources(snapshot).flatMap((source) => groupPlatformCampaigns(source, typeFilter))
   return sortCampaigns(campaigns)
 }
 
@@ -281,6 +327,91 @@ export function totalsOf(campaigns) {
   const followSpend = followCampaigns.reduce((sum, campaign) => sum + campaign.spend, 0)
 
   return { ...ratios, cpf: totals.follows ? followSpend / totals.follows : 0 }
+}
+
+function daysBetween(fromIso, toIso) {
+  return Math.round((Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / 86400000)
+}
+
+// Days with spend > 0. "Still running" = the month is the current one and the last spend was
+// yesterday or today; then `end` is null ("зараз"). Days are counted to the last spend day.
+function runWindow(firstDate, lastDate, monthKey, today) {
+  if (!firstDate || !lastDate) return { start: '', end: null, days: 0, lastDate: '' }
+
+  const running = today.slice(0, 7) === monthKey && lastDate >= addDays(today, -1)
+  return {
+    start: firstDate,
+    end: running ? null : lastDate,
+    days: daysBetween(firstDate, lastDate) + 1,
+    lastDate,
+  }
+}
+
+function platformBlock(platform, campaigns, monthKey, today) {
+  const spend = campaigns.reduce((sum, campaign) => sum + campaign.spend, 0)
+  const clicks = campaigns.reduce((sum, campaign) => sum + campaign.clicks, 0)
+  const impressions = campaigns.reduce((sum, campaign) => sum + campaign.impressions, 0)
+  const firstDate = campaigns.map((c) => c.firstDate).filter(Boolean).sort()[0] || ''
+  const lastDate = campaigns.map((c) => c.lastDate).filter(Boolean).sort().at(-1) || ''
+  const campaignNames = campaigns.map((campaign) => campaign.name)
+
+  return {
+    platform,
+    label: PLATFORM_LABELS[platform],
+    campaigns: campaignNames,
+    ...runWindow(firstDate, lastDate, monthKey, today),
+    spend,
+    clicks,
+    impressions,
+    ctr: impressions ? (clicks / impressions) * 100 : 0,
+    cpc: clicks ? spend / clicks : 0,
+    creatives: campaigns
+      .flatMap((campaign) => campaign.creatives)
+      .sort((a, b) => b.spend - a.spend),
+  }
+}
+
+// One card per vacancy, regardless of how many platforms ran it.
+export function buildVacancies(campaigns, { applies = {}, monthKey, today = todayIso() }) {
+  const groups = new Map()
+
+  campaigns
+    .filter((campaign) => campaign.type === 'vac')
+    .forEach((campaign) => {
+      const key = vacancyKey(campaign.title)
+      if (!groups.has(key)) groups.set(key, { key, title: campaign.title, campaigns: [] })
+      groups.get(key).campaigns.push(campaign)
+    })
+
+  return [...groups.values()]
+    .map((group) => {
+      const blocks = PLATFORMS.map((platform) => {
+        const list = group.campaigns.filter((campaign) => campaign.platform === platform)
+        return list.length ? platformBlock(platform, list, monthKey, today) : null
+      }).filter(Boolean)
+
+      const spend = blocks.reduce((sum, block) => sum + block.spend, 0)
+      const clicks = blocks.reduce((sum, block) => sum + block.clicks, 0)
+      const start = blocks.map((block) => block.start).filter(Boolean).sort()[0] || ''
+      const lastDate = blocks.map((block) => block.lastDate).filter(Boolean).sort().at(-1) || ''
+      const running = blocks.some((block) => block.start && block.end === null)
+      const entered = applies[group.key]
+      const hasApplies = entered !== undefined && entered !== null
+
+      return {
+        key: group.key,
+        title: group.title,
+        start,
+        end: running ? null : lastDate || null,
+        days: start && lastDate ? daysBetween(start, lastDate) + 1 : 0,
+        spend,
+        clicks,
+        applies: hasApplies ? entered : null,
+        costPerApply: hasApplies && entered > 0 ? spend / entered : null,
+        platforms: blocks,
+      }
+    })
+    .sort((a, b) => b.spend - a.spend)
 }
 
 function pctChange(current, previous) {
@@ -304,15 +435,16 @@ export function buildDeltas(current, previous) {
 
 export function buildWeeks(snapshot, typeFilter, range) {
   const weeks = weeksInRange(range)
-  const ads = snapshot?.ads || {}
   const series = Object.fromEntries(TYPE_ORDER.map((type) => [type, weeks.map(() => 0)]))
 
-  ;(snapshot?.rows || []).forEach((row) => {
-    const type = parseCampaignName(ads[row.adId]?.campaignName).type
-    if (typeFilter !== 'all' && type !== typeFilter) return
+  platformSources(snapshot).forEach((source) => {
+    source.rows.forEach((row) => {
+      const type = resolveCampaignType(source.platform, source.ads[row.adId]?.campaignName).type
+      if (typeFilter !== 'all' && type !== typeFilter) return
 
-    const index = weeks.findIndex((week) => row.date >= week.start && row.date <= week.end)
-    if (index !== -1) series[type][index] += Number(row.spend) || 0
+      const index = weeks.findIndex((week) => row.date >= week.start && row.date <= week.end)
+      if (index !== -1) series[type][index] += Number(row.spend) || 0
+    })
   })
 
   return {
@@ -322,7 +454,9 @@ export function buildWeeks(snapshot, typeFilter, range) {
   }
 }
 
-export function buildByType(campaigns) {
+export function buildByType(campaigns, vacancies = []) {
+  const applies = vacancies.reduce((sum, vacancy) => sum + (vacancy.applies || 0), 0)
+
   return TYPE_ORDER.map((type) => {
     const list = campaigns.filter((campaign) => campaign.type === type)
     if (!list.length) return null
@@ -340,6 +474,10 @@ export function buildByType(campaigns) {
       follows: totals.follows,
       cpf: totals.cpf,
       reach: totals.reach,
+      platforms: PLATFORMS.filter((platform) => list.some((campaign) => campaign.platform === platform)).map(
+        (platform) => PLATFORM_LABELS[platform],
+      ),
+      ...(type === 'vac' ? { applies } : {}),
     }
   }).filter(Boolean)
 }
@@ -352,13 +490,32 @@ export function buildDid(campaigns, currency) {
   const creativesCount = (list) => list.reduce((sum, c) => sum + c.creatives.length, 0)
   const creativesText = (count) =>
     `${count} ${plural(count, 'креатив', 'креативи', 'креативів')}`
+  const adsText = (count) => `${count} ${plural(count, 'оголошення', 'оголошення', 'оголошень')}`
 
   const vac = campaigns.filter((campaign) => campaign.type === 'vac')
   if (vac.length) {
-    const spend = vac.reduce((sum, campaign) => sum + campaign.spend, 0)
+    const vacancyList = buildVacancies(vac, { monthKey: '' })
+    const meta = vac.filter((campaign) => campaign.platform === 'meta')
+    const linkedin = vac.filter((campaign) => campaign.platform === 'linkedin')
+    const linkedinVacancies = new Set(linkedin.map((campaign) => vacancyKey(campaign.title))).size
+    const parts = []
+
+    if (meta.length) {
+      parts.push(
+        `Meta: ${creativesText(creativesCount(meta))}, ${money(meta.reduce((sum, c) => sum + c.spend, 0))}`,
+      )
+    }
+    if (linkedin.length) {
+      parts.push(
+        `LinkedIn для ${linkedinVacancies} ${plural(linkedinVacancies, 'вакансії', 'вакансій', 'вакансій')}: ${adsText(
+          creativesCount(linkedin),
+        )}, ${money(linkedin.reduce((sum, c) => sum + c.spend, 0))}`,
+      )
+    }
+
     items.push({
-      lead: `Запустили ${vac.length} ${plural(vac.length, 'кампанію', 'кампанії', 'кампаній')} на вакансії`,
-      text: ` — ${names(vac)}: ${creativesText(creativesCount(vac))}, ${money(spend)}.`,
+      lead: `Просували ${vacancyList.length} ${plural(vacancyList.length, 'вакансію', 'вакансії', 'вакансій')}`,
+      text: ` — ${vacancyList.map((vacancy) => vacancy.title).join(', ')}. ${parts.join('; ')}.`,
     })
   }
 
@@ -384,16 +541,40 @@ export function buildDid(campaigns, currency) {
 
   const other = campaigns.filter((campaign) => campaign.type === 'other')
   if (other.length) {
+    const linkedinCount = other.filter((campaign) => campaign.platform === 'linkedin').length
     items.push({
       lead: `${other.length} ${plural(other.length, 'кампанію', 'кампанії', 'кампаній')} не розпізнано`,
-      text: ` — перейменуйте за шаблоном «UNI | Тип | Назва | ММ.РРРР», щоб вони потрапили у свій тип.`,
+      text: ` — перейменуйте за шаблоном «UNI | Тип | Назва | ММ.РРРР», щоб вони потрапили у свій тип${
+        linkedinCount ? ` (з них у LinkedIn: ${linkedinCount})` : ''
+      }.`,
     })
   }
 
   return items
 }
 
-export function buildReport({ snapshot, previousSnapshot, typeFilter = 'all', today = todayIso() }) {
+// Status block for the response: 'ok' | 'not_configured' | 'error' | 'pending'.
+export function describeLinkedIn(snapshot, configured) {
+  if (!configured) return { status: 'not_configured' }
+
+  const linkedin = snapshot?.linkedin
+  if (!linkedin) return { status: 'pending', message: 'Дані LinkedIn ще не завантажені.' }
+
+  return {
+    status: linkedin.status || 'ok',
+    ...(linkedin.message ? { message: linkedin.message } : {}),
+    ...(linkedin.asOf ? { asOf: linkedin.asOf } : {}),
+  }
+}
+
+export function buildReport({
+  snapshot,
+  previousSnapshot,
+  typeFilter = 'all',
+  today = todayIso(),
+  applies = {},
+  linkedinConfigured = false,
+}) {
   const type = normalizeTypeFilter(typeFilter)
   const monthKey = snapshot.month
   const range = monthRange(monthKey, today) || { since: monthFirstDay(monthKey), until: monthFirstDay(monthKey) }
@@ -402,6 +583,8 @@ export function buildReport({ snapshot, previousSnapshot, typeFilter = 'all', to
   const previousCampaigns = previousSnapshot ? buildCampaigns(previousSnapshot, type) : null
   const previousTotals = previousCampaigns?.length ? totalsOf(previousCampaigns) : null
   const currency = snapshot.currency || 'USD'
+  const vacancies = buildVacancies(campaigns, { applies, monthKey, today })
+  const missing = vacancies.filter((vacancy) => vacancy.applies === null).length
 
   return {
     month: monthKey,
@@ -414,11 +597,17 @@ export function buildReport({ snapshot, previousSnapshot, typeFilter = 'all', to
       ...totals,
       deltas: buildDeltas(totals, previousTotals),
       previousMonth: previousSnapshot?.month || previousMonthKey(monthKey),
+      applies: vacancies.reduce((sum, vacancy) => sum + (vacancy.applies || 0), 0),
+      vacanciesCount: vacancies.length,
+      vacanciesMissingApplies: missing,
     },
     weeks: buildWeeks(snapshot, type, range),
-    byType: buildByType(campaigns),
+    byType: buildByType(campaigns, vacancies),
     did: buildDid(campaigns, currency),
     campaigns,
+    vacancies,
+    otherCampaigns: campaigns.filter((campaign) => campaign.type !== 'vac'),
+    linkedin: describeLinkedIn(snapshot, linkedinConfigured),
     counts: {
       campaigns: campaigns.length,
       creatives: campaigns.reduce((sum, campaign) => sum + campaign.creatives.length, 0),
@@ -430,7 +619,7 @@ export function buildReport({ snapshot, previousSnapshot, typeFilter = 'all', to
 // Hash of what the AI sees: when it changes, the analysis is stale.
 export function analysisInputHash(campaigns) {
   const payload = campaigns.map((campaign) => ({
-    id: campaign.id,
+    id: `${campaign.platform || 'meta'}:${campaign.id}`,
     creatives: campaign.creatives.map((item) => [
       item.adId,
       Math.round(item.spend * 100),

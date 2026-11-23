@@ -194,11 +194,6 @@ export function campaignMetrics(campaign, currency) {
   ]
 }
 
-export function monthLabelFromKey(monthKey) {
-  const [year, month] = String(monthKey || '').split('-')
-  return MONTH_GENITIVE[Number(month) - 1] ? `${MONTH_GENITIVE[Number(month) - 1]} ${year}` : ''
-}
-
 export function campaignMonthWord(monthKey) {
   const names = [
     'Січень',
@@ -229,12 +224,110 @@ export function initials(name) {
   )
 }
 
-export function findCreative(report, adId) {
-  for (const campaign of report?.campaigns || []) {
-    const creative = campaign.creatives.find((item) => item.adId === adId)
-    if (creative) return { creative, campaign }
+export const PLATFORM_LABELS = { meta: 'Meta Ads', linkedin: 'LinkedIn' }
+
+// Placeholder text for ads without a preview (LinkedIn does not always give one).
+export const KIND_LABELS = {
+  photo: 'Single image',
+  carousel: 'Carousel',
+  document: 'Document',
+  video: 'Video',
+  text: 'Text',
+}
+
+// Finds a creative by (platform, adId) and returns it with what the modal header needs.
+export function findCreative(report, platform, adId) {
+  const wanted = platform || 'meta'
+
+  for (const vacancy of report?.vacancies || []) {
+    for (const block of vacancy.platforms) {
+      const creative = block.creatives.find((item) => item.platform === wanted && item.adId === adId)
+      if (creative) {
+        return { creative, context: { type: 'vac', title: vacancy.title, platform: block.platform } }
+      }
+    }
   }
+
+  for (const campaign of report?.otherCampaigns || []) {
+    const creative = campaign.creatives.find((item) => item.platform === wanted && item.adId === adId)
+    if (creative) {
+      return { creative, context: { type: campaign.type, title: campaign.title, platform: campaign.platform } }
+    }
+  }
+
   return null
+}
+
+export function dayWord(count) {
+  const n = Number(count) || 0
+  return `${n} ${pluralUk(n, 'день', 'дні', 'днів')}`
+}
+
+// '2026-11-03' -> '03.11'
+export function formatIsoDay(iso) {
+  return iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}` : ''
+}
+
+export function formatPeriod(start, end) {
+  return `${formatIsoDay(start)} – ${end ? formatIsoDay(end) : 'зараз'}`
+}
+
+export function appliesWord(count) {
+  const n = Number(count) || 0
+  return `${formatInt(n)} ${pluralUk(n, 'еплай', 'еплаї', 'еплаїв')}`
+}
+
+// Optimistic update of everything that depends on a vacancy's applies.
+export function applyApplies(report, key, value) {
+  const vacancies = report.vacancies.map((vacancy) =>
+    vacancy.key === key
+      ? { ...vacancy, applies: value, costPerApply: value > 0 ? vacancy.spend / value : null }
+      : vacancy,
+  )
+  const applies = vacancies.reduce((sum, vacancy) => sum + (vacancy.applies || 0), 0)
+
+  return {
+    ...report,
+    vacancies,
+    byType: report.byType.map((row) => (row.type === 'vac' ? { ...row, applies } : row)),
+    kpis: {
+      ...report.kpis,
+      applies,
+      vacanciesMissingApplies: vacancies.filter((vacancy) => vacancy.applies === null).length,
+    },
+  }
+}
+
+// Updates commentsCount for one creative everywhere in the report.
+export function applyCommentsCount(report, platform, adId, count) {
+  const update = (creatives) =>
+    creatives.map((creative) =>
+      creative.platform === platform && creative.adId === adId && creative.commentsCount !== count
+        ? { ...creative, commentsCount: count }
+        : creative,
+    )
+
+  return {
+    ...report,
+    vacancies: report.vacancies.map((vacancy) => ({
+      ...vacancy,
+      platforms: vacancy.platforms.map((block) => ({ ...block, creatives: update(block.creatives) })),
+    })),
+    otherCampaigns: report.otherCampaigns.map((campaign) => ({
+      ...campaign,
+      creatives: update(campaign.creatives),
+    })),
+  }
+}
+
+export function commentsPath(platform, adId, commentId = '') {
+  return `/api/promo/creatives/${encodeURIComponent(adId)}/comments${
+    commentId ? `/${encodeURIComponent(commentId)}` : ''
+  }?platform=${encodeURIComponent(platform || 'meta')}`
+}
+
+export function appliesPath(monthKey, vacancyKey) {
+  return `/api/promo/vacancies/${encodeURIComponent(vacancyKey)}/applies?month=${encodeURIComponent(monthKey)}`
 }
 
 export function promoReportPath(monthKey, type) {

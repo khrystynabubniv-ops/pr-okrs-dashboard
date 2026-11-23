@@ -89,6 +89,11 @@ META_FOLLOW_ACTION_TYPES=follow,onsite_conversion.follow
 META_ADS_TIMEOUT_MS=45000
 META_PROMO_MAX_PAGES=40
 PROMO_SNAPSHOT_TTL_HOURS=24
+LINKEDIN_ACCESS_TOKEN=
+LINKEDIN_AD_ACCOUNT_ID=
+LINKEDIN_API_VERSION=202611
+LINKEDIN_CURRENCY=USD
+LINKEDIN_TIMEOUT_MS=30000
 ```
 
 `NOTION_FOCUS_DB` можна залишити порожнім: тоді сервер створить базу `Comms Tool Monthly Focus` через Notion API. Якщо заданий `NOTION_PARENT_PAGE_ID`, база буде створена під цією сторінкою; інакше сервер спробує створити її на workspace-рівні. Після першого створення краще додати цей ID у Railway Variables як `NOTION_FOCUS_DB`.
@@ -109,7 +114,7 @@ PROMO_SNAPSHOT_TTL_HOURS=24
 
 ## Meta Ads (Promo page)
 
-Сторінка «Промо» (`/promo`) показує щомісячний звіт по рекламному кабінету Meta Ads: метрики, графік по тижнях, креативи по кампаніях, AI-аналіз «що працює / що ні» і коментарі команди.
+Сторінка «Промо» (`/promo`) показує щомісячний звіт по рекламі: метрики, графік по тижнях, вакансії по платформах (Meta Ads + LinkedIn), інші кампанії, AI-аналіз «що працює / що ні» і коментарі команди.
 
 Змінні:
 
@@ -121,9 +126,37 @@ PROMO_SNAPSHOT_TTL_HOURS=24
 
 Як це працює:
 
-- Тип кампанії береться з назви: `UNI | Вакансія | AI Motion Designer | 11.2026`. Другий сегмент — `Вакансія`, `Підписники` або `Awareness`; усе інше — «Не розпізнано». Мапа типів — `CAMPAIGN_TYPES` у `server/promo/calc.js`, пороги міток креативів — `LABEL_THRESHOLDS` там само.
+- Тип кампанії береться з назви (однаково для Meta і LinkedIn): `UNI | Вакансія | AI Motion Designer | 11.2026`. Другий сегмент — `Вакансія`, `Підписники` або `Awareness`; усе інше — «Не розпізнано». Мапа типів — `CAMPAIGN_TYPES` у `server/promo/calc.js`, пороги міток креативів — `LABEL_THRESHOLDS` там само.
 - Дані за місяць зберігаються в Postgres (`promo_snapshots`), тому сторінка працює, навіть якщо токен Meta протермінувався: тоді показуються останні дані зі жовтим банером. AI-аналіз (`promo_analyses`) і коментарі (`promo_creative_comments`, прив'язані до `ad_id`) теж у БД; для сторінки потрібен `DATABASE_URL`.
 - AI-аналіз використовує OpenRouter (`OPENROUTER_MODEL`, має підтримувати зображення) із запасним Anthropic, як і звіти по івентах.
+
+### Шаблон назви кампаній (Meta Ads і LinkedIn Campaign Manager)
+
+`UNI | <Тип> | <Назва> | ММ.РРРР`, наприклад `UNI | Вакансія | AI Motion Designer | 11.2026`.
+
+- Другий сегмент: `Вакансія`, `Підписники` або `Awareness`. У Meta працюють усі три типи.
+- У LinkedIn відстежуються тільки вакансії. Кампанії LinkedIn з іншим типом або без шаблону потрапляють в «Інші кампанії → Не розпізнано» з позначкою LinkedIn і порадою перейменувати.
+- Вакансія — це третій сегмент без урахування регістра, лапок і подвійних пробілів: `AI Motion Designer` у Meta і `"ai  motion designer"` у LinkedIn — одна вакансія з двома блоками платформ. Кілька кампаній однієї платформи для однієї вакансії (перезапуск) зводяться в один блок.
+- «Крутилась» і період рахуються по днях, коли витрати були більшими за нуль: окремо по платформі та по вакансії (від найранішого початку до найпізнішого кінця). Для поточного місяця кінець показується як «зараз», якщо витрати були вчора або сьогодні.
+- Еплаї вводяться вручну на картці вакансії (за місяць) і зберігаються в БД (`promo_vacancy_applies`). З них рахується ціна еплаю й KPI «Еплаї».
+
+### LinkedIn Marketing API
+
+Змінні: `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_AD_ACCOUNT_ID` (числовий id рекламного акаунта), `LINKEDIN_API_VERSION` (заголовок `Linkedin-Version`, формат `YYYYMM`, за замовчуванням `202611`), `LINKEDIN_CURRENCY` (валюта, якщо API кабінету її не повернув) і `LINKEDIN_TIMEOUT_MS`. Без токена й акаунта LinkedIn просто не підключений: сторінка працює лише з Meta і показує невеликий жовтий банер.
+
+Як отримати токен:
+
+1. У [LinkedIn Developer Portal](https://www.linkedin.com/developers/apps) відкрийте (або створіть) додаток, прив'язаний до сторінки компанії, і запросіть доступ до продукту Advertising API (Marketing).
+2. Згенеруйте 3-legged OAuth токен для користувача, який має роль у рекламному акаунті (мінімум `VIEWER`), зі scopes `r_ads` і `r_ads_reporting`. Для тексту оголошень (best-effort) знадобиться ще `r_organization_social`.
+3. Id акаунта візьміть з URL Campaign Manager (`.../accounts/<id>/...`) і запишіть у `LINKEDIN_AD_ACCOUNT_ID`.
+4. Токен має обмежений термін дії: коли сторінка покаже «LinkedIn: токен не працює», згенеруйте новий і оновіть `LINKEDIN_ACCESS_TOKEN` у Railway Variables.
+
+Що важливо знати:
+
+- Кліки LinkedIn — `landingPageClicks` (запасний варіант — `clicks`), витрати — `costInLocalCurrency` (поля `costInUsd` у документації немає). Валюта LinkedIn-кабінету має збігатися з Meta, інакше суми не додаються і LinkedIn позначається помилкою.
+- Статистика береться з `adAnalytics` (`pivot=CREATIVE`, `timeGranularity=DAILY`) пачками по 20 кампаній, кампанії й креативи — з `adCampaigns` і `creatives`.
+- Прев'ю оголошення API віддає лише з версії `202610` (`metadata.assetURL`), текст оголошення — через Posts API з додатковим scope. Якщо їх немає, на картці плейсхолдер з типом (single image / carousel / video / text), а AI аналізує метрики й назву.
+- Якщо LinkedIn не відповів, дані Meta показуються як раніше, а LinkedIn — останні збережені зі своєю датою.
 
 ### Перепідключення Meta
 

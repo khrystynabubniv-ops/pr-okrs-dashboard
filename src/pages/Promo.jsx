@@ -1,13 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ExternalLink, Megaphone, RefreshCw } from 'lucide-react'
 import { CreativeModal } from '../components/promo/CreativeModal'
 import { PromoAnalysis } from '../components/promo/PromoAnalysis'
 import { PromoDynamics, PromoKpis } from '../components/promo/PromoMetrics'
-import { PromoCampaigns, PromoDid, PromoKey } from '../components/promo/PromoNarrative'
+import { PromoCampaigns } from '../components/promo/PromoCampaigns'
+import { PromoDid, PromoKey } from '../components/promo/PromoNarrative'
+import { PromoVacancies } from '../components/promo/PromoVacancies'
 import { apiRequest } from '../lib/api'
 import {
   PROMO_README_URL,
   PROMO_TYPE_FILTERS,
+  appliesPath,
+  applyApplies,
+  applyCommentsCount,
   findCreative,
   formatDayMonth,
   formatTime,
@@ -22,6 +27,29 @@ import './Promo.css'
 
 const ANALYSIS_POLL_MS = 6000
 
+function linkedInMessage(status) {
+  if (status.status === 'not_configured') return 'LinkedIn не підключено — показуємо тільки Meta.'
+  if (status.status === 'pending') return 'Дані LinkedIn ще завантажуються — поки показуємо тільки Meta.'
+  if (status.asOf) return `LinkedIn не оновився — показуємо його дані станом на ${formatDayMonth(status.asOf)}.`
+  return /токен/i.test(status.message || '')
+    ? 'LinkedIn: токен не працює — показуємо тільки Meta.'
+    : 'LinkedIn не вдалося оновити — показуємо тільки Meta.'
+}
+
+function LinkedInBanner({ status }) {
+  if (!status || status.status === 'ok') return null
+
+  return (
+    <div className="pr-banner pr-banner-small" role="status">
+      <AlertTriangle />
+      <div>
+        <strong>{linkedInMessage(status)}</strong>
+        {status.message ? <p>{status.message}</p> : null}
+      </div>
+    </div>
+  )
+}
+
 export function PromoPage({ selectedMonth }) {
   const monthKey = promoMonthKey(selectedMonth)
   const [type, setType] = useState('all')
@@ -30,6 +58,8 @@ export function PromoPage({ selectedMonth }) {
   const [syncError, setSyncError] = useState('')
   const [rerunning, setRerunning] = useState(false)
   const [analysisError, setAnalysisError] = useState('')
+  const [appliesState, setAppliesState] = useState('')
+  const pendingApplies = useRef(new Map())
 
   const report = useAsyncData(
     () => (monthKey ? apiRequest(promoReportPath(monthKey, type)) : Promise.resolve(null)),
@@ -103,25 +133,72 @@ export function PromoPage({ selectedMonth }) {
     }
   }
 
-  function handleCountChange(adId, count) {
-    report.setData((current) => {
-      if (!current) return current
+  function handleCountChange(platform, adId, count) {
+    report.setData((current) => (current ? applyCommentsCount(current, platform, adId, count) : current))
+  }
 
-      return {
-        ...current,
-        campaigns: current.campaigns.map((campaign) => ({
-          ...campaign,
-          creatives: campaign.creatives.map((creative) =>
-            creative.adId === adId && creative.commentsCount !== count
-              ? { ...creative, commentsCount: count }
-              : creative,
-          ),
-        })),
-      }
+  async function saveApplies(month, key, value) {
+    setAppliesState('збереження…')
+
+    try {
+      await apiRequest(appliesPath(month, key), {
+        method: 'PUT',
+        body: JSON.stringify({ applies: value }),
+      })
+      setAppliesState('збережено')
+    } catch (error) {
+      setAppliesState(`не збережено: ${error.message}`)
+    }
+  }
+
+  function flushApplies(key) {
+    const entry = pendingApplies.current.get(key)
+    if (!entry) return
+
+    window.clearTimeout(entry.timer)
+    pendingApplies.current.delete(key)
+    void saveApplies(entry.month, key, entry.value)
+  }
+
+  // Applies are typed by hand: update everything instantly, save ~600 ms after the last keystroke or on blur.
+  function handleApplies(vacancy, raw) {
+    const value = raw === '' ? null : Math.max(0, Math.floor(Number(raw)))
+    if (value !== null && !Number.isFinite(value)) return
+
+    report.setData((current) => (current ? applyApplies(current, vacancy.key, value) : current))
+    setAppliesState('')
+
+    const previous = pendingApplies.current.get(vacancy.key)
+    if (previous) window.clearTimeout(previous.timer)
+    const timer = window.setTimeout(() => flushApplies(vacancy.key), 600)
+    pendingApplies.current.set(vacancy.key, { timer, value, month: monthKey })
+  }
+
+  // Do not lose a value typed right before leaving the page or switching the month.
+  useEffect(() => {
+    const pending = pendingApplies.current
+
+    return () => {
+      pending.forEach((entry, key) => {
+        window.clearTimeout(entry.timer)
+        apiRequest(appliesPath(entry.month, key), {
+          method: 'PUT',
+          body: JSON.stringify({ applies: entry.value }),
+        }).catch(() => {})
+      })
+      pending.clear()
+    }
+  }, [monthKey])
+
+  function openCreative(creative, options) {
+    setSelected({
+      platform: creative.platform,
+      adId: creative.adId,
+      focusComments: Boolean(options?.focusComments),
     })
   }
 
-  const found = selected && data ? findCreative(data, selected.adId) : null
+  const found = selected && data ? findCreative(data, selected.platform, selected.adId) : null
   const isEmpty = data && data.counts.campaigns === 0
   const updatedText = data
     ? data.staleReason
@@ -183,6 +260,8 @@ export function PromoPage({ selectedMonth }) {
           </div>
         ) : null}
 
+        {data && (type === 'all' || type === 'vac') ? <LinkedInBanner status={data.linkedin} /> : null}
+
         {!monthKey ? (
           <div className="er-empty-state">
             <Megaphone className="er-empty-icon" />
@@ -230,12 +309,16 @@ export function PromoPage({ selectedMonth }) {
             <PromoDynamics report={data} />
             <PromoDid report={data} />
             <PromoKey report={data} analysis={analysis} />
-            <PromoCampaigns
-              report={data}
-              onOpen={(creative, _campaign, options) =>
-                setSelected({ adId: creative.adId, focusComments: Boolean(options?.focusComments) })
-              }
-            />
+            {data.vacancies.length ? (
+              <PromoVacancies
+                report={data}
+                saveState={appliesState}
+                onApplies={handleApplies}
+                onFlushApplies={(vacancy) => flushApplies(vacancy.key)}
+                onOpen={openCreative}
+              />
+            ) : null}
+            {data.otherCampaigns.length ? <PromoCampaigns report={data} onOpen={openCreative} /> : null}
             <PromoAnalysis
               report={data}
               analysis={analysis}
@@ -243,16 +326,16 @@ export function PromoPage({ selectedMonth }) {
               canRun={data.counts.campaigns > 0}
               error={analysisError}
               onRun={handleRunAnalysis}
-              onOpen={(creative) => setSelected({ adId: creative.adId, focusComments: false })}
+              onOpen={openCreative}
             />
           </div>
         ) : null}
 
         {found ? (
           <CreativeModal
-            key={found.creative.adId}
+            key={`${found.creative.platform}:${found.creative.adId}`}
             creative={found.creative}
-            campaign={found.campaign}
+            context={found.context}
             report={data}
             focusComments={selected.focusComments}
             onClose={() => setSelected(null)}

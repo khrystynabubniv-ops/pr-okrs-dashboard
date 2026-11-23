@@ -90,36 +90,36 @@ export function createPromoStore({ createHttpError }) {
       }
     },
 
-    async listComments(adId) {
+    async listComments(platform, adId) {
       ready()
       const result = await query(
-        `select id, author_id, author_name, text, created_at
+        `select id, platform, ad_id, author_id, author_name, text, created_at
          from promo_creative_comments
-         where ad_id = $1 and deleted_at is null
+         where platform = $1 and ad_id = $2 and deleted_at is null
          order by created_at asc`,
-        [adId],
+        [platform, adId],
       )
       return result.rows.map(mapCommentRow)
     },
 
-    async addComment({ adId, authorId, authorName, text }) {
+    async addComment({ platform, adId, authorId, authorName, text }) {
       ready()
       const result = await query(
-        `insert into promo_creative_comments (ad_id, author_id, author_name, text)
-         values ($1, $2, $3, $4)
-         returning id, author_id, author_name, text, created_at`,
-        [adId, authorId || null, authorName, text],
+        `insert into promo_creative_comments (platform, ad_id, author_id, author_name, text)
+         values ($1, $2, $3, $4, $5)
+         returning id, platform, ad_id, author_id, author_name, text, created_at`,
+        [platform, adId, authorId || null, authorName, text],
       )
       return mapCommentRow(result.rows[0])
     },
 
     // Returns 'deleted', 'forbidden' or 'missing'.
-    async deleteComment({ adId, id, userId }) {
+    async deleteComment({ platform, adId, id, userId }) {
       ready()
       const found = await query(
         `select author_id from promo_creative_comments
-         where id::text = $1 and ad_id = $2 and deleted_at is null`,
-        [id, adId],
+         where id::text = $1 and platform = $2 and ad_id = $3 and deleted_at is null`,
+        [id, platform, adId],
       )
       const row = found.rows[0]
       if (!row) return 'missing'
@@ -131,18 +131,55 @@ export function createPromoStore({ createHttpError }) {
       return 'deleted'
     },
 
-    async commentCounts(adIds) {
+    // pairs: [{ platform, adId }] -> { 'platform:adId': count }
+    async commentCounts(pairs) {
       ready()
-      if (!adIds.length) return {}
+      if (!pairs.length) return {}
 
       const result = await query(
-        `select ad_id, count(*)::int as total
+        `select platform, ad_id, count(*)::int as total
          from promo_creative_comments
-         where ad_id = any($1::text[]) and deleted_at is null
-         group by ad_id`,
-        [adIds],
+         where platform = any($1::text[]) and ad_id = any($2::text[]) and deleted_at is null
+         group by platform, ad_id`,
+        [[...new Set(pairs.map((pair) => pair.platform))], [...new Set(pairs.map((pair) => pair.adId))]],
       )
-      return Object.fromEntries(result.rows.map((row) => [row.ad_id, row.total]))
+      return Object.fromEntries(result.rows.map((row) => [`${row.platform}:${row.ad_id}`, row.total]))
+    },
+
+    // { vacancyKey: applies } for one month.
+    async listApplies(monthKey) {
+      ready()
+      const result = await query(
+        `select vacancy_key, applies from promo_vacancy_applies where month = $1::date`,
+        [`${monthKey}-01`],
+      )
+      return Object.fromEntries(result.rows.map((row) => [row.vacancy_key, row.applies]))
+    },
+
+    // applies === null removes the value.
+    async setApplies({ monthKey, vacancyKey, title, applies, userId }) {
+      ready()
+
+      if (applies === null) {
+        await query(`delete from promo_vacancy_applies where month = $1::date and vacancy_key = $2`, [
+          `${monthKey}-01`,
+          vacancyKey,
+        ])
+        return null
+      }
+
+      const result = await query(
+        `insert into promo_vacancy_applies (month, vacancy_key, vacancy_title, applies, updated_by)
+         values ($1::date, $2, $3, $4, $5)
+         on conflict (month, vacancy_key)
+         do update set applies = excluded.applies,
+                       vacancy_title = excluded.vacancy_title,
+                       updated_by = excluded.updated_by,
+                       updated_at = now()
+         returning applies`,
+        [`${monthKey}-01`, vacancyKey, title || '', applies, userId || null],
+      )
+      return result.rows[0].applies
     },
   }
 }
@@ -150,6 +187,7 @@ export function createPromoStore({ createHttpError }) {
 function mapCommentRow(row) {
   return {
     id: row.id,
+    platform: row.platform,
     authorId: row.author_id || null,
     authorName: row.author_name || '',
     text: row.text,

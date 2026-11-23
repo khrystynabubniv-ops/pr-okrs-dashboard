@@ -16,6 +16,7 @@ export const BACKUP_TABLES = [
   'promo_snapshots',
   'promo_analyses',
   'promo_creative_comments',
+  'promo_vacancy_applies',
   'integration_sync_runs',
 ]
 
