@@ -69,7 +69,6 @@ export function vacancyChartModel(weeks) {
 
 export const CREATIVE_LABELS = {
   leader: { text: 'лідер', tone: 'good' },
-  retest: { text: 'перетестувати', tone: 'accent' },
   weak: { text: 'найслабший', tone: 'warn' },
 }
 

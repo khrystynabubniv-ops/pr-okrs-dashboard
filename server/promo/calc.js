@@ -24,7 +24,6 @@ export const FILTERABLE_TYPES = ['all', 'vac', 'subs', 'aw']
 // Creative labels (per vacancy / campaign).
 export const LABEL_THRESHOLDS = {
   leaderMinSharePct: 40,
-  retestMinImpressions: 300,
   weakMinImpressions: 1000,
 }
 
@@ -198,16 +197,13 @@ export function labelCreatives(creatives, thresholds = LABEL_THRESHOLDS) {
       item.spend > 0 && (item.spend === topSpend || item.sharePct >= thresholds.leaderMinSharePct),
   )
   const leaderCtr = leaders.length ? Math.max(...leaders.map((item) => item.ctr)) : null
-  const isRetest = (item) =>
-    leaderCtr !== null &&
-    item.impressions >= thresholds.retestMinImpressions &&
-    item.ctr >= leaderCtr
-
-  // The weakest ad of the group: the lowest CTR among the ads that got enough impressions
-  // (leaders and "retest" ads excluded). Needs at least two ads in the group to be meaningful.
+  // The weakest ad of the group: the lowest CTR among the ads that got enough impressions,
+  // and below the leader's CTR. Needs at least two ads in the group to be meaningful.
   const candidates = withShare.filter(
     (item) =>
-      !leaders.includes(item) && !isRetest(item) && item.impressions >= thresholds.weakMinImpressions,
+      !leaders.includes(item) &&
+      item.impressions >= thresholds.weakMinImpressions &&
+      item.ctr < leaderCtr,
   )
   const weakest =
     creatives.length >= 2 && leaders.length
@@ -218,7 +214,6 @@ export function labelCreatives(creatives, thresholds = LABEL_THRESHOLDS) {
     let label = ''
 
     if (leaders.includes(item)) label = 'leader'
-    else if (isRetest(item)) label = 'retest'
     else if (item === weakest) label = 'weak'
 
     return { ...item, label }
@@ -283,23 +278,35 @@ function platformSources(snapshot) {
   return sources
 }
 
-// A/B tests are encoded in the ad name after the vacancy: `..._cv` / `..._no_cv` (CV required or not)
-// and `..._general` / `..._лукалайк` (audience). Returns '' for a dimension the name does not mention.
-export function parseTestTags(adName) {
-  const parts = String(adName || '')
-    .split('_')
-    .map((part) => part.trim().toLowerCase())
-  const rest = parts.length >= 3 && AD_MONTH_TAG.test(parts[0]) ? parts.slice(2) : parts
-  const joined = `_${rest.join('_')}_`
+// A/B tests are encoded in names: `..._cv` / `..._no_cv` (CV required or not) and `..._general` /
+// `..._лукалай(к)` (audience). Looked up in the ad name first, then in the ad set name it ran in.
+// Returns '' for a dimension the text does not mention.
+function testTagsFromText(text) {
+  const joined = `_${String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9а-яіїєґ]+/g, '_')}_`
 
-  const cv = /_no_?cv_/.test(joined) ? 'no_cv' : /_cv_/.test(joined) ? 'cv' : ''
-  const audience = /_(lookalikes?|lal|лукалайк[^_]*)_/.test(joined)
+  const cv = /_(no|without|без)_?cv_/.test(joined) ? 'no_cv' : /_cv_/.test(joined) ? 'cv' : ''
+  const audience = /_(lookalikes?|look_a_likes?|lal|лукалай[^_]*)_/.test(joined)
     ? 'lookalike'
-    : /_(generals?|генерал[^_]*)_/.test(joined)
+    : /_(generals?|broad|генерал[^_]*|широк[^_]*)_/.test(joined)
       ? 'general'
       : ''
 
   return { cv, audience }
+}
+
+export function parseTestTags(adName, adsetName = '') {
+  const parts = String(adName || '')
+    .split('_')
+    .map((part) => part.trim())
+  // Skip `nov26_<Vacancy>` so a word in the vacancy name is not read as a tag.
+  const rest = parts.length >= 3 && AD_MONTH_TAG.test(parts[0]) ? parts.slice(2) : parts
+
+  const fromAd = testTagsFromText(rest.join('_'))
+  const fromAdset = testTagsFromText(adsetName)
+
+  return { cv: fromAd.cv || fromAdset.cv, audience: fromAd.audience || fromAdset.audience }
 }
 
 const TEST_LABELS = { cv: 'З CV', no_cv: 'Без CV', general: 'General', lookalike: 'Lookalike', other: 'Інше' }
@@ -308,7 +315,7 @@ const TEST_ORDER = ['cv', 'no_cv', 'general', 'lookalike', 'other']
 // Splits the ads of one vacancy into test arms. A dimension is a test only when its values differ
 // between ads (cv vs no_cv, general vs lookalike); otherwise the vacancy stays one group.
 export function splitIntoTests(creatives) {
-  const tags = creatives.map((item) => parseTestTags(item.name))
+  const tags = creatives.map((item) => parseTestTags(item.name, item.adsetName))
   const varies = (field) => new Set(tags.map((tag) => tag[field]).filter(Boolean)).size >= 2
   const useCv = varies('cv')
   const useAudience = varies('audience')
@@ -398,6 +405,7 @@ function groupPlatformCampaigns({ platform, rows, ads, campaignReach }, typeFilt
       platform,
       campaignId,
       name: ad.name || adId,
+      adsetName: ad.adsetName || '',
       ...withRatios(entry.totals),
       creative: ad.creative || {},
       status: ad.effectiveStatus || ad.status || '',

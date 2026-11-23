@@ -342,3 +342,27 @@ test('labels are calculated inside each test, not across the whole vacancy', () 
   assert.deepEqual(motion.platforms[0].tests.map((test) => test.label), ['З CV', 'Без CV'])
   assert.deepEqual([label('a'), label('b'), label('c'), label('d')], ['leader', 'weak', 'leader', 'weak'])
 })
+
+test('test tags: "лукалай" spelling and the ad set name as a fallback', () => {
+  assert.deepEqual(parseTestTags('nov26_UA Manager (Google Ads)_concept3_stat_v1_cv_лукалай'), { cv: 'cv', audience: 'lookalike' })
+  assert.deepEqual(parseTestTags('nov26_X_concept1_stat_v1_cv_lookalike'), { cv: 'cv', audience: 'lookalike' })
+
+  // The ad name says nothing: the ad set it ran in names the test.
+  assert.deepEqual(parseTestTags('nov26_X_concept1_stat_v1', 'AI Motion | no CV | UA'), { cv: 'no_cv', audience: '' })
+  assert.deepEqual(parseTestTags('nov26_X_concept1_stat_v1', 'Vacancies_General audience'), { cv: '', audience: 'general' })
+  assert.deepEqual(parseTestTags('nov26_X_concept1_stat_v1', 'Lookalike 1% UA'), { cv: '', audience: 'lookalike' })
+  // The ad name wins over the ad set.
+  assert.deepEqual(parseTestTags('nov26_X_concept1_stat_v1_cv', 'no CV'), { cv: 'cv', audience: '' })
+})
+
+test('ads without a tag in their name are placed by ad set instead of "Інше"', () => {
+  const ads = [
+    { adId: '1', name: 'nov26_X_concept1_stat_v1', adsetName: 'X | CV', spend: 10, impressions: 2000, clicks: 40, ctr: 2 },
+    { adId: '2', name: 'nov26_X_concept2_stat_v1', adsetName: 'X | no CV', spend: 10, impressions: 2000, clicks: 40, ctr: 2 },
+    { adId: '3', name: 'nov26_X_concept3_stat_v1_cv', adsetName: '', spend: 10, impressions: 2000, clicks: 40, ctr: 2 },
+  ]
+  const arms = splitIntoTests(ads)
+
+  assert.deepEqual(arms.map((arm) => arm.label), ['З CV', 'Без CV'])
+  assert.deepEqual(arms.map((arm) => arm.creatives.map((item) => item.adId)), [['1', '3'], ['2']])
+})
