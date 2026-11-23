@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildCampaigns, buildReport, buildVacancies, vacancyKey } from './calc.js'
+import {
+  buildCampaigns,
+  buildReport,
+  buildVacancies,
+  parseAdVacancy,
+  parseCampaignName,
+  vacancyKey,
+} from './calc.js'
 
 const day = (date) => `2026-11-${String(date).padStart(2, '0')}`
 
@@ -164,4 +171,60 @@ test('without LinkedIn data the report works as before and reports the status', 
     linkedinConfigured: true,
   })
   assert.deepEqual(failed.linkedin, { status: 'error', message: 'токен', asOf: '2026-11-18T00:00:00.000Z' })
+})
+
+test('campaigns without the template are recognized by keyword', () => {
+  assert.equal(parseCampaignName('Vacancies November26').type, 'vac')
+  assert.equal(parseCampaignName('Вакансії листопад').type, 'vac')
+  assert.equal(parseCampaignName('Instagram followers Q4').type, 'subs')
+  assert.equal(parseCampaignName('Brand awareness').type, 'aw')
+  assert.equal(parseCampaignName('Retargeting').type, 'other')
+  // the template still wins
+  assert.equal(parseCampaignName('UNI | Підписники | Vacancy tips | 11.2026').type, 'subs')
+})
+
+test('parseAdVacancy reads the vacancy from the ad name', () => {
+  assert.equal(parseAdVacancy('nov26_AI Motion designer_concept1_stat_v1_cv'), 'AI Motion designer')
+  assert.equal(parseAdVacancy('nov26_Digital Marketing Specialist_concept1_stat_v1_cv'), 'Digital Marketing Specialist')
+  assert.equal(parseAdVacancy('Some ad without a pattern'), '')
+  assert.equal(parseAdVacancy('concept1_stat_v1'), '')
+})
+
+test('one campaign with many vacancies is split into vacancy cards by ad name', () => {
+  const container = {
+    month: '2026-11',
+    currency: 'USD',
+    fetchedAt: '2026-11-23T09:00:00.000Z',
+    ads: {
+      a1: { campaignId: 'c1', campaignName: 'Vacancies November26', name: 'nov26_AI Motion designer_concept1_stat_v1_cv' },
+      a2: { campaignId: 'c1', campaignName: 'Vacancies November26', name: 'nov26_AI Motion designer_concept1_stat_v1_no_cv' },
+      a3: { campaignId: 'c1', campaignName: 'Vacancies November26', name: 'nov26_Digital Marketing Specialist_concept1_stat_v1_cv' },
+      a4: { campaignId: 'c1', campaignName: 'Vacancies November26', name: 'Untitled ad' },
+    },
+    rows: [
+      ...rowsFor('a1', 3, 19, 10),
+      ...rowsFor('a2', 3, 19, 10),
+      ...rowsFor('a3', 10, 15, 20),
+      ...rowsFor('a4', 10, 11, 1),
+    ],
+  }
+  const report = buildReport({ snapshot: container, typeFilter: 'vac', today: '2026-11-23' })
+  const titles = report.vacancies.map((vacancy) => vacancy.title)
+
+  assert.deepEqual([...titles].sort(), ['AI Motion designer', 'Digital Marketing Specialist', 'Вакансію не визначено'].sort())
+  assert.equal(report.vacancies.length, 3)
+  assert.equal(report.otherCampaigns.length, 0)
+  assert.equal(report.unrecognized, 0)
+  assert.equal(report.counts.campaigns, 1)
+
+  const motion = report.vacancies.find((vacancy) => vacancy.key === 'ai motion designer')
+  assert.equal(motion.platforms.length, 1)
+  assert.equal(motion.platforms[0].creatives.length, 2)
+  assert.deepEqual(motion.platforms[0].campaigns, ['Vacancies November26'])
+  // budget share is inside the vacancy: two equal ads -> 50% each, not 1/N of the whole campaign
+  assert.equal(Math.round(motion.platforms[0].creatives[0].sharePct), 50)
+  assert.equal(motion.days, 17)
+
+  // Vacancy filter now has data; subscribers/awareness do not pick these ads up.
+  assert.equal(buildReport({ snapshot: container, typeFilter: 'subs', today: '2026-11-23' }).counts.creatives, 0)
 })

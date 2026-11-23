@@ -5,11 +5,17 @@ import { createHash } from 'node:crypto'
 
 // Campaign type is the 2nd segment of `UNI | Вакансія | AI Motion Designer | 11.2026`.
 // Add new types here only: the rest of the code reads this map.
+// `segments` match the template; `keywords` are a fallback for campaigns that do not follow it
+// (e.g. one "Vacancies November26" campaign holding every vacancy): matched anywhere in the name.
 export const CAMPAIGN_TYPES = {
-  vac: { label: 'Вакансії', segments: ['вакансія', 'вакансії'] },
-  subs: { label: 'Підписники', segments: ['підписники', 'підписник'] },
-  aw: { label: 'Awareness', segments: ['awareness'] },
-  other: { label: 'Не розпізнано', segments: [] },
+  vac: { label: 'Вакансії', segments: ['вакансія', 'вакансії'], keywords: ['vacanc', 'вакан'] },
+  subs: {
+    label: 'Підписники',
+    segments: ['підписники', 'підписник'],
+    keywords: ['follower', 'підписник', 'подписчик'],
+  },
+  aw: { label: 'Awareness', segments: ['awareness'], keywords: ['awareness', 'впізнаван'] },
+  other: { label: 'Не розпізнано', segments: [], keywords: [] },
 }
 
 export const TYPE_ORDER = ['vac', 'subs', 'aw', 'other']
@@ -25,18 +31,47 @@ export const LABEL_THRESHOLDS = {
   weakCtrRatio: 0.5,
 }
 
+function typeByKeyword(text) {
+  const lower = text.toLowerCase()
+  return TYPE_ORDER.find((type) => CAMPAIGN_TYPES[type].keywords.some((word) => lower.includes(word))) || 'other'
+}
+
 export function parseCampaignName(name) {
   const text = String(name || '').trim()
   const segments = text.split('|').map((part) => part.trim())
 
-  if (segments.length < 2) return { type: 'other', title: text }
+  if (segments.length >= 2) {
+    const key = segments[1].toLowerCase()
+    const type =
+      TYPE_ORDER.find((candidate) => CAMPAIGN_TYPES[candidate].segments.includes(key)) || 'other'
+    if (type !== 'other') return { type, title: segments[2] || text }
+  }
 
-  const key = segments[1].toLowerCase()
-  const type =
-    TYPE_ORDER.find((candidate) => CAMPAIGN_TYPES[candidate].segments.includes(key)) || 'other'
+  return { type: typeByKeyword(text), title: text }
+}
 
-  if (type === 'other') return { type, title: text }
-  return { type, title: segments[2] || text }
+// `UNI | Вакансія | AI Motion Designer | 11.2026`: the campaign itself names the vacancy.
+export function isTemplatedVacancy(campaignName) {
+  const segments = String(campaignName || '').split('|').map((part) => part.trim())
+  return (
+    segments.length >= 3 &&
+    Boolean(segments[2]) &&
+    CAMPAIGN_TYPES.vac.segments.includes(segments[1].toLowerCase())
+  )
+}
+
+const UNDEFINED_VACANCY = 'Вакансію не визначено'
+const AD_MONTH_TAG = /^[a-zа-яіїє]{3,9}\d{2,4}$/i
+
+// `nov26_AI Motion designer_concept1_stat_v1_cv` -> "AI Motion designer".
+// The vacancy is the segment after the month tag; ads that do not follow it return ''.
+export function parseAdVacancy(adName) {
+  const parts = String(adName || '')
+    .split('_')
+    .map((part) => part.trim())
+
+  if (parts.length >= 3 && AD_MONTH_TAG.test(parts[0]) && parts[1]) return parts[1]
+  return ''
 }
 
 export function normalizeTypeFilter(value) {
@@ -245,6 +280,9 @@ function platformSources(snapshot) {
   return sources
 }
 
+// Vacancy campaigns are grouped by (platform, vacancy), because one campaign can hold many vacancies
+// (the vacancy is then read from the ad name). Everything else is grouped by campaign.
+// Labels and budget shares are calculated inside each group.
 function groupPlatformCampaigns({ platform, rows, ads, campaignReach }, typeFilter) {
   const byAd = new Map()
 
@@ -259,7 +297,7 @@ function groupPlatformCampaigns({ platform, rows, ads, campaignReach }, typeFilt
     }
   })
 
-  const byCampaign = new Map()
+  const groups = new Map()
 
   byAd.forEach((entry, adId) => {
     const ad = ads[adId] || {}
@@ -268,21 +306,33 @@ function groupPlatformCampaigns({ platform, rows, ads, campaignReach }, typeFilt
 
     if (typeFilter !== 'all' && resolved.type !== typeFilter) return
 
-    if (!byCampaign.has(campaignId)) {
-      byCampaign.set(campaignId, {
-        id: campaignId,
+    const isVacancy = resolved.type === 'vac'
+    const vacancyTitle = isVacancy
+      ? isTemplatedVacancy(ad.campaignName)
+        ? resolved.title
+        : parseAdVacancy(ad.name) || UNDEFINED_VACANCY
+      : ''
+    const groupKey = isVacancy ? `vac:${vacancyKey(vacancyTitle)}` : `campaign:${campaignId}`
+
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, {
+        id: isVacancy ? `${platform}:${groupKey}` : campaignId,
         platform,
-        name: ad.campaignName || '',
-        title: resolved.title,
+        title: isVacancy ? vacancyTitle : resolved.title,
         type: resolved.type,
         creatives: [],
         firstDate: '',
         lastDate: '',
+        campaignRefs: new Set(),
+        campaignNames: new Set(),
+        reachSource: isVacancy ? null : campaignId,
       })
     }
 
-    const campaign = byCampaign.get(campaignId)
-    campaign.creatives.push({
+    const group = groups.get(groupKey)
+    group.campaignRefs.add(`${platform}:${campaignId}`)
+    group.campaignNames.add(ad.campaignName || '')
+    group.creatives.push({
       adId,
       platform,
       campaignId,
@@ -291,17 +341,28 @@ function groupPlatformCampaigns({ platform, rows, ads, campaignReach }, typeFilt
       creative: ad.creative || {},
       status: ad.effectiveStatus || ad.status || '',
     })
-    if (entry.first && (!campaign.firstDate || entry.first < campaign.firstDate)) campaign.firstDate = entry.first
-    if (entry.last && (!campaign.lastDate || entry.last > campaign.lastDate)) campaign.lastDate = entry.last
+    if (entry.first && (!group.firstDate || entry.first < group.firstDate)) group.firstDate = entry.first
+    if (entry.last && (!group.lastDate || entry.last > group.lastDate)) group.lastDate = entry.last
   })
 
-  return [...byCampaign.values()].map((campaign) => {
-    const totals = campaign.creatives.reduce((sum, item) => addRow(sum, item), emptyTotals())
-    const labeled = labelCreatives(campaign.creatives).sort((a, b) => b.spend - a.spend)
+  return [...groups.values()].map((group) => {
+    const totals = group.creatives.reduce((sum, item) => addRow(sum, item), emptyTotals())
+    const labeled = labelCreatives(group.creatives).sort((a, b) => b.spend - a.spend)
+    const names = [...group.campaignNames].filter(Boolean)
     // Daily reach is not additive, so prefer Meta's campaign-level reach for the month.
-    const reach = campaignReach?.[campaign.id] ?? totals.reach
+    // Vacancy groups span campaigns and show no reach.
+    const reach = group.reachSource ? campaignReach?.[group.reachSource] ?? totals.reach : 0
 
-    return { ...campaign, ...withRatios(totals), reach, creatives: labeled }
+    return {
+      ...group,
+      reachSource: undefined,
+      name: names.join(' · '),
+      campaignNames: names,
+      campaignRefs: [...group.campaignRefs],
+      ...withRatios(totals),
+      reach,
+      creatives: labeled,
+    }
   })
 }
 
@@ -353,7 +414,7 @@ function platformBlock(platform, campaigns, monthKey, today) {
   const impressions = campaigns.reduce((sum, campaign) => sum + campaign.impressions, 0)
   const firstDate = campaigns.map((c) => c.firstDate).filter(Boolean).sort()[0] || ''
   const lastDate = campaigns.map((c) => c.lastDate).filter(Boolean).sort().at(-1) || ''
-  const campaignNames = campaigns.map((campaign) => campaign.name)
+  const campaignNames = [...new Set(campaigns.flatMap((campaign) => campaign.campaignNames))]
 
   return {
     platform,
@@ -465,7 +526,7 @@ export function buildByType(campaigns, vacancies = []) {
     return {
       type,
       label: CAMPAIGN_TYPES[type].label,
-      campaigns: list.length,
+      campaigns: new Set(list.flatMap((campaign) => campaign.campaignRefs)).size,
       creatives: list.reduce((sum, campaign) => sum + campaign.creatives.length, 0),
       spend: totals.spend,
       clicks: totals.clicks,
@@ -609,7 +670,7 @@ export function buildReport({
     otherCampaigns: campaigns.filter((campaign) => campaign.type !== 'vac'),
     linkedin: describeLinkedIn(snapshot, linkedinConfigured),
     counts: {
-      campaigns: campaigns.length,
+      campaigns: new Set(campaigns.flatMap((campaign) => campaign.campaignRefs)).size,
       creatives: campaigns.reduce((sum, campaign) => sum + campaign.creatives.length, 0),
     },
     unrecognized: campaigns.filter((campaign) => campaign.type === 'other').length,

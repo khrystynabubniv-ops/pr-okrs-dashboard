@@ -10,6 +10,8 @@ import {
 import { CreativeCard, MetricTiles } from './PromoCreatives'
 import { Panel, PlatformIcon, TypeTag } from './PromoParts'
 
+const UNDEFINED_VACANCY_KEY = 'вакансію не визначено'
+
 function PlatformBlock({ block, currency, onOpen }) {
   const metrics = [
     { label: 'Витрачено', value: formatMoney(block.spend, currency) },
@@ -99,6 +101,13 @@ function VacancyCard({ vacancy, currency, onApplies, onFlushApplies, onOpen }) {
           </div>
         </div>
       </header>
+      {vacancy.key === UNDEFINED_VACANCY_KEY ? (
+        <p className="pr-vacancy-hint">
+          У назвах цих оголошень немає вакансії. Назвіть оголошення за шаблоном{' '}
+          <code>nov26_Назва вакансії_concept1_…</code> або кампанію за шаблоном{' '}
+          <code>UNI | Вакансія | Назва | ММ.РРРР</code>.
+        </p>
+      ) : null}
       {vacancy.platforms.map((block) => (
         <PlatformBlock key={block.platform} block={block} currency={currency} onOpen={(creative, options) => onOpen(creative, options)} />
       ))}

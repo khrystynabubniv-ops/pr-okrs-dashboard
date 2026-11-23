@@ -1067,6 +1067,23 @@ button.pr-preview:focus-visible {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.pr-vacancy-hint {
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--warn-soft);
+  padding: 9px 18px;
+  color: var(--ink);
+  font-size: 12.5px;
+}
+
+.pr-vacancy-hint code {
+  border-radius: 5px;
+  background: var(--surface);
+  padding: 1px 5px;
+  font-family: var(--font-display);
+  font-size: 11.5px;
+}
+
 .pr-platform {
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr);
