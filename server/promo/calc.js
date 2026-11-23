@@ -21,11 +21,9 @@ export const CAMPAIGN_TYPES = {
 export const TYPE_ORDER = ['vac', 'subs', 'aw', 'other']
 export const FILTERABLE_TYPES = ['all', 'vac', 'subs', 'aw']
 
-// Creative labels (per campaign).
+// Creative labels (per vacancy / campaign).
 export const LABEL_THRESHOLDS = {
   leaderMinSharePct: 40,
-  untestedMaxSpend: 5,
-  untestedMaxImpressions: 1000,
   retestMinImpressions: 300,
   weakMinImpressions: 1000,
   weakCtrRatio: 0.5,
@@ -207,11 +205,6 @@ export function labelCreatives(creatives, thresholds = LABEL_THRESHOLDS) {
       item.ctr >= leaderCtr
     ) {
       label = 'retest'
-    } else if (
-      item.spend < thresholds.untestedMaxSpend ||
-      item.impressions < thresholds.untestedMaxImpressions
-    ) {
-      label = 'untested'
     } else if (
       leaderCtr !== null &&
       item.impressions >= thresholds.weakMinImpressions &&

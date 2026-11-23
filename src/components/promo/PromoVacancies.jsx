@@ -7,7 +7,7 @@ import {
   formatUnitMoney,
   pluralUk,
 } from '../../lib/promo'
-import { CreativeCard, MetricTiles } from './PromoCreatives'
+import { CreativeGrid, MetricTiles } from './PromoCreatives'
 import { Panel, PlatformIcon, TypeTag } from './PromoParts'
 
 const UNDEFINED_VACANCY_KEY = 'вакансію не визначено'
@@ -37,17 +37,7 @@ function PlatformBlock({ block, currency, onOpen }) {
         </p>
         <MetricTiles metrics={metrics} />
       </div>
-      <div className="pr-creatives">
-        {block.creatives.map((creative) => (
-          <CreativeCard
-            key={`${creative.platform}:${creative.adId}`}
-            creative={creative}
-            type="vac"
-            currency={currency}
-            onOpen={onOpen}
-          />
-        ))}
-      </div>
+      <CreativeGrid creatives={block.creatives} type="vac" currency={currency} onOpen={onOpen} />
     </div>
   )
 }

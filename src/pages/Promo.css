@@ -451,6 +451,34 @@
   font-variant-numeric: tabular-nums;
 }
 
+.pr-creatives-col {
+  min-width: 0;
+}
+
+.pr-show-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  padding: 7px 12px;
+  color: var(--accent-d);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pr-show-all:hover {
+  background: var(--accent-soft);
+}
+
+.pr-show-all svg {
+  width: 15px;
+  height: 15px;
+}
+
 .pr-creatives {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

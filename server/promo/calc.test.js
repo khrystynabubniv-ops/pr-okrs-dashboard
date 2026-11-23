@@ -45,7 +45,7 @@ function creative(adId, spend, impressions, clicks) {
   }
 }
 
-test('labelCreatives: leader, retest, untested, weak', () => {
+test('labelCreatives: leader, retest, weak (low-data ads get no label)', () => {
   const labeled = labelCreatives([
     creative('lead', 300, 10000, 1500), // 15% CTR, ~92% of budget
     creative('retest', 12, 800, 140), // CTR 17.5% >= leader, enough impressions
@@ -57,7 +57,7 @@ test('labelCreatives: leader, retest, untested, weak', () => {
 
   assert.equal(byId.lead, 'leader')
   assert.equal(byId.retest, 'retest')
-  assert.equal(byId.untested, 'untested')
+  assert.equal(byId.untested, '')
   assert.equal(byId.weak, 'weak')
   assert.equal(byId.fine, '')
 })

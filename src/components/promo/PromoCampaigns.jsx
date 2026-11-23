@@ -4,7 +4,7 @@ import {
   formatInt,
   pluralUk,
 } from '../../lib/promo'
-import { CreativeCard, MetricTiles } from './PromoCreatives'
+import { CreativeGrid, MetricTiles } from './PromoCreatives'
 import { Panel, PlatformBadge, TypeTag } from './PromoParts'
 
 // "Інші кампанії": everything that is not a vacancy (subscribers, awareness, unrecognized).
@@ -41,17 +41,12 @@ export function PromoCampaigns({ report, onOpen }) {
                 {pluralUk(campaign.creatives.length, 'креатив', 'креативи', 'креативів')}
               </p>
             </div>
-            <div className="pr-creatives">
-              {campaign.creatives.map((creative) => (
-                <CreativeCard
-                  key={`${creative.platform}:${creative.adId}`}
-                  creative={creative}
-                  type={campaign.type}
-                  currency={currency}
-                  onOpen={onOpen}
-                />
-              ))}
-            </div>
+            <CreativeGrid
+              creatives={campaign.creatives}
+              type={campaign.type}
+              currency={currency}
+              onOpen={onOpen}
+            />
           </div>
         ))}
       </div>
