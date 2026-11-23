@@ -179,7 +179,11 @@ test('campaigns without the template are recognized by keyword', () => {
   assert.equal(parseCampaignName('Vacancies November26').type, 'vac')
   assert.equal(parseCampaignName('Вакансії листопад').type, 'vac')
   assert.equal(parseCampaignName('Instagram followers Q4').type, 'subs')
+  assert.equal(parseCampaignName('Instagram New Followers').type, 'subs')
+  assert.equal(parseCampaignName('instagram_new_followers_nov26').type, 'subs')
+  assert.equal(parseCampaignName('Підписники Instagram').type, 'subs')
   assert.equal(parseCampaignName('Brand awareness').type, 'aw')
+  assert.equal(parseCampaignName('Awareness November26').type, 'aw')
   assert.equal(parseCampaignName('Retargeting').type, 'other')
   // the template still wins
   assert.equal(parseCampaignName('UNI | Підписники | Vacancy tips | 11.2026').type, 'subs')

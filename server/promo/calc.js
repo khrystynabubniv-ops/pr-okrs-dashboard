@@ -12,9 +12,9 @@ export const CAMPAIGN_TYPES = {
   subs: {
     label: 'Підписники',
     segments: ['підписники', 'підписник'],
-    keywords: ['follower', 'підписник', 'подписчик'],
+    keywords: ['follow', 'підпис', 'подпис', 'subscri'],
   },
-  aw: { label: 'Awareness', segments: ['awareness'], keywords: ['awareness', 'впізнаван'] },
+  aw: { label: 'Awareness', segments: ['awareness'], keywords: ['awareness', 'awarness', 'awerness', 'впізнаван'] },
   other: { label: 'Не розпізнано', segments: [], keywords: [] },
 }
 
