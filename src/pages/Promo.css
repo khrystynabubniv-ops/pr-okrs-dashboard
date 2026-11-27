@@ -118,6 +118,174 @@
   padding: 18px;
 }
 
+/* ---------- collapsible, editable panels ---------- */
+
+.pr-panel-collapsible:not(.is-open) .pr-panel-head {
+  border-bottom: 0;
+}
+
+.pr-panel-collapsible .pr-panel-head {
+  padding: 0;
+  gap: 0;
+}
+
+.pr-panel-toggle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  padding: 12px 18px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pr-panel-toggle:hover .pr-panel-chevron {
+  color: var(--accent);
+}
+
+.pr-panel-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 14px;
+}
+
+.pr-panel-chevron {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.is-open > .pr-panel-head .pr-panel-chevron {
+  transform: rotate(90deg);
+}
+
+.pr-panel-title-text {
+  color: var(--accent-d);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pr-panel-collapsible .pr-panel-aside {
+  padding: 8px 18px 8px 0;
+}
+
+.pr-panel-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 10px;
+}
+
+.pr-edited-note {
+  border-radius: 999px;
+  background: var(--accent-soft);
+  padding: 3px 10px;
+  color: var(--accent-d);
+  font-weight: 600;
+}
+
+.pr-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.pr-editor-item {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  padding: 12px;
+}
+
+.pr-editor-item-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.pr-editor-item-head .pr-key-number {
+  margin-bottom: 5px;
+}
+
+.pr-editor-item-head .pr-field {
+  flex: 1;
+}
+
+.pr-editor-kind {
+  width: auto;
+  flex: none;
+}
+
+.pr-field {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.pr-field > span {
+  color: var(--accent-d);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pr-editor-remove {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pr-editor-remove:hover {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.pr-editor-remove svg {
+  width: 15px;
+  height: 15px;
+}
+
+.pr-editor-add {
+  justify-self: start;
+}
+
+.pr-editor-hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pr-editor-item .pr-editor-hint {
+  margin: 0;
+}
+
+.pr-editor-error {
+  margin: 0 0 12px;
+}
+
+.pr-recs-editor .pr-rec {
+  display: grid;
+}
+
 .pr-quiet {
   margin: 0;
   color: var(--muted);
@@ -525,12 +693,23 @@
   gap: 9px;
 }
 
+/* The info block grows, so the metrics and the comment link sit on the same line in every card of a row. */
+.pr-creative-info {
+  flex: 1;
+}
+
 .pr-creative-name {
+  display: -webkit-box;
+  overflow: hidden;
+  min-height: 2.6em;
   margin: 0;
   font-size: 13px;
   font-weight: 700;
   line-height: 1.3;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .pr-creative-share {
@@ -848,7 +1027,6 @@ button.pr-preview:focus-visible {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-  margin-top: 18px;
 }
 
 .pr-rec {
@@ -1091,14 +1269,14 @@ button.pr-preview:focus-visible {
 }
 
 .pr-vacancy-tiles {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(5, 118px);
   gap: 8px;
 }
 
 .pr-vacancy-tile {
   display: flex;
-  min-width: 104px;
+  min-width: 0;
   flex-direction: column;
   gap: 3px;
   border: 1px solid var(--line);
@@ -1113,6 +1291,14 @@ button.pr-preview:focus-visible {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+/* Value row has the same height in every tile (the Applies tile holds an input). */
+.pr-vacancy-tile strong,
+.pr-vacancy-input input {
+  display: flex;
+  height: 28px;
+  align-items: center;
 }
 
 .pr-vacancy-tile strong {
@@ -1134,11 +1320,13 @@ button.pr-preview:focus-visible {
 }
 
 .pr-vacancy-input input {
-  width: 96px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
-  padding: 3px 6px;
+  padding: 0 6px;
   color: var(--ink);
   font-family: var(--font-display);
   font-size: 16px;
@@ -1149,6 +1337,21 @@ button.pr-preview:focus-visible {
 .pr-vacancy-input input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.pr-vacancy-comments {
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  padding: 0 18px 18px;
+}
+
+.pr-vacancy-comments .pr-comments {
+  border-top: 0;
+  padding-top: 16px;
+}
+
+.pr-vacancy-title .pr-comment-chip {
+  margin-top: 2px;
 }
 
 .pr-vacancy-hint {
@@ -1361,6 +1564,11 @@ button.pr-preview:focus-visible {
 
   .pr-recs {
     grid-template-columns: 1fr;
+  }
+
+  .pr-vacancy-tiles {
+    width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   }
 }
 

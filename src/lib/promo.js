@@ -203,34 +203,34 @@ export function formatDelta(value, previousMonthKey, { inverse = false, kind = '
 export function creativeMetrics(creative, campaignType, currency) {
   if (campaignType === 'subs') {
     return [
-      { label: 'Підписники', value: `+${formatInt(creative.follows)}` },
-      { label: 'Ціна підп.', value: creative.follows ? formatUnitMoney(creative.cpf, currency) : '—' },
+      { label: 'Followers', value: `+${formatInt(creative.follows)}` },
+      { label: 'CPF', value: creative.follows ? formatUnitMoney(creative.cpf, currency) : '—' },
       { label: 'CTR', value: formatPercent(creative.ctr) },
     ]
   }
 
   return [
-    { label: 'Кліки', value: formatInt(creative.clicks) },
+    { label: 'Clicks', value: formatInt(creative.clicks) },
     { label: 'CTR', value: formatPercent(creative.ctr) },
-    { label: 'Ціна кліку', value: formatUnitMoney(creative.cpc, currency) },
+    { label: 'CPC', value: formatUnitMoney(creative.cpc, currency) },
   ]
 }
 
 export function campaignMetrics(campaign, currency) {
   if (campaign.type === 'subs') {
     return [
-      { label: 'Витрачено', value: formatMoney(campaign.spend, currency) },
-      { label: 'Підписники', value: `+${formatInt(campaign.follows)}` },
-      { label: 'Ціна підп.', value: campaign.follows ? formatUnitMoney(campaign.cpf, currency) : '—' },
-      { label: 'Кліки', value: formatInt(campaign.clicks) },
+      { label: 'Spend', value: formatMoney(campaign.spend, currency) },
+      { label: 'Followers', value: `+${formatInt(campaign.follows)}` },
+      { label: 'CPF', value: campaign.follows ? formatUnitMoney(campaign.cpf, currency) : '—' },
+      { label: 'Clicks', value: formatInt(campaign.clicks) },
     ]
   }
 
   return [
-    { label: 'Витрачено', value: formatMoney(campaign.spend, currency) },
-    { label: 'Кліки', value: formatInt(campaign.clicks) },
+    { label: 'Spend', value: formatMoney(campaign.spend, currency) },
+    { label: 'Clicks', value: formatInt(campaign.clicks) },
     { label: 'CTR', value: formatPercent(campaign.ctr) },
-    { label: 'Ціна кліку', value: formatUnitMoney(campaign.cpc, currency) },
+    { label: 'CPC', value: formatUnitMoney(campaign.cpc, currency) },
   ]
 }
 
@@ -276,6 +276,15 @@ export function pointsOf(item, textField) {
     .map((part) => part.trim())
     .filter(Boolean)
 }
+
+// Editor <-> content: one bullet per line of a textarea.
+export const pointsToText = (points) => (points || []).join('\n')
+
+export const textToPoints = (text) =>
+  String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
 
 // "МАСШТАБУВАТИ: ..." → { lead: 'МАСШТАБУВАТИ', rest: '...' }.
 export function splitLead(text) {
@@ -329,11 +338,6 @@ export function formatPeriod(start, end) {
   return `${formatIsoDay(start)} – ${end ? formatIsoDay(end) : 'зараз'}`
 }
 
-export function appliesWord(count) {
-  const n = Number(count) || 0
-  return `${formatInt(n)} ${pluralUk(n, 'еплай', 'еплаї', 'еплаїв')}`
-}
-
 // Optimistic update of everything that depends on a vacancy's applies.
 export function applyApplies(report, key, value) {
   const vacancies = report.vacancies.map((vacancy) =>
@@ -375,6 +379,26 @@ export function applyCommentsCount(report, platform, adId, count) {
       creatives: update(campaign.creatives),
     })),
   }
+}
+
+// Updates commentsCount of one vacancy (comments on the vacancy as a whole).
+export function applyVacancyCommentsCount(report, key, count) {
+  return {
+    ...report,
+    vacancies: report.vacancies.map((vacancy) =>
+      vacancy.key === key && vacancy.commentsCount !== count ? { ...vacancy, commentsCount: count } : vacancy,
+    ),
+  }
+}
+
+export function vacancyCommentsPath(monthKey, vacancyKey, commentId = '') {
+  return `/api/promo/vacancies/${encodeURIComponent(vacancyKey)}/comments${
+    commentId ? `/${encodeURIComponent(commentId)}` : ''
+  }?month=${encodeURIComponent(monthKey)}`
+}
+
+export function blockPath(monthKey, type, block) {
+  return `/api/promo/blocks/${encodeURIComponent(block)}?month=${encodeURIComponent(monthKey)}&type=${encodeURIComponent(type)}`
 }
 
 export function commentsPath(platform, adId, commentId = '') {

@@ -82,7 +82,7 @@ test('validateAnalysis drops unknown ad_ids, recomputes metrics and enforces the
   )
 
   assert.deepEqual(result.works[0].examples, [
-    { platform: 'meta', ad_id: '1', metric: 'CTR 15.7% · 0.20/клік' },
+    { platform: 'meta', ad_id: '1', metric: 'CTR 15.7% · CPC 0.20' },
   ])
   assert.equal(result.fails.length, 0)
   assert.ok(result.recs.measure.some((tip) => tip.includes('utm_content')))

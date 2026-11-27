@@ -2,7 +2,6 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import {
   PLATFORM_LABELS,
   PROMO_TYPES,
-  appliesWord,
   vacancyChartModel,
   formatCompactNumber,
   formatDelta,
@@ -39,19 +38,19 @@ function kpiTiles(report) {
 
   const tiles = [
     {
-      label: 'Витрачено',
+      label: 'Spend',
       value: formatMoney(kpis.spend, currency),
       delta: formatDelta(deltas.spend, previous),
       split: split((value) => formatMoney(value, currency), 'spend'),
     },
     {
-      label: 'Покази',
+      label: 'Impressions',
       value: formatCompactNumber(kpis.impressions),
       delta: formatDelta(deltas.impressions, previous),
       split: split(formatCompactNumber, 'impressions'),
     },
     {
-      label: 'Кліки',
+      label: 'Clicks',
       value: formatInt(kpis.clicks),
       delta: formatDelta(deltas.clicks, previous),
       split: split(formatInt, 'clicks'),
@@ -63,7 +62,7 @@ function kpiTiles(report) {
       split: split(formatPercent, 'ctr'),
     },
     {
-      label: 'Ціна кліку',
+      label: 'CPC',
       value: formatUnitMoney(kpis.cpc, currency),
       delta: formatDelta(deltas.cpc, previous, { inverse: true }),
       split: split((value) => formatUnitMoney(value, currency), 'cpc'),
@@ -73,7 +72,7 @@ function kpiTiles(report) {
   if (type === 'vac') {
     const missing = kpis.vacanciesMissingApplies
     tiles.push({
-      label: 'Еплаї',
+      label: 'Applies',
       value: kpis.vacanciesCount && missing < kpis.vacanciesCount ? formatInt(kpis.applies) : '—',
       hint: missing
         ? `не внесено для ${missing} ${missing === 1 ? 'вакансії' : 'вакансій'}`
@@ -81,13 +80,13 @@ function kpiTiles(report) {
     })
   } else if (type === 'aw') {
     tiles.push({
-      label: 'Охоплення',
+      label: 'Reach',
       value: formatCompactNumber(kpis.reach),
       delta: formatDelta(deltas.reach, previous),
     })
   } else {
     tiles.push({
-      label: 'Нові підписники',
+      label: 'New followers',
       value: kpis.follows ? `+${formatInt(kpis.follows)}` : '—',
       delta: kpis.follows ? formatDelta(deltas.follows, previous) : null,
       hint: kpis.follows ? '' : 'Немає кампаній на підписку',
@@ -151,12 +150,12 @@ function WeekTooltip({ active, payload, label, currency, names }) {
 
 function typeResult(row, currency) {
   if (row.type === 'vac') {
-    return row.applies ? `${appliesWord(row.applies)} · ${row.platforms.join(' + ')}` : '—'
+    return row.applies ? `${formatInt(row.applies)} applies · ${row.platforms.join(' + ')}` : '—'
   }
   if (row.type === 'subs') {
-    return row.follows ? `+${formatInt(row.follows)} · ${formatUnitMoney(row.cpf, currency)}/підп.` : '—'
+    return row.follows ? `+${formatInt(row.follows)} · ${formatUnitMoney(row.cpf, currency)}/follower` : '—'
   }
-  if (row.type === 'aw') return `охоплення ${formatCompactNumber(row.reach)}`
+  if (row.type === 'aw') return `Reach ${formatCompactNumber(row.reach)}`
   return '—'
 }
 
@@ -247,11 +246,11 @@ function VacancyTable({ report }) {
         <tr>
           <th>Вакансія</th>
           <th>Платформи</th>
-          <th className="er-align-right">Витрачено</th>
-          <th className="er-align-right">Кліки</th>
+          <th className="er-align-right">Spend</th>
+          <th className="er-align-right">Clicks</th>
           <th className="er-align-right">CTR</th>
-          <th className="er-align-right">Ціна кліку</th>
-          <th className="er-align-right">Еплаї</th>
+          <th className="er-align-right">CPC</th>
+          <th className="er-align-right">Applies</th>
         </tr>
       </thead>
       <tbody>
@@ -265,19 +264,19 @@ function VacancyTable({ report }) {
               <td data-label="Платформи" className="er-muted">
                 {vacancy.platforms.map((block) => block.label).join(' + ')}
               </td>
-              <td className="er-align-right er-metric-cell" data-label="Витрачено">
+              <td className="er-align-right er-metric-cell" data-label="Spend">
                 {formatMoney(vacancy.spend, currency)}
               </td>
-              <td className="er-align-right er-metric-cell" data-label="Кліки">
+              <td className="er-align-right er-metric-cell" data-label="Clicks">
                 {formatInt(vacancy.clicks)}
               </td>
               <td className="er-align-right er-metric-cell" data-label="CTR">
                 {formatPercent(vacancy.ctr)}
               </td>
-              <td className="er-align-right er-metric-cell" data-label="Ціна кліку">
+              <td className="er-align-right er-metric-cell" data-label="CPC">
                 {formatUnitMoney(vacancy.cpc, currency)}
               </td>
-              <td className="er-align-right er-metric-cell" data-label="Еплаї">
+              <td className="er-align-right er-metric-cell" data-label="Applies">
                 {vacancy.applies === null ? '—' : formatInt(vacancy.applies)}
               </td>
             </tr>
@@ -293,12 +292,12 @@ function TypeTable({ byType, currency }) {
       <thead>
         <tr>
           <th>Тип</th>
-          <th className="er-align-right">Кампаній</th>
-          <th className="er-align-right">Витрачено</th>
-          <th className="er-align-right">Кліки</th>
+          <th className="er-align-right">Campaigns</th>
+          <th className="er-align-right">Spend</th>
+          <th className="er-align-right">Clicks</th>
           <th className="er-align-right">CTR</th>
-          <th className="er-align-right">Ціна кліку</th>
-          <th className="er-align-right">Результат</th>
+          <th className="er-align-right">CPC</th>
+          <th className="er-align-right">Result</th>
         </tr>
       </thead>
       <tbody>
@@ -307,22 +306,22 @@ function TypeTable({ byType, currency }) {
             <td data-label="Тип">
               <TypeTag type={row.type} plural />
             </td>
-            <td className="er-align-right er-metric-cell" data-label="Кампаній">
+            <td className="er-align-right er-metric-cell" data-label="Campaigns">
               {row.campaigns}
             </td>
-            <td className="er-align-right er-metric-cell" data-label="Витрачено">
+            <td className="er-align-right er-metric-cell" data-label="Spend">
               {formatMoney(row.spend, currency)}
             </td>
-            <td className="er-align-right er-metric-cell" data-label="Кліки">
+            <td className="er-align-right er-metric-cell" data-label="Clicks">
               {formatInt(row.clicks)}
             </td>
             <td className="er-align-right er-metric-cell" data-label="CTR">
               {formatPercent(row.ctr)}
             </td>
-            <td className="er-align-right er-metric-cell" data-label="Ціна кліку">
+            <td className="er-align-right er-metric-cell" data-label="CPC">
               {formatUnitMoney(row.cpc, currency)}
             </td>
-            <td className="er-align-right er-metric-cell" data-label="Результат">
+            <td className="er-align-right er-metric-cell" data-label="Result">
               {typeResult(row, currency)}
             </td>
           </tr>

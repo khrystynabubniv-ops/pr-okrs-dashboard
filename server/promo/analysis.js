@@ -26,6 +26,7 @@ const SYSTEM_PROMPT = [
   'Кожен елемент recs.scale_stop_retest починай з дієслова великими літерами і двокрапки: «МАСШТАБУВАТИ: …», «ЗУПИНИТИ: …», «ПЕРЕТЕСТУВАТИ: …».',
   'Для типів «Підписники» і «Awareness», де даних мало, замість brief/scale_stop_retest можна дати recs.repeat («Повторюємо») і recs.dont_repeat («Не повторюємо»), recs.measure залиш.',
   'Креативи однієї вакансії можуть бути розділені на A/B-тести (поле ab_test_group: З CV / Без CV, General / Lookalike): порівнюй групи між собою, а лідерів і слабких визнач усередині групи.',
+  'Назви метрик пиши англійською, як у маркетинговій термінології: CTR, CPC (не «ціна кліку» чи «вартість кліку»), Spend, Clicks, Impressions, Reach, CPF (cost per follower), Hook rate, Hold rate, Cost per apply. Решту тексту пиши українською.',
   'Якщо даних замало для висновку — чесно скажи про це, а не вигадуй.',
 ].join('\n')
 
@@ -110,8 +111,8 @@ async function collectImages(campaigns) {
 function exampleMetric(creative) {
   const ctr = `CTR ${creative.ctr.toFixed(1)}%`
   return creative.follows
-    ? `${ctr} · ${creative.follows} підп.`
-    : `${ctr} · ${creative.cpc ? `${creative.cpc.toFixed(2)}/клік` : 'без кліків'}`
+    ? `${ctr} · ${creative.follows} followers`
+    : `${ctr} · ${creative.cpc ? `CPC ${creative.cpc.toFixed(2)}` : 'без кліків'}`
 }
 
 // Sentences become separate bullets (the model sometimes returns a paragraph anyway).

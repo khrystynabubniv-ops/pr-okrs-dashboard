@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
-import { CURRENT_MONTH } from './constants'
+import { CURRENT_MONTH, MONTHS } from './constants'
 import { DashboardPage } from './pages/Dashboard'
 import { EventReportsPage } from './pages/EventReports'
 import { EventsPage } from './pages/Events'
@@ -12,8 +12,30 @@ import { PromoPage } from './pages/Promo'
 import { SmmPage } from './pages/Smm'
 import LinkedInReport from './features/linkedin-report/LinkedInReport'
 
+const MONTH_STORAGE_KEY = 'okr-dashboard:selected-month'
+
+function readStoredMonth() {
+  try {
+    const stored = window.localStorage.getItem(MONTH_STORAGE_KEY)
+    return MONTHS.includes(stored) ? stored : CURRENT_MONTH
+  } catch {
+    return CURRENT_MONTH
+  }
+}
+
 export default function App() {
-  const [selectedMonth, setSelectedMonth] = useState(CURRENT_MONTH)
+  const [selectedMonth, setSelectedMonthState] = useState(readStoredMonth)
+
+  // The chosen month survives a page reload (and is shared by every page).
+  function setSelectedMonth(month) {
+    setSelectedMonthState(month)
+
+    try {
+      window.localStorage.setItem(MONTH_STORAGE_KEY, month)
+    } catch {
+      // Private mode / blocked storage: the month just resets on reload.
+    }
+  }
 
   return (
     <Routes>

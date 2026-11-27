@@ -90,6 +90,42 @@ export function createPromoStore({ createHttpError }) {
       }
     },
 
+    // { block: { content, updatedAt, updatedByName } } for one month and campaign type.
+    async listBlockEdits(monthKey, type) {
+      ready()
+      const result = await query(
+        `select block, content, updated_by_name, updated_at
+         from promo_block_edits where month = $1::date and type = $2`,
+        [`${monthKey}-01`, type],
+      )
+      return Object.fromEntries(result.rows.map((row) => [row.block, mapEditRow(row)]))
+    },
+
+    async saveBlockEdit({ monthKey, type, block, content, userId, userName }) {
+      ready()
+      const result = await query(
+        `insert into promo_block_edits (month, type, block, content, updated_by, updated_by_name)
+         values ($1::date, $2, $3, $4, $5, $6)
+         on conflict (month, type, block)
+         do update set content = excluded.content,
+                       updated_by = excluded.updated_by,
+                       updated_by_name = excluded.updated_by_name,
+                       updated_at = now()
+         returning block, content, updated_by_name, updated_at`,
+        [`${monthKey}-01`, type, block, JSON.stringify(content), userId || null, userName || ''],
+      )
+      return mapEditRow(result.rows[0])
+    },
+
+    async deleteBlockEdit({ monthKey, type, block }) {
+      ready()
+      await query(`delete from promo_block_edits where month = $1::date and type = $2 and block = $3`, [
+        `${monthKey}-01`,
+        type,
+        block,
+      ])
+    },
+
     async listComments(platform, adId) {
       ready()
       const result = await query(
@@ -181,6 +217,14 @@ export function createPromoStore({ createHttpError }) {
       )
       return result.rows[0].applies
     },
+  }
+}
+
+function mapEditRow(row) {
+  return {
+    content: row.content,
+    updatedAt: new Date(row.updated_at).toISOString(),
+    updatedByName: row.updated_by_name || '',
   }
 }
 

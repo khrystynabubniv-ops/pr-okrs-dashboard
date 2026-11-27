@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ExternalLink, Megaphone, RefreshCw } from 'lucide-react'
 import { CreativeModal } from '../components/promo/CreativeModal'
-import { PromoAnalysis } from '../components/promo/PromoAnalysis'
+import { PromoAnalysis, PromoRecs } from '../components/promo/PromoAnalysis'
 import { PromoDynamics, PromoKpis } from '../components/promo/PromoMetrics'
 import { PromoCampaigns } from '../components/promo/PromoCampaigns'
 import { PromoDid, PromoKey } from '../components/promo/PromoNarrative'
@@ -13,6 +13,8 @@ import {
   appliesPath,
   applyApplies,
   applyCommentsCount,
+  applyVacancyCommentsCount,
+  blockPath,
   findCreative,
   formatDayMonth,
   formatTime,
@@ -80,6 +82,10 @@ export function PromoPage({ selectedMonth }) {
     { keepPreviousData: true },
   )
   const analysisPayload = analysisState.data
+  // Team edits of the AI blocks come with the analysis; ignore ones left over from another type/month.
+  const edits =
+    analysisPayload?.type === type && analysisPayload.month === monthKey ? analysisPayload.edits || {} : {}
+  const canEditBlocks = Boolean(data) && analysisPayload?.type === type && analysisPayload.month === monthKey
   // Ignore a payload left over from another type/month while the new one is loading.
   const analysis =
     analysisPayload?.analysis?.type === type && analysisPayload.analysis.month === monthKey
@@ -131,6 +137,30 @@ export function PromoPage({ selectedMonth }) {
     } finally {
       setRerunning(false)
     }
+  }
+
+  async function saveBlock(block, content) {
+    const payload = await apiRequest(blockPath(monthKey, type, block), {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    })
+    analysisState.setData((current) => ({
+      ...current,
+      edits: { ...(current?.edits || {}), [block]: payload.edit },
+    }))
+  }
+
+  async function resetBlock(block) {
+    await apiRequest(blockPath(monthKey, type, block), { method: 'DELETE' })
+    analysisState.setData((current) => {
+      const { [block]: _removed, ...rest } = current?.edits || {}
+      void _removed
+      return { ...current, edits: rest }
+    })
+  }
+
+  function handleVacancyCountChange(key, count) {
+    report.setData((current) => (current ? applyVacancyCommentsCount(current, key, count) : current))
   }
 
   function handleCountChange(platform, adId, count) {
@@ -308,7 +338,6 @@ export function PromoPage({ selectedMonth }) {
             <PromoKpis report={data} />
             <PromoDynamics report={data} />
             <PromoDid report={data} />
-            <PromoKey report={data} analysis={analysis} />
             {data.vacancies.length ? (
               <PromoVacancies
                 report={data}
@@ -316,17 +345,39 @@ export function PromoPage({ selectedMonth }) {
                 onApplies={handleApplies}
                 onFlushApplies={(vacancy) => flushApplies(vacancy.key)}
                 onOpen={openCreative}
+                onCommentsCount={handleVacancyCountChange}
               />
             ) : null}
             {data.otherCampaigns.length ? <PromoCampaigns report={data} onOpen={openCreative} /> : null}
+            <PromoKey
+              report={data}
+              analysis={analysis}
+              edit={edits.key}
+              canEdit={canEditBlocks}
+              running={analysisRunning}
+              onSave={saveBlock}
+              onReset={resetBlock}
+            />
             <PromoAnalysis
               report={data}
               analysis={analysis}
+              edit={edits.findings}
+              canEdit={canEditBlocks}
               running={analysisRunning}
               canRun={data.counts.campaigns > 0}
               error={analysisError}
               onRun={handleRunAnalysis}
               onOpen={openCreative}
+              onSave={saveBlock}
+              onReset={resetBlock}
+            />
+            <PromoRecs
+              analysis={analysis}
+              edit={edits.recs}
+              canEdit={canEditBlocks}
+              running={analysisRunning}
+              onSave={saveBlock}
+              onReset={resetBlock}
             />
           </div>
         ) : null}

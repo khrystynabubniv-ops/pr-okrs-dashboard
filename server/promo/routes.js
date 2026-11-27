@@ -11,6 +11,7 @@ import {
   vacancyKey,
 } from './calc.js'
 import { createPromoAnalysis } from './analysis.js'
+import { isBlock, sanitizeBlock } from './blocks.js'
 import { getLinkedInConfig } from './linkedin.js'
 import { createPromoStore } from './store.js'
 import { createPromoSync } from './sync.js'
@@ -20,6 +21,13 @@ const LIVE_MONTH_GRACE_DAYS = 7 // Meta keeps adjusting numbers for a few days a
 const AD_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 const MAX_COMMENT_LENGTH = 2000
 const MAX_APPLIES = 100000
+// Comments on a whole vacancy live in the same table as creative comments, under their own platform.
+const VACANCY_COMMENTS = 'vacancy'
+const MAX_VACANCY_KEY_LENGTH = 200
+
+function vacancyCommentId(month, key) {
+  return `${month}:${key}`
+}
 
 export function registerPromoRoutes(app, deps) {
   const { asyncHandler, createHttpError, requireAuth, generateJsonViaAi, isAiConfigured } = deps
@@ -159,9 +167,13 @@ export function registerPromoRoutes(app, deps) {
       linkedinConfigured: Boolean(getLinkedInConfig()),
     })
     const creatives = report.campaigns.flatMap((campaign) => campaign.creatives)
-    const counts = await store.commentCounts(
-      creatives.map((item) => ({ platform: item.platform, adId: item.adId })),
-    )
+    const counts = await store.commentCounts([
+      ...creatives.map((item) => ({ platform: item.platform, adId: item.adId })),
+      ...report.vacancies.map((vacancy) => ({
+        platform: VACANCY_COMMENTS,
+        adId: vacancyCommentId(snapshot.month, vacancy.key),
+      })),
+    ])
 
     // `campaigns` stays internal: the response carries vacancies and the other campaigns.
     const { campaigns: _internal, ...rest } = report
@@ -173,6 +185,7 @@ export function registerPromoRoutes(app, deps) {
       videoMetrics: Boolean(snapshot.videoMetrics),
       vacancies: report.vacancies.map((vacancy) => ({
         ...vacancy,
+        commentsCount: counts[`${VACANCY_COMMENTS}:${vacancyCommentId(snapshot.month, vacancy.key)}`] || 0,
         platforms: vacancy.platforms.map((block) => ({
           ...block,
           creatives: block.creatives.map((item) => presentCreative(item, counts)),
@@ -242,15 +255,23 @@ export function registerPromoRoutes(app, deps) {
     response.json({ key, applies: saved })
   }))
 
+  // The saved AI analysis plus the team's edits of its blocks (the edits win over the AI text).
+  async function presentAnalysis(month, type, snapshot, running) {
+    return {
+      month,
+      type,
+      analysis: await analysis.getAnalysis(month, type, snapshot),
+      edits: await store.listBlockEdits(month, type),
+      running,
+    }
+  }
+
   app.get('/api/promo/analysis', asyncHandler(async (request, response) => {
     const month = readMonth(request)
     const type = normalizeTypeFilter(request.query.type)
     const snapshot = await store.getSnapshot(month)
 
-    response.json({
-      analysis: await analysis.getAnalysis(month, type, snapshot),
-      running: analysis.isRunning(month, type),
-    })
+    response.json(await presentAnalysis(month, type, snapshot, analysis.isRunning(month, type)))
   }))
 
   app.post('/api/promo/analysis/run', requireAuth, asyncHandler(async (request, response) => {
@@ -263,10 +284,48 @@ export function registerPromoRoutes(app, deps) {
     }
 
     await analysis.runAnalysis({ monthKey: month, type, snapshot, userId: request.user?.id })
-    response.json({
-      analysis: await analysis.getAnalysis(month, type, snapshot),
-      running: false,
+    response.json(await presentAnalysis(month, type, snapshot, false))
+  }))
+
+  function readBlock(request) {
+    const block = String(request.params.block || '')
+    if (!isBlock(block)) throw createHttpError(404, 'Невідомий блок.')
+    return block
+  }
+
+  app.put('/api/promo/blocks/:block', requireAuth, asyncHandler(async (request, response) => {
+    const month = readMonth(request)
+    const type = normalizeTypeFilter(request.query.type)
+    const block = readBlock(request)
+    let content
+
+    try {
+      content = sanitizeBlock(block, request.body?.content)
+    } catch (error) {
+      throw createHttpError(400, error.message)
+    }
+
+    const edit = await store.saveBlockEdit({
+      monthKey: month,
+      type,
+      block,
+      content,
+      userId: request.user?.id,
+      userName: request.user?.name || request.user?.email || 'Команда',
     })
+
+    response.json({ block, edit })
+  }))
+
+  // Drops the edit: the AI text is shown again.
+  app.delete('/api/promo/blocks/:block', requireAuth, asyncHandler(async (request, response) => {
+    await store.deleteBlockEdit({
+      monthKey: readMonth(request),
+      type: normalizeTypeFilter(request.query.type),
+      block: readBlock(request),
+    })
+
+    response.json({ ok: true })
   }))
 
   function readAdId(request) {
@@ -275,49 +334,76 @@ export function registerPromoRoutes(app, deps) {
     return adId
   }
 
-  app.get('/api/promo/creatives/:adId/comments', asyncHandler(async (request, response) => {
-    const comments = await store.listComments(readPlatform(request), readAdId(request))
-    const userId = request.user?.id || null
+  // Comment of a vacancy as a whole: a creative-like target in the same comments table.
+  function readVacancyTarget(request) {
+    const month = readMonth(request)
+    const key = vacancyKey(request.params.vacancyKey)
+    if (!key || key.length > MAX_VACANCY_KEY_LENGTH) throw createHttpError(400, 'Некоректна вакансія.')
+    return { platform: VACANCY_COMMENTS, adId: vacancyCommentId(month, key) }
+  }
 
-    response.json({
-      comments: comments.map((comment) => ({
-        ...comment,
-        mine: userId ? comment.authorId === userId : comment.authorId === null,
-      })),
-    })
-  }))
+  // The same list / add / delete handlers serve creatives and vacancies; `readTarget` says which one.
+  function commentHandlers(readTarget) {
+    return {
+      list: asyncHandler(async (request, response) => {
+        const { platform, adId } = readTarget(request)
+        const comments = await store.listComments(platform, adId)
+        const userId = request.user?.id || null
 
-  app.post('/api/promo/creatives/:adId/comments', requireAuth, asyncHandler(async (request, response) => {
-    const platform = readPlatform(request)
-    const adId = readAdId(request)
-    const text = String(request.body?.text || '').trim()
+        response.json({
+          comments: comments.map((comment) => ({
+            ...comment,
+            mine: userId ? comment.authorId === userId : comment.authorId === null,
+          })),
+        })
+      }),
 
-    if (!text) throw createHttpError(400, 'Напишіть текст коментаря.')
-    if (text.length > MAX_COMMENT_LENGTH) {
-      throw createHttpError(400, `Коментар задовгий (максимум ${MAX_COMMENT_LENGTH} символів).`)
+      add: asyncHandler(async (request, response) => {
+        const { platform, adId } = readTarget(request)
+        const text = String(request.body?.text || '').trim()
+
+        if (!text) throw createHttpError(400, 'Напишіть текст коментаря.')
+        if (text.length > MAX_COMMENT_LENGTH) {
+          throw createHttpError(400, `Коментар задовгий (максимум ${MAX_COMMENT_LENGTH} символів).`)
+        }
+
+        const comment = await store.addComment({
+          platform,
+          adId,
+          authorId: request.user?.id || null,
+          authorName: request.user?.name || request.user?.email || 'Команда',
+          text,
+        })
+
+        response.status(201).json({ comment: { ...comment, mine: true } })
+      }),
+
+      remove: asyncHandler(async (request, response) => {
+        const { platform, adId } = readTarget(request)
+        const result = await store.deleteComment({
+          platform,
+          adId,
+          id: String(request.params.id || ''),
+          userId: request.user?.id || null,
+        })
+
+        if (result === 'missing') throw createHttpError(404, 'Коментар не знайдено.')
+        if (result === 'forbidden') throw createHttpError(403, 'Можна видаляти лише свої коментарі.')
+        response.json({ ok: true })
+      }),
     }
+  }
 
-    const comment = await store.addComment({
-      platform,
-      adId,
-      authorId: request.user?.id || null,
-      authorName: request.user?.name || request.user?.email || 'Команда',
-      text,
-    })
-
-    response.status(201).json({ comment: { ...comment, mine: true } })
+  const creativeComments = commentHandlers((request) => ({
+    platform: readPlatform(request),
+    adId: readAdId(request),
   }))
+  app.get('/api/promo/creatives/:adId/comments', creativeComments.list)
+  app.post('/api/promo/creatives/:adId/comments', requireAuth, creativeComments.add)
+  app.delete('/api/promo/creatives/:adId/comments/:id', requireAuth, creativeComments.remove)
 
-  app.delete('/api/promo/creatives/:adId/comments/:id', requireAuth, asyncHandler(async (request, response) => {
-    const result = await store.deleteComment({
-      platform: readPlatform(request),
-      adId: readAdId(request),
-      id: String(request.params.id || ''),
-      userId: request.user?.id || null,
-    })
-
-    if (result === 'missing') throw createHttpError(404, 'Коментар не знайдено.')
-    if (result === 'forbidden') throw createHttpError(403, 'Можна видаляти лише свої коментарі.')
-    response.json({ ok: true })
-  }))
+  const vacancyComments = commentHandlers(readVacancyTarget)
+  app.get('/api/promo/vacancies/:vacancyKey/comments', vacancyComments.list)
+  app.post('/api/promo/vacancies/:vacancyKey/comments', requireAuth, vacancyComments.add)
+  app.delete('/api/promo/vacancies/:vacancyKey/comments/:id', requireAuth, vacancyComments.remove)
 }

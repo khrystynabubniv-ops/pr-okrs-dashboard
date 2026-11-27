@@ -1,4 +1,7 @@
+import { useState } from 'react'
+import { MessageSquare } from 'lucide-react'
 import {
+  commentsLabel,
   dayWord,
   formatInt,
   formatMoney,
@@ -6,7 +9,9 @@ import {
   formatPeriod,
   formatUnitMoney,
   pluralUk,
+  vacancyCommentsPath,
 } from '../../lib/promo'
+import { Comments } from './PromoComments'
 import { CreativeGrid, MetricTiles } from './PromoCreatives'
 import { Panel, PlatformIcon, TypeTag } from './PromoParts'
 
@@ -16,10 +21,10 @@ function PlatformBlock({ block, currency, onOpen }) {
   // A/B tests of the vacancy (cv / no cv, general / lookalike): own metrics, labels and creatives each.
   const tests = block.tests?.length > 1 ? block.tests : null
   const metrics = [
-    { label: 'Витрачено', value: formatMoney(block.spend, currency) },
-    { label: 'Кліки', value: formatInt(block.clicks) },
+    { label: 'Spend', value: formatMoney(block.spend, currency) },
+    { label: 'Clicks', value: formatInt(block.clicks) },
     { label: 'CTR', value: formatPercent(block.ctr) },
-    { label: 'Ціна кліку', value: formatUnitMoney(block.cpc, currency) },
+    { label: 'CPC', value: formatUnitMoney(block.cpc, currency) },
   ]
 
   return (
@@ -48,16 +53,16 @@ function PlatformBlock({ block, currency, onOpen }) {
                 <span className="pr-test-tag">{test.label}</span>
                 <span className="pr-test-metrics">
                   <span>
-                    Витрачено <b>{formatMoney(test.spend, currency)}</b>
+                    Spend <b>{formatMoney(test.spend, currency)}</b>
                   </span>
                   <span>
-                    Кліки <b>{formatInt(test.clicks)}</b>
+                    Clicks <b>{formatInt(test.clicks)}</b>
                   </span>
                   <span>
                     CTR <b>{formatPercent(test.ctr)}</b>
                   </span>
                   <span>
-                    Ціна кліку <b>{formatUnitMoney(test.cpc, currency)}</b>
+                    CPC <b>{formatUnitMoney(test.cpc, currency)}</b>
                   </span>
                 </span>
               </header>
@@ -77,8 +82,10 @@ function PlatformBlock({ block, currency, onOpen }) {
   )
 }
 
-function VacancyCard({ vacancy, currency, onApplies, onFlushApplies, onOpen }) {
+function VacancyCard({ vacancy, report, onApplies, onFlushApplies, onOpen, onCommentsCount }) {
+  const { currency } = report
   const platformNames = vacancy.platforms.map((block) => block.label).join(' + ')
+  const [commentsOpen, setCommentsOpen] = useState(false)
 
   return (
     <article className="pr-vacancy">
@@ -89,43 +96,63 @@ function VacancyCard({ vacancy, currency, onApplies, onFlushApplies, onOpen }) {
           <p>
             {formatPeriod(vacancy.start, vacancy.end)} · {dayWord(vacancy.days)} · {platformNames}
           </p>
+          <button
+            type="button"
+            className={`pr-comment-chip${vacancy.commentsCount ? ' has' : ''}`}
+            aria-expanded={commentsOpen}
+            onClick={() => setCommentsOpen((value) => !value)}
+          >
+            <MessageSquare />
+            {commentsLabel(vacancy.commentsCount)}
+          </button>
         </div>
         <div className="pr-vacancy-tiles">
           <div className="pr-vacancy-tile">
-            <span>Витрачено</span>
+            <span>Spend</span>
             <strong>{formatMoney(vacancy.spend, currency)}</strong>
           </div>
           <div className="pr-vacancy-tile">
-            <span>Кліки</span>
+            <span>Clicks</span>
             <strong>{formatInt(vacancy.clicks)}</strong>
           </div>
           <div className="pr-vacancy-tile">
-            <span>Крутилась</span>
-            <strong>{dayWord(vacancy.days)}</strong>
+            <span>Days running</span>
+            <strong>{formatInt(vacancy.days)}</strong>
           </div>
           <label className="pr-vacancy-tile pr-vacancy-input">
-            <span>Еплаї</span>
+            <span>Applies</span>
             <input
               type="number"
               min="0"
               step="1"
               inputMode="numeric"
               placeholder="внести"
-              aria-label={`Еплаї: ${vacancy.title}`}
+              aria-label={`Applies: ${vacancy.title}`}
               value={vacancy.applies ?? ''}
               onChange={(event) => onApplies(vacancy, event.target.value)}
               onBlur={() => onFlushApplies(vacancy)}
             />
           </label>
           <div className="pr-vacancy-tile">
-            <span>Ціна еплаю</span>
+            <span>Cost per apply</span>
             <strong>
               {vacancy.costPerApply === null ? '—' : formatUnitMoney(vacancy.costPerApply, currency)}
             </strong>
-            <em>{vacancy.costPerApply === null ? 'внесіть еплаї' : 'усі платформи / еплаї'}</em>
+            <em>{vacancy.costPerApply === null ? 'внесіть applies' : 'усі платформи'}</em>
           </div>
         </div>
       </header>
+      {commentsOpen ? (
+        <div className="pr-vacancy-comments">
+          <Comments
+            listPath={vacancyCommentsPath(report.month, vacancy.key)}
+            itemPath={(id) => vacancyCommentsPath(report.month, vacancy.key, id)}
+            focus
+            note="коментарі до вакансії загалом · видно всій команді EB"
+            onCountChange={(count) => onCommentsCount(vacancy.key, count)}
+          />
+        </div>
+      ) : null}
       {vacancy.key === UNDEFINED_VACANCY_KEY ? (
         <p className="pr-vacancy-hint">
           У назвах цих оголошень немає вакансії. Назвіть оголошення за шаблоном{' '}
@@ -140,7 +167,7 @@ function VacancyCard({ vacancy, currency, onApplies, onFlushApplies, onOpen }) {
   )
 }
 
-export function PromoVacancies({ report, saveState, onApplies, onFlushApplies, onOpen }) {
+export function PromoVacancies({ report, saveState, onApplies, onFlushApplies, onOpen, onCommentsCount }) {
   const count = report.vacancies.length
 
   return (
@@ -158,10 +185,11 @@ export function PromoVacancies({ report, saveState, onApplies, onFlushApplies, o
           <VacancyCard
             key={vacancy.key}
             vacancy={vacancy}
-            currency={report.currency}
+            report={report}
             onApplies={onApplies}
             onFlushApplies={onFlushApplies}
             onOpen={onOpen}
+            onCommentsCount={onCommentsCount}
           />
         ))}
       </div>

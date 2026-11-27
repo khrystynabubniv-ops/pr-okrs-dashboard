@@ -79,4 +79,12 @@ export const EVENT_TYPES = [
   'Внутрішній івент',
 ]
 
-export const CURRENT_MONTH = 'Липень 2026'
+// The real current month, clamped to the months the app knows about.
+function currentMonthLabel() {
+  const now = new Date()
+  const firstYear = Number(MONTHS[0].match(/\d{4}/)[0])
+  const index = (now.getFullYear() - firstYear) * 12 + now.getMonth()
+  return MONTHS[Math.min(Math.max(index, 0), MONTHS.length - 1)]
+}
+
+export const CURRENT_MONTH = currentMonthLabel()

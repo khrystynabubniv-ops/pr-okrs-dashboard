@@ -15,10 +15,12 @@ export function CreativeCard({ creative, type, currency, onOpen }) {
         onClick={() => onOpen(creative)}
         ariaLabel={`Прев’ю: ${creative.name}`}
       />
-      <div>
-        <h4 className="pr-creative-name">{creative.name}</h4>
+      <div className="pr-creative-info">
+        <h4 className="pr-creative-name" title={creative.name}>
+          {creative.name}
+        </h4>
         <p className="pr-creative-share">
-          {formatMoney(creative.spend, currency)} · {Math.round(creative.sharePct)}% бюджету
+          {formatMoney(creative.spend, currency)} · {Math.round(creative.sharePct)}% of budget
         </p>
       </div>
       <div className="pr-creative-metrics">
